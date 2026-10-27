@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 import time
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ class OfflineFakes:
     fake_edit: str = "readme"
     fake_sleep: str = "0"
     kill_task: str | None = None
+    skip_jev: bool = True
 
 
 @dataclass
@@ -114,15 +116,25 @@ async def run_pipeline(
         fakes=fakes,
     )
     bundle.started = time.monotonic()
+    bundle.jev = _jev_for(bundle)
+    blocked = _screen_input(bundle)
+    if blocked is not None:
+        return blocked
+    from treefleet.orchestrator.callbacks import agent_hooks
+
+    def _agent(cls: type, name: str) -> Any:
+        before, after = agent_hooks(bundle.sink, bundle.run_id, name)
+        return cls(name=name, bundle=bundle, before_agent_callback=before, after_agent_callback=after)
+
     pipeline = SequentialAgent(
         name="pipeline",
         sub_agents=[
-            RepoScanAgent(name="repo_scan", bundle=bundle),
-            PlannerAgent(name="planner", bundle=bundle),
-            RouterAgent(name="router", bundle=bundle),
-            FleetAgent(name="fleet", bundle=bundle),
-            VerifierAgent(name="verifier", bundle=bundle),
-            ReporterAgent(name="reporter", bundle=bundle),
+            _agent(RepoScanAgent, "repo_scan"),
+            _agent(PlannerAgent, "planner"),
+            _agent(RouterAgent, "router"),
+            _agent(FleetAgent, "fleet"),
+            _agent(VerifierAgent, "verifier"),
+            _agent(ReporterAgent, "reporter"),
         ],
     )
     service = InMemorySessionService()
@@ -133,6 +145,7 @@ async def run_pipeline(
         async for _event in runner.run_async(user_id="u", session_id=run_id, new_message=message):
             pass
     except PlanRejected as exc:
+        _write_blocked(root, run_id, request.goal, "Plan rejected", str(exc))
         return RunOutcome(1, None, {}, run_id, str(exc))
     finally:
         for proc in bundle.procs:
@@ -152,6 +165,58 @@ async def run_pipeline(
     path = root / run_id / "report.md"
     print(path, flush=True)
     return RunOutcome(0, report, state, run_id, "")
+
+
+def _jev_for(bundle: RunBundle) -> Any:
+    if not bundle.request.use_jev:
+        return None
+    if bundle.fakes is not None and bundle.fakes.skip_jev:
+        return None
+    from treefleet.jev.client import JevClient
+
+    return JevClient(bundle.settings.typesafe_api_key, bundle.settings.pricing.jev_source_url)
+
+
+def _screen_input(bundle: RunBundle) -> RunOutcome | None:
+    from treefleet.contracts import RunEvent
+    from treefleet.guards.input import screen_goal
+
+    screen = screen_goal(bundle.request.goal, bundle.settings, bundle.jev)
+    bundle.sink.emit_sync(
+        RunEvent(
+            run_id=bundle.run_id,
+            seq=0,
+            source="guard",
+            type="guard.decision",
+            payload=screen.decision.model_dump(mode="json"),
+        )
+    )
+    if screen.degraded:
+        bundle.sink.emit_sync(
+            RunEvent(
+                run_id=bundle.run_id,
+                seq=0,
+                source="jev",
+                type="guard_degraded",
+                payload={"stage": "input", "detector": "deterministic"},
+            )
+        )
+    if screen.decision.allowed:
+        return None
+    reason = "; ".join(screen.decision.reasons) or "input blocked"
+    _write_blocked(bundle.runs_root, bundle.run_id, bundle.request.goal, "Input blocked", reason)
+    return RunOutcome(1, None, {}, bundle.run_id, f"input blocked: {reason}")
+
+
+def _write_blocked(root: Path, run_id: str, goal: str, title: str, reason: str) -> None:
+    from treefleet.guards.text import redact
+
+    folder = root / run_id
+    folder.mkdir(parents=True, exist_ok=True)
+    markdown, _count = redact(f"# TreeFleet run {run_id}\n\n**{title}**\n\n{reason}\n")
+    body, _count = redact(json.dumps({"run_id": run_id, "goal": goal, "title": title, "reason": reason}))
+    (folder / "report.md").write_text(markdown, encoding="utf-8")
+    (folder / "report.json").write_text(body, encoding="utf-8")
 
 
 def ask_plan(plan: Plan) -> bool:

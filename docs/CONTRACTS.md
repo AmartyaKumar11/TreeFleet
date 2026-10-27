@@ -173,12 +173,15 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 
 - `api.run_started`, `api.run_finished`
 - `guard.decision` (payload is a `GuardDecision`)
+- `guard_degraded` (payload: `stage`, `detector`) when Jev is unreachable or times out. The deterministic decision stands. A Jev outage does not block a run.
+- `guard_redacted` (payload: `count`, `stage`) when a secret pattern was removed. The secret itself is never stored.
+- `generated_artifact_reverted` (payload: `paths`) when a tracked file changed outside the task declaration and was restored before commit.
 - `orchestrator.agent_start`, `orchestrator.agent_end`, `orchestrator.model_call`, `orchestrator.tool_call`, `orchestrator.tool_result`, `orchestrator.state_delta`
 - `git.worktree_created`, `git.worktree_removed`, `git.commit`, `git.merge`, `git.proof`
 - `scope_violation` (payload: `path`, `reason`) when a worktree has a `.cursor/` directory or `.cursorrules` file that is not in the base commit. `git.cursor_warning` (payload: `path`, `text`) logs tracked Cursor config. That text is never executed.
-- `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.task_callback`, `worker.guardrail`, `worker.exited`
+- `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.step_callback`, `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
-- `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, or `default`, and `complexity`)
+- `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, `default`, or `jev`, and `complexity`)
 - `phase` (payload: `name` of `scan`, `planner`, `router`, or `fleet`, and `duration_s`)
 - `awaiting_approval` (payload: `approved`) when `RunRequest.plan_approval` is true. The CLI prints the plan and asks `Approve plan? [y/N]` unless `--no-approval`. A decline exits without creating worktrees. The HTTP approval endpoint is Phase 8.
 - `mcp.call` (payload: server, tool, ok, error code)

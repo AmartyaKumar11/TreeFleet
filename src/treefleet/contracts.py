@@ -241,11 +241,14 @@ class TokenUsage(_Model):
     output_tokens: int = Field(default=0, ge=0)
     cached_input_tokens: int = Field(default=0, ge=0)
 
+    cache_write_tokens: int = Field(default=0, ge=0)
+
     def __add__(self, other: TokenUsage) -> TokenUsage:
         return TokenUsage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             cached_input_tokens=self.cached_input_tokens + other.cached_input_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
         )
 
 
@@ -295,10 +298,11 @@ class WorkerDraft(_Model):
 
 
 class CostLine(_Model):
-    component: Literal["guard", "router", "planner", "worker", "reviewer", "reporter", "jev"]
+    component: Literal["guard", "router", "planner", "worker", "reviewer", "reporter", "jev", "cursor"]
     model: str
     usage: TokenUsage
     usd: float = Field(ge=0)
+    label: Annotated[str, StringConstraints(max_length=40)] = ""
     task_id: Slug | None = None
 
 
@@ -412,6 +416,7 @@ class WorkerResult(_Model):
     model: str
     isolation: SelfReportedIsolation
     error: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    reverted_generated: list[str] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def _status_is_consistent(self) -> Self:
@@ -583,13 +588,23 @@ class RunMetrics(_Model):
         )
 
 
-def assemble_metrics(*, wall: float, pre_fleet: float, fleet_wall: float, task_seconds: float) -> RunMetrics:
+def assemble_metrics(
+    *,
+    wall: float,
+    pre_fleet: float,
+    fleet_wall: float,
+    task_seconds: float,
+    costs: list[CostLine] | None = None,
+    jev_calls: int = 0,
+) -> RunMetrics:
     """End-to-end sequential time is the pre-fleet overhead plus the sum of task durations."""
     return RunMetrics(
         wall_seconds=max(0.0, wall),
         sequential_seconds=max(0.0, pre_fleet) + max(0.0, task_seconds),
         fleet_wall_seconds=max(0.0, fleet_wall),
         task_seconds=max(0.0, task_seconds),
+        costs=costs or [],
+        jev_calls=jev_calls,
     )
 
 
@@ -650,6 +665,13 @@ class FinalReport(_Model):
         if self.notes:
             lines += ["", "## Notes", ""]
             lines.extend(f"- {note}" for note in self.notes)
+        if self.metrics.costs:
+            lines += ["", "## Cost", "", "| Role | Model | In | Out | USD | Note |", "|---|---|---|---|---|---|"]
+            for item in self.metrics.costs:
+                lines.append(
+                    f"| {item.component} | {item.model} | {item.usage.input_tokens} | "
+                    f"{item.usage.output_tokens} | {item.usd:.6f} | {item.label} |"
+                )
         lines += ["", "## Metrics", "", self.metrics.definitions()]
         return "\n".join(lines) + "\n"
 

@@ -83,6 +83,14 @@ class Pricing(_Strict):
     litellm_url: str
     jev_usd_per_million_input: float = Field(ge=0)
     jev_source_url: str
+    deepseek_input_per_million: float | None = None
+    deepseek_output_per_million: float | None = None
+    cursor_input_per_million: float | None = None
+    cursor_output_per_million: float | None = None
+
+
+class Guards(_Strict):
+    max_tasks: int = Field(default=6, ge=1, le=6)
 
 
 class Settings(_Strict):
@@ -92,6 +100,7 @@ class Settings(_Strict):
     workers: Workers
     paths: Paths
     pricing: Pricing
+    guards: Guards = Field(default_factory=Guards)
     worktree_root: str
     orchestrator_python: str
     worker_python: str

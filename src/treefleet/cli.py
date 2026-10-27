@@ -31,6 +31,12 @@ def _confirmed_checks(
     python: str | None,
     worktree_root: Path,
 ) -> tuple[dict[str, str], list[str]]:
+    from treefleet.guards.artifacts import tracked_generated
+
+    notes: list[str] = []
+    generated = tracked_generated(repo)
+    if generated:
+        notes.append(("warning: repo tracks generated files: " + ", ".join(generated[:8]))[:300])
     checks = {} if no_checks else detect_checks(repo)
     for item in extra:
         name, sep, command = item.partition("=")
@@ -38,7 +44,9 @@ def _confirmed_checks(
             raise SystemExit("check must be name=command")
         checks[name.strip()] = command.strip()
     if not checks:
-        return {}, []
+        for note in notes:
+            print(note)
+        return {}, notes
     started = time.monotonic()
     selected = select_checks(
         repo,
@@ -46,7 +54,7 @@ def _confirmed_checks(
         worktree_root=worktree_root,
         explicit=Path(python) if python else None,
     )
-    notes = [*selected.notes, f"baseline checks {time.monotonic() - started:.3f}s"]
+    notes = [*notes, *selected.notes, f"baseline checks {time.monotonic() - started:.3f}s"]
     for note in notes:
         print(note)
     if selected.python_path:

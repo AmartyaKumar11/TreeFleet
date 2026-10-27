@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from treefleet.contracts import RunEvent
+from treefleet.guards.text import redact_payload
 
 
 class EventSink:
@@ -52,12 +53,28 @@ class EventSink:
     def _record(self, event: RunEvent) -> tuple[RunEvent, list[asyncio.Queue[RunEvent]]]:
         with self._lock:
             seq = self._seq.get(event.run_id, 0)
-            stored = event.model_copy(update={"seq": seq})
+            clean, count = redact_payload(event.payload)
+            stored = event.model_copy(update={"seq": seq, "payload": clean})
             self._seq[event.run_id] = seq + 1
-            self._history.setdefault(event.run_id, []).append(stored)
+            pending = [stored]
+            if count and event.type != "guard_redacted":
+                pending.append(
+                    stored.model_copy(
+                        update={
+                            "seq": seq + 1,
+                            "type": "guard_redacted",
+                            "source": "guard",
+                            "payload": {"count": count, "stage": "final_output"},
+                        }
+                    )
+                )
+                self._seq[event.run_id] = seq + 2
+            self._history.setdefault(event.run_id, []).extend(pending)
             path = self._root / event.run_id / "events.jsonl"
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as handle:
-                handle.write(stored.model_dump_json() + "\n")
+                for item in pending:
+                    handle.write(item.model_dump_json() + "\n")
+            stored = pending[0]
             queues = list(self._queues.get(event.run_id, []))
         return stored, queues

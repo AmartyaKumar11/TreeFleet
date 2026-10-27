@@ -22,6 +22,7 @@ def make_cursor_tool(
     sink: EventSink | None = None,
     run_id: str | None = None,
     usages: list[CursorUsage] | None = None,
+    files: list[str] | None = None,
 ):
     launched = 0
 
@@ -45,6 +46,8 @@ def make_cursor_tool(
         )
         if usages is not None and result.usage is not None:
             usages.append(result.usage)
+        if files is not None:
+            files.extend(result.files_changed)
         return result.model_dump_json()
 
     return cursor_code

@@ -11,13 +11,17 @@ from typing import Any, Literal
 from treefleet.checks import detect_checks, forbidden_stem
 from treefleet.config import Settings
 from treefleet.contracts import (
+    Complexity,
     FinalReport,
+    GuardDecision,
+    GuardStage,
     IsolationReport,
     Plan,
     RouteDecision,
     RunEvent,
     RunRequest,
     StateKey,
+    TokenUsage,
     WorkerResult,
     assemble_metrics,
 )
@@ -32,6 +36,9 @@ from treefleet.git.proofs import (
     verify_task_isolation,
 )
 from treefleet.git.worktrees import git_out
+from treefleet.guards.cost import collect_costs
+from treefleet.guards.paths import path_violation
+from treefleet.guards.text import redact
 
 _PLAN_INSTRUCTION = (
     "Return one JSON object for a Plan and nothing else. No markdown. "
@@ -108,6 +115,10 @@ class RunBundle:
         self.fleet_ended = 0.0
         self.phases: dict[str, float] = {}
         self.notes: list[str] = []
+        self.planner_usage = TokenUsage()
+        self.jev: Any = None
+        self.jev_calls = 0
+        self.jev_tokens = 0
 
 
 def _phase(bundle: RunBundle, name: str, duration_s: float) -> None:
@@ -143,9 +154,17 @@ class PlanRejected(RuntimeError):
     """The planner returned a read-only task twice."""
 
 
-def plan_problems(plan: Plan) -> str | None:
+def plan_problems(plan: Plan, *, max_tasks: int = 6) -> str | None:
     reasons: list[str] = []
+    if len(plan.tasks) > max_tasks:
+        reasons.append(f"task count {len(plan.tasks)} exceeds {max_tasks}")
     for task in plan.tasks:
+        if not task.allowed_paths:
+            reasons.append(f"{task.id} edits no file")
+        for raw in [*task.allowed_paths, *task.denied_paths]:
+            why = path_violation(raw)
+            if why:
+                reasons.append(f"{task.id} path {raw} rejected: {why}")
         for label, text in (("title", task.title), ("instructions", task.instructions)):
             stem = forbidden_stem(text)
             if stem:
@@ -217,18 +236,35 @@ def _json_text(text: str) -> str:
     return raw
 
 
-async def _complete(llm: Any, user_text: str) -> str:
+async def _complete(
+    llm: Any,
+    user_text: str,
+    *,
+    sink: EventSink | None = None,
+    run_id: str = "",
+    usage: Any = None,
+) -> str:
     """One LlmAgent turn. output_schema stays unset (S1)."""
     from google.adk.agents import LlmAgent
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
 
+    from treefleet.orchestrator.callbacks import model_hooks, tool_hooks
+
+    before_model = after_model = before_tool = after_tool = None
+    if sink is not None and run_id and usage is not None:
+        before_model, after_model = model_hooks(sink, run_id, "planner", usage)
+        before_tool, after_tool = tool_hooks(sink, run_id)
     agent = LlmAgent(
         name="planner",
         model=llm,
         instruction=_PLAN_INSTRUCTION,
         output_key="plan",
+        before_model_callback=before_model,
+        after_model_callback=after_model,
+        before_tool_callback=before_tool,
+        after_tool_callback=after_tool,
     )
     service = InMemorySessionService()
     await service.create_session(app_name="planner", user_id="u", session_id="s")
@@ -249,54 +285,155 @@ async def _complete(llm: Any, user_text: str) -> str:
     return stored or text
 
 
-async def plan_goal(llm: Any, goal: str, tree: str, checks: dict[str, str] | None = None) -> Plan:
-    """Parse Plan JSON. One JSON repair, then one re-plan when a task is read-only."""
+def _path_hint(text: str) -> str | None:
+    try:
+        data = json.loads(_normalize_plan(text))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list):
+        return None
+    reasons: list[str] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "task")
+        paths = list(task.get("allowed_paths") or []) + list(task.get("denied_paths") or [])
+        if not paths:
+            reasons.append(f"{task_id} edits no file")
+        for raw in paths:
+            why = path_violation(str(raw))
+            if why:
+                reasons.append(f"{task_id} path {raw} rejected: {why}")
+    return "; ".join(reasons) if reasons else None
+
+
+def _emit_plan(sink: EventSink | None, run_id: str, allowed: bool, reason: str) -> None:
+    if sink is None or not run_id:
+        return
+    decision = GuardDecision(
+        stage=GuardStage.PLAN,
+        allowed=allowed,
+        detector="deterministic",
+        reasons=[] if allowed else [reason[:200]],
+    )
+    sink.emit_sync(
+        RunEvent(
+            run_id=run_id,
+            seq=0,
+            source="guard",
+            type="guard.decision",
+            payload=decision.model_dump(mode="json"),
+        )
+    )
+
+
+async def _plan_once(
+    llm: Any,
+    goal: str,
+    tree: str,
+    checks: dict[str, str] | None,
+    *,
+    max_tasks: int,
+    sink: EventSink | None,
+    run_id: str,
+    usage: Any,
+) -> Plan:
+    """Parse Plan JSON. One JSON repair, then one re-plan when the guard rejects it."""
     from pydantic import ValidationError
 
     available = checks or {}
     listed = "\n".join(f"{name}: {command}" for name, command in available.items()) or "none"
     prompt = f"Goal:\n{goal}\n\nRepository files:\n{tree}\n\nChecks:\n{listed}\n"
-    text = await _complete(llm, prompt)
+    text = await _complete(llm, prompt, sink=sink, run_id=run_id, usage=usage)
     try:
         plan = Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
+        detail = _path_hint(text) or str(exc)
         repair = (
-            f"The previous JSON failed validation:\n{exc}\n"
+            f"The plan was rejected: {detail}.\n"
+            "Paths must be repo-relative. No .., no absolute paths, no .git, no .cursor, no .env, "
+            "no *.pem and no id_rsa. Every task edits at least one file. "
             "complexity is trivial, moderate, or complex. Return only the corrected JSON object.\n\n"
             f"{prompt}"
         )
-        text = await _complete(llm, repair[:4000])
-        plan = Plan.model_validate_json(_normalize_plan(text))
-    problem = plan_problems(plan)
+        text = await _complete(llm, repair[:4000], sink=sink, run_id=run_id, usage=usage)
+        try:
+            plan = Plan.model_validate_json(_normalize_plan(text))
+        except (ValidationError, json.JSONDecodeError) as again:
+            raise PlanRejected(f"plan rejected: {_path_hint(text) or again}") from None
+    problem = plan_problems(plan, max_tasks=max_tasks)
     if problem is None:
         return assign_checks(plan, available)
     replan = (
         f"The plan was rejected: {problem}. "
         "Every task must edit a file. allowed_paths names that file. "
+        "Paths must be repo-relative. No .., no absolute paths, no .git, no .cursor, no .env. "
         "Do not start a title or instructions with inspect, review, explore, investigate, run, or check. "
         "Leave depends_on empty. Return only the corrected JSON object.\n\n"
         f"{prompt}"
     )
     try:
-        text = await _complete(llm, replan[:8000])
+        text = await _complete(llm, replan[:8000], sink=sink, run_id=run_id, usage=usage)
         plan = Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
-        raise PlanRejected(f"plan rejected: {exc}") from None
-    problem = plan_problems(plan)
+        raise PlanRejected(f"plan rejected: {_path_hint(text) or exc}") from None
+    problem = plan_problems(plan, max_tasks=max_tasks)
     if problem:
         raise PlanRejected(f"plan rejected: {problem}")
     return assign_checks(plan, available)
 
 
-def route_plan(plan: Plan, request: RunRequest, settings: Settings) -> list[RouteDecision]:
+async def plan_goal(
+    llm: Any,
+    goal: str,
+    tree: str,
+    checks: dict[str, str] | None = None,
+    *,
+    model_name: str = "",
+    escalate: Any = None,
+    max_tasks: int = 6,
+    sink: EventSink | None = None,
+    run_id: str = "",
+    usage: Any = None,
+) -> Plan:
+    """Plan, one repair, then one deepseek-v4-pro retry when the planner was flash."""
+    kwargs = {"max_tasks": max_tasks, "sink": sink, "run_id": run_id, "usage": usage}
+    try:
+        plan = await _plan_once(llm, goal, tree, checks, **kwargs)
+    except PlanRejected as first:
+        _emit_plan(sink, run_id, False, str(first))
+        if escalate is None or "flash" not in model_name.lower():
+            raise
+        try:
+            plan = await _plan_once(escalate, goal, tree, checks, **kwargs)
+        except PlanRejected as second:
+            _emit_plan(sink, run_id, False, str(second))
+            raise second from None
+    _emit_plan(sink, run_id, True, "plan accepted")
+    return plan
+
+
+def route_plan(plan: Plan, request: RunRequest, settings: Settings, jev: Any = None) -> list[RouteDecision]:
+    scored: dict[str, str] = {}
+    if jev is not None and request.use_jev and request.worker_model == "router":
+        try:
+            scored = jev.complexities({task.id: task.instructions for task in plan.tasks})
+        except Exception:
+            scored = {}
     decisions: list[RouteDecision] = []
     for task in plan.tasks:
         cursor, source = resolve_cursor_model(task.model_override, request, settings)
+        complexity = task.complexity
+        if source == "router" and task.id in scored:
+            complexity = Complexity(scored[task.id])
+            cursor = settings.models.router.model_for(complexity.value)
+            source = "jev"
         decisions.append(
             RouteDecision(
                 task_id=task.id,
                 model=cursor or settings.models.fast,
-                complexity=task.complexity,
+                complexity=complexity,
                 confidence=1.0,
                 source=source,
                 cursor_model=cursor,
@@ -354,6 +491,21 @@ def build_report(
         pre_fleet = max(0.0, bundle.fleet_started - bundle.started)
     if bundle.fleet_ended and bundle.fleet_started:
         fleet_wall = max(0.0, bundle.fleet_ended - bundle.fleet_started)
+    notes = list(bundle.request.notes)
+    for result in results:
+        if result.reverted_generated:
+            notes.append(("reverted generated artifacts: " + ", ".join(result.reverted_generated))[:300])
+    jev = getattr(bundle, "jev", None)
+    calls = jev.calls if jev is not None else bundle.jev_calls
+    tokens = jev.input_tokens if jev is not None else bundle.jev_tokens
+    costs = collect_costs(
+        bundle.settings,
+        results,
+        planner=bundle.planner_usage,
+        planner_model=bundle.settings.models.strong,
+        jev_calls=calls,
+        jev_tokens=tokens,
+    )
     return FinalReport(
         run_id=bundle.run_id,
         goal=bundle.request.goal,
@@ -362,12 +514,14 @@ def build_report(
         verdicts=[],
         isolation=isolation,
         routing=routing,
-        notes=list(bundle.request.notes),
+        notes=notes[:20],
         metrics=assemble_metrics(
             wall=wall_seconds,
             pre_fleet=pre_fleet,
             fleet_wall=fleet_wall,
             task_seconds=task_seconds,
+            costs=costs,
+            jev_calls=calls,
         ),
     )
 
@@ -447,14 +601,30 @@ class PlannerAgent(BaseAgent):
     bundle: Any
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
+        from treefleet.orchestrator.callbacks import UsageBox
+
         started = time.monotonic()
         tree = str(ctx.session.state.get(StateKey.REPO_MAP, ""))
+        strong = self.bundle.settings.models.strong
+        escalate = None
+        if "flash" in strong.lower() and self.bundle.fakes is None:
+            from google.adk.models.lite_llm import LiteLlm
+
+            escalate = LiteLlm(model="deepseek/deepseek-v4-pro")
+        box = UsageBox()
         plan = await plan_goal(
             planner_llm(self.bundle),
             self.bundle.request.goal,
             tree,
             dict(self.bundle.request.checks),
+            model_name=strong,
+            escalate=escalate,
+            max_tasks=self.bundle.settings.guards.max_tasks,
+            sink=self.bundle.sink,
+            run_id=self.bundle.run_id,
+            usage=box,
         )
+        self.bundle.planner_usage = box.usage
         approved = True
         if self.bundle.request.plan_approval:
             approved = True if self.bundle.approve is None else bool(self.bundle.approve(plan))
@@ -480,7 +650,7 @@ class RouterAgent(BaseAgent):
             return
         started = time.monotonic()
         plan = read_plan(ctx.session.state)
-        routing = route_plan(plan, self.bundle.request, self.bundle.settings)
+        routing = route_plan(plan, self.bundle.request, self.bundle.settings, getattr(self.bundle, "jev", None))
         for decision in routing:
             self.bundle.sink.emit_sync(
                 RunEvent(
@@ -533,6 +703,8 @@ class ReporterAgent(BaseAgent):
         report = build_report(self.bundle, plan, list(results.values()), isolation, routing, wall)
         folder = self.bundle.runs_root / self.bundle.run_id
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        (folder / "report.md").write_text(report.to_markdown(), encoding="utf-8")
+        body, _count = redact(report.model_dump_json(indent=2))
+        markdown, _count = redact(report.to_markdown())
+        (folder / "report.json").write_text(body, encoding="utf-8")
+        (folder / "report.md").write_text(markdown, encoding="utf-8")
         yield _adk_event(ctx, self.name, {StateKey.REPORT: report.model_dump(mode="json")})

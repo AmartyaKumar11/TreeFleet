@@ -1,0 +1,159 @@
+{
+  "schema_id": "treefleet.final_report.v1",
+  "run_id": "9824087d",
+  "goal": "Add one sentence to README.md that says this package checks pull requests.",
+  "plan": {
+    "goal": "Add one sentence to README.md that says this package checks pull requests.",
+    "rationale": "The requested documentation update is isolated to README.md and does not require code changes.",
+    "tasks": [
+      {
+        "id": "add-pull-request-sentence-to-readme",
+        "title": "Add pull request checking sentence to README.md",
+        "instructions": "Edit README.md to add a single sentence stating that this package checks pull requests. Preserve the existing README content and formatting.",
+        "allowed_paths": [
+          "README.md"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [],
+        "complexity": "trivial",
+        "model_override": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "9824087d",
+      "task_id": "add-pull-request-sentence-to-readme",
+      "attempt": 1,
+      "status": "done",
+      "summary": "README.md +2 -0",
+      "notes": "Added one new sentence to README.md: a blank line plus 'This package checks pull requests.' inserted after the existing introductory paragraph. Diff confirms only an addition of two lines (blank line + sentence); all existing README content and formatting are preserved. Only README.md was modified.",
+      "branch": "tf/9824087d/add-pull-request-sentence-to-readme",
+      "head_sha": "bc42fe83e02e7a6889b371552af77b1483ef1ea5",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "README.md",
+          "additions": 2,
+          "deletions": 0
+        }
+      ],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 43.203,
+      "usage": {
+        "input_tokens": 25199,
+        "output_tokens": 699,
+        "cached_input_tokens": 24960,
+        "cache_write_tokens": 0
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 54368,
+        "cwd": "C:\\wt\\9824087d\\add-pull-request-sentence-to-readme",
+        "toplevel": "C:/wt/9824087d/add-pull-request-sentence-to-readme",
+        "branch": "tf/9824087d/add-pull-request-sentence-to-readme",
+        "mcp_root": "C:\\wt\\9824087d\\add-pull-request-sentence-to-readme"
+      },
+      "error": null,
+      "reverted_generated": []
+    }
+  ],
+  "verdicts": [],
+  "isolation": {
+    "tasks": [
+      {
+        "task_id": "add-pull-request-sentence-to-readme",
+        "worktree_path": "C:\\wt\\9824087d\\add-pull-request-sentence-to-readme",
+        "branch": "tf/9824087d/add-pull-request-sentence-to-readme",
+        "pid": 54368,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      }
+    ],
+    "main": {
+      "status_before": [],
+      "status_after": [],
+      "head_before": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "head_after": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "canary_present": true,
+      "ok": true
+    },
+    "ok": true
+  },
+  "integration": null,
+  "routing": [
+    {
+      "task_id": "add-pull-request-sentence-to-readme",
+      "model": "composer-2.5-fast",
+      "complexity": "trivial",
+      "confidence": 1.0,
+      "source": "jev",
+      "cursor_model": "composer-2.5-fast"
+    }
+  ],
+  "metrics": {
+    "wall_seconds": 65.06300000008196,
+    "sequential_seconds": 59.359000000191855,
+    "fleet_wall_seconds": 48.484999999869615,
+    "task_seconds": 43.203,
+    "costs": [
+      {
+        "component": "planner",
+        "model": "deepseek/deepseek-v4-pro",
+        "usage": {
+          "input_tokens": 595,
+          "output_tokens": 675,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.0,
+        "label": "rate unknown",
+        "task_id": null
+      },
+      {
+        "component": "cursor",
+        "model": "deepseek/deepseek-flash",
+        "usage": {
+          "input_tokens": 25199,
+          "output_tokens": 699,
+          "cached_input_tokens": 24960,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.0,
+        "label": "rate unknown",
+        "task_id": "add-pull-request-sentence-to-readme"
+      },
+      {
+        "component": "jev",
+        "model": "jev-latest",
+        "usage": {
+          "input_tokens": 715,
+          "output_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.00003,
+        "label": "calls: 2",
+        "task_id": null
+      }
+    ],
+    "jev_calls": 2,
+    "speedup": 0.91,
+    "fleet_speedup": 0.89,
+    "total_usd": 0.00003
+  },
+  "guard_decisions": [],
+  "notes": [
+    "warning: repo tracks generated files: src/__pycache__/__init__.cpython-312.pyc, src/__pycache__/auth.cpython-312.pyc, src/__pycache__/notifications.cpython-312.pyc, src/__pycache__/orders.cpython-312.pyc, src/__pycache__/users.cpython-312.pyc, tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc",
+    "pip-install-pytest is setup (python -m pip install pytest) and was not run",
+    "baseline checks 2.875s"
+  ]
+}

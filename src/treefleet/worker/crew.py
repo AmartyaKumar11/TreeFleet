@@ -22,6 +22,7 @@ from treefleet.contracts import (
     CheckResult,
     CursorUsage,
     FileChange,
+    RunEvent,
     SelfReportedIsolation,
     TokenUsage,
     WorkerDraft,
@@ -32,13 +33,18 @@ from treefleet.events import EventSink
 from treefleet.git.cursor_scope import ScopeViolation, check_cursor_scope
 from treefleet.git.proofs import revert_out_of_scope, snapshot_main, verify_main
 from treefleet.git.worktrees import git_out, run_git
+from treefleet.guards.artifacts import revert_undeclared
+from treefleet.guards.draft import draft_problems
 from treefleet.mcp_servers.worktree_fs_server import handshake, mcp_env, mcp_stdio
 from treefleet.timing import record_step, reset_steps
+from treefleet.worker.callbacks import emit_step, emit_task, on_tool_args, on_tool_result
 from treefleet.worker.cursor_tool import make_cursor_tool
 from treefleet.worker.draft import parse_draft
 from treefleet.worker.facts import summary_from_files
 
 cursor_usages: list[CursorUsage] = []
+cursor_files: list[str] = []
+last_reverted: list[str] = []
 tools_seen: list[str] = []
 
 
@@ -128,12 +134,38 @@ def tool_names(agent: Agent) -> list[str]:
 class _FsTool(BaseTool):
     """One filesystem tool under its real MCP name. The command line is not part of the name."""
 
-    def __init__(self, tool_name: str, factory: Callable[[], MCPClient]) -> None:
+    def __init__(
+        self,
+        tool_name: str,
+        factory: Callable[[], MCPClient],
+        *,
+        root: Path,
+        checks: dict[str, str],
+        sink: EventSink | None,
+        run_id: str,
+        task_id: str,
+    ) -> None:
         super().__init__(name=tool_name, description=tool_name)
         self._factory = factory
         self._tool_name = tool_name
+        self._root = root
+        self._checks = checks
+        self._sink = sink
+        self._run_id = run_id
+        self._task_id = task_id
 
     def _run(self, **kwargs: Any) -> str:
+        denial = on_tool_args(
+            self._tool_name,
+            kwargs,
+            root=self._root,
+            checks=self._checks,
+            sink=self._sink,
+            run_id=self._run_id,
+            task_id=self._task_id,
+        )
+        if denial is not None:
+            return denial
         client = self._factory()
 
         async def once() -> str:
@@ -147,11 +179,13 @@ class _FsTool(BaseTool):
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(once())
-        import concurrent.futures
+            raw = asyncio.run(once())
+        else:
+            import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            return pool.submit(asyncio.run, once()).result()
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                raw = pool.submit(asyncio.run, once()).result()
+        return on_tool_result(raw, self._sink, self._run_id, self._task_id)
 
 
 def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
@@ -168,7 +202,19 @@ def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
             connect_timeout=timeout_s,
         )
 
-    return [_FsTool(name, factory) for name in names]
+    sink = _sink()
+    return [
+        _FsTool(
+            name,
+            factory,
+            root=worktree,
+            checks=dict(envelope.checks),
+            sink=sink,
+            run_id=envelope.run_id,
+            task_id=envelope.task.id,
+        )
+        for name in names
+    ]
 
 
 def _timed(inner: Any, run_id: str) -> BaseLLM:
@@ -240,6 +286,7 @@ def build_agent(
         sink=_sink(),
         run_id=envelope.run_id,
         usages=usages,
+        files=cursor_files,
     )
     fs_tools = _fs_tools(envelope, worktree)
     raw = MockLLM(model="mock") if os.environ.get("TREEFLEET_MOCK_LLM") else _deepseek()
@@ -290,6 +337,21 @@ def _checks(envelope: WorkerTaskEnvelope, worktree: Path) -> list[CheckResult]:
 
 
 def _commit(worktree: Path, envelope: WorkerTaskEnvelope) -> str | None:
+    global last_reverted
+    last_reverted = revert_undeclared(worktree, list(envelope.task.allowed_paths), cursor_files)
+    if last_reverted:
+        sink = _sink()
+        if sink is not None:
+            sink.emit_sync(
+                RunEvent(
+                    run_id=envelope.run_id,
+                    seq=0,
+                    source="git",
+                    type="generated_artifact_reverted",
+                    task_id=envelope.task.id,
+                    payload={"paths": last_reverted[:20]},
+                )
+            )
     dirty = git_out(["status", "--porcelain"], worktree).strip()
     if not dirty:
         return None
@@ -335,6 +397,8 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     main = _main_repo(worktree)
     before = snapshot_main(main)
     cursor_usages.clear()
+    cursor_files.clear()
+    last_reverted.clear()
     try:
         check_cursor_scope(worktree, run_id=envelope.run_id, sink=_sink())
         agent = build_agent(envelope, worktree, cursor_usages)
@@ -354,15 +418,27 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
         )
         if error:
             description += f"\nThe previous JSON failed validation: {error}. Return WorkerDraft JSON only."
+        task_started = time.monotonic()
         task = Task(
             description=description,
             expected_output="WorkerDraft JSON with notes, after git_diff.",
             agent=agent,
             guardrail=_guard(main, before, worktree, envelope),
             guardrail_max_retries=1,
+            callback=lambda _output: emit_task(_sink(), envelope.run_id, envelope.task.id, task_started),
         )
         try:
-            return str(Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False).kickoff())
+            return str(
+                Crew(
+                    agents=[agent],
+                    tasks=[task],
+                    process=Process.sequential,
+                    verbose=False,
+                    step_callback=lambda step: emit_step(
+                        _sink(), envelope.run_id, envelope.task.id, type(step).__name__, task_started
+                    ),
+                ).kickoff()
+            )
         except Exception as exc:
             return str(exc)
 
@@ -417,6 +493,12 @@ def _guard(main: Path, before, worktree: Path, envelope: WorkerTaskEnvelope):
         if _main_changed(main, before):
             _note_guard_fail()
             return False, "a write outside the worktree changed the main checkout"
+        raw = getattr(_output, "raw", None)
+        text = raw if isinstance(raw, str) else str(_output)
+        problem = draft_problems(text, _changed(worktree))
+        if problem:
+            _note_guard_fail()
+            return False, problem
         return True, _output
 
     check.__annotations__["return"] = tuple[bool, Any]
@@ -461,6 +543,16 @@ def _note_guard_fail() -> None:
     file.write_text(str(current + 1), encoding="utf-8")
 
 
+def _changed(worktree: Path) -> list[str]:
+    proc = run_git(["status", "--porcelain"], cwd=worktree)
+    found: list[str] = []
+    for line in proc.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        found.append(line[3:].strip().strip('"').replace("\\", "/"))
+    return found
+
+
 def _main_changed(main: Path, before) -> bool:
     proof = verify_main(main, before)
     return proof.status_before != proof.status_after or proof.head_before != proof.head_after
@@ -475,6 +567,7 @@ def _with_usage(result: WorkerResult, usages: list[CursorUsage]) -> WorkerResult
                 input_tokens=sum(item.input_tokens for item in usages),
                 output_tokens=sum(item.output_tokens for item in usages),
                 cached_input_tokens=sum(item.cache_read_tokens for item in usages),
+                cache_write_tokens=sum(item.cache_write_tokens for item in usages),
             )
         }
     )
@@ -506,6 +599,7 @@ def _result(
         checks=checks,
         duration_s=round(time.monotonic() - started, 3),
         model=envelope.model,
+        reverted_generated=list(last_reverted),
         isolation=SelfReportedIsolation(
             pid=os.getpid(),
             cwd=str(worktree.resolve()),

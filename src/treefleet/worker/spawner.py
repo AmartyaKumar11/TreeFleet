@@ -60,6 +60,7 @@ def worker_env(token: str, extra: dict[str, str] | None = None) -> dict[str, str
             env[key] = value
     if extra:
         env.update(extra)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 

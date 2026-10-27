@@ -9,13 +9,27 @@ Spec complete. Phases 1, 2, 3, and 4 are in the tree.
 | 2 | Git layer and isolation proofs | done | `evidence/phase-2/gate.txt` |
 | 3 | Worker (CrewAI, MCP, A2A server) | done | `evidence/phase-3/gate.txt` |
 | 4 | Orchestrator core (ADK) | done | `evidence/phase-4/gate.txt` |
-| 5 | Guardrails, Jev, callbacks, routing | not started | |
+| 5 | Guardrails, Jev, callbacks, routing | done | `evidence/phase-5/gate.txt` |
 | 6 | Review loop and integration | not started | |
 | 7 | Observability | not started | |
 | 8 | Web UI | not started | |
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 5
+
+The input guard runs before the planner. A deterministic check is authoritative: length, control characters, hidden characters, injection phrases, `curl|sh`, `.git`, `.cursor`, and secret-shaped strings. Jev noul then scores prompt injection, abuse, and on-topic. A Jev timeout or transport error emits `guard_degraded` and keeps the deterministic decision. It never blocks the run by itself. A blocked goal exits 1, writes `report.md`, and creates no worktree.
+
+The plan guard rejects absolute paths, `..`, `.git`, `.cursor`, `.env`, `*.pem`, and `id_rsa*`, plus an empty edit list, an unknown dependency, and a task count above `guards.max_tasks` (default 6). The planner gets one repair. If `models.strong` contains `flash` and the repair still fails, one more attempt uses `deepseek/deepseek-v4-pro`. The default planner stays `deepseek/deepseek-v4-pro`.
+
+Tool arguments reject traversal and unnamed checks. Tool results and the report files are redacted. `guard_redacted` stores a count, not the secret. The CrewAI task guardrail retries a draft with an empty summary, a secret, or a file that is not in the git diff. ADK agent, model, and tool callbacks and the CrewAI step and task callbacks emit events with `run_id` and duration. Prompts are not copied into the log.
+
+`PYTHONDONTWRITEBYTECODE=1` is set for checks and workers. Before each commit, a tracked change that the task did not declare and Cursor did not edit is restored. The report notes the paths. A repo that tracks `.pyc` or `node_modules` gets a preflight warning.
+
+Cursor usage and DeepSeek usage fill `CostLine`. The Jev rate is `pricing.jev_usd_per_million_input`. DeepSeek and Cursor rates are unset, so those rows print the token counts and `rate unknown`. A configured Cursor rate would be labeled `estimate`. `TokenUsage.cache_write_tokens`, `CostLine.label`, `CostLine.component` `cursor`, and `WorkerResult.reverted_generated` are the contract additions.
+
+The phase 5 gate passed: 105 tests. Evidence is `evidence/phase-5/guard-demo/`. Run `9824087d` completed a README edit, isolation PASS, Jev routed it to `composer-2.5-fast`. Run `71db6a5f` blocked an injection goal (injection 0.99) with no new worktree. Run `1d1db950` rejected a forced `../x` plan.
 
 ## 2026-10-27 — Phase 4
 

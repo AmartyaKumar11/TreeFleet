@@ -85,9 +85,26 @@ def _inside(path: Path, root: Path) -> bool:
     return True
 
 
+_relevance_client: Any = None
+
+
+def set_relevance_client(client: Any) -> None:
+    """Optional Jev filter for outputs over 6000 characters. None keeps head and tail."""
+    global _relevance_client
+    _relevance_client = client
+
+
 def _tail(text: str, limit: int = 4000) -> str:
     if len(text) <= 6000:
         return text[-limit:]
+    client = _relevance_client
+    if client is not None:
+        try:
+            kept = client.keep(text)
+        except Exception:
+            kept = None
+        if isinstance(kept, str) and kept:
+            return kept[-limit:]
     head = text[:2000]
     tail = text[-2000:]
     return f"{head}\n... truncated ...\n{tail}"[-limit:]

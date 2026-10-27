@@ -66,6 +66,7 @@ def check_env(path_prefix: str | None = None) -> dict[str, str]:
     if prefix:
         current = env.get("PATH", "")
         env["PATH"] = prefix + (os.pathsep + current if current else "")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 
