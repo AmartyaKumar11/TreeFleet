@@ -17,6 +17,10 @@ Spec complete. Phases 1 and 2 are in the tree. `contracts.py` is unchanged.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-27 — Model list and semantics
+
+`cursor-agent --list-models` exited 0. The output has an Available models header, `id - label` lines, a `(current, default)` marker on Auto, U+200B at the end of some labels, and a Tip paragraph. Parsing strips those. Nothing is cached to disk. `router` is TreeFleet routing (UI label Smart routing) and stays the CLI default. `auto` is Cursor's own model (UI label Cursor Auto) and is passed through. Bracketed overrides such as `claude-opus-4-8[context=1m]` are rejected. Router tiers are `composer-2.5-fast`, `composer-2.5`, and `cursor-grok-4.6-high`, with `default_tier` `moderate`. A tier id missing from the discovered list fails the run and names the id.
+
 ## 2026-10-27 — Phase 2
 
 The git library creates short worktrees (`C:\tf/<run>/<task>` in tests, under 120 characters), writes the canary through `.git/info/exclude`, and removes a worktree only after its process tree is gone, retrying when Windows still holds the directory. `collect_changes` is the branch's commits since the base (`base...HEAD`) plus staged, unstaged, and untracked files. A later commit on the base is not a task change. `revert_out_of_scope` restores tracked files and deletes untracked ones outside `allowed_paths` or inside `denied_paths`.

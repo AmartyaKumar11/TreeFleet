@@ -14,12 +14,14 @@ from pydantic import ValidationError
 from treefleet.cli import main
 from treefleet.config import MissingSecretError, load_settings
 from treefleet.contracts import RunEvent, from_wire
+from treefleet.cursor_models import parse_model_list
 from treefleet.events import EventSink
 
 pytestmark = pytest.mark.phase1
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE_CLI = ROOT / "spikes" / "s9_fakes.py"
+FIXTURE = ROOT / "tests" / "fixtures" / "cursor_models.txt"
 GOAL = "Add a small documented config loader for the fleet."
 OTHER_SECRET = "typesafe-secret-value"
 
@@ -152,16 +154,102 @@ async def test_replay_returns_only_missed_events(tmp_path: Path) -> None:
     assert [event.seq for event in missed] == [3, 4]
 
 
-def test_cli_auto_is_router(
+def _printer(tmp: Path) -> Path:
+    script = tmp / "print_models.py"
+    script.write_text(
+        f"import pathlib, sys\nsys.stdout.buffer.write(pathlib.Path({str(FIXTURE)!r}).read_bytes())\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+def _tier_toml(cli: Path) -> str:
+    text = _toml(cli)
+    text = text.replace('simple = "gpt-5"', 'simple = "composer-2.5-fast"')
+    text = text.replace('moderate = "gpt-5"', 'moderate = "composer-2.5"')
+    text = text.replace('complex = "sonnet-4-thinking"', 'complex = "cursor-grok-4.6-high"')
+    return text
+
+
+def test_parse_cursor_model_list_fixture() -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    assert "\u200b" in raw
+    assert "Available models" in raw
+    assert raw.strip().endswith("'.")
+    models = {item.id: item.label for item in parse_model_list(raw)}
+    assert models["auto"] == "Auto"
+    assert "(current" not in models["auto"]
+    assert "\u200b" not in models["grok-4.7-low-fast"]
+    assert models["composer-2.5-fast"] == "Composer 2.5 Fast"
+    assert models["composer-2.5"] == "Composer 2.5"
+    assert models["cursor-grok-4.6-high"] == "Grok 4.6"
+    assert all("[" not in model_id for model_id in models)
+    assert len(models) == 5
+
+
+def test_committed_router_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    _secrets(monkeypatch)
+    settings = load_settings(ROOT / "treefleet.toml")
+    assert settings.models.router.simple == "composer-2.5-fast"
+    assert settings.models.router.moderate == "composer-2.5"
+    assert settings.models.router.complex == "cursor-grok-4.6-high"
+    assert settings.models.router.default_tier == "moderate"
+    assert settings.models.router.fallback() == "composer-2.5"
+
+
+def test_cli_default_is_router(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _secrets(monkeypatch)
     _write(tmp_path, _toml(FAKE_CLI))
     monkeypatch.chdir(tmp_path)
-    assert main([GOAL, "--model", "auto", "--repo", str(tmp_path)]) == 0
+    assert main([GOAL, "--repo", str(tmp_path)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["worker_model"] == "router"
     assert payload["repo"] == str(tmp_path)
+
+
+def test_cli_auto_is_a_cursor_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _secrets(monkeypatch)
+    cli = _printer(tmp_path)
+    _write(tmp_path, _tier_toml(cli))
+    monkeypatch.chdir(tmp_path)
+    assert main([GOAL, "--model", "auto", "--repo", str(tmp_path)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["worker_model"] == "auto"
+
+
+def test_bracket_override_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _secrets(monkeypatch)
+    _write(tmp_path, _toml(FAKE_CLI))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as caught:
+        main([GOAL, "--model", "claude-opus-4-8[context=1m]", "--repo", str(tmp_path)])
+    message = str(caught.value)
+    assert "not supported" in message
+    assert "treefleet models" in message
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "runs").exists()
+
+
+def test_missing_tier_id_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _secrets(monkeypatch)
+    cli = _printer(tmp_path)
+    text = _tier_toml(cli).replace('simple = "composer-2.5-fast"', 'simple = "missing-tier-id"')
+    _write(tmp_path, text)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as caught:
+        main([GOAL, "--model", "router", "--repo", str(tmp_path)])
+    message = str(caught.value)
+    assert "missing-tier-id" in message
+    assert "treefleet models" in message
+    assert capsys.readouterr().out == ""
 
 
 def test_unknown_model_is_rejected_before_a_run(

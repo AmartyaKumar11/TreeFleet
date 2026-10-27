@@ -153,9 +153,11 @@ select {
         <span class="spacer"></span>
         <label>Worker model
           <select aria-label="Worker model">
-            <option value="router" selected>Auto</option>
-            <option>gpt-5</option>
-            <option>sonnet-4-thinking</option>
+            <option value="router" selected>Smart routing</option>
+            <option value="auto">Cursor Auto</option>
+            <option>composer-2.5-fast</option>
+            <option>composer-2.5</option>
+            <option>cursor-grok-4.6-high</option>
           </select>
         </label>
         <button class="btn primary" type="button">Run</button>
@@ -171,11 +173,11 @@ select {
             <div style="color:var(--muted)">Review the scopes before any worker starts.</div>
             <ul>
               <li><span>Parser tests · tests/</span>
-                <select aria-label="Model for Parser tests"><option selected>Auto</option><option>gpt-5</option><option>sonnet-4-thinking</option></select></li>
+                <select aria-label="Model for Parser tests"><option selected>Smart routing</option><option>Cursor Auto</option><option>composer-2.5-fast</option><option>composer-2.5</option></select></li>
               <li><span>Config docs · README.md</span>
-                <select aria-label="Model for Config docs"><option selected>Auto</option><option>gpt-5</option><option>sonnet-4-thinking</option></select></li>
+                <select aria-label="Model for Config docs"><option selected>Smart routing</option><option>Cursor Auto</option><option>composer-2.5-fast</option><option>composer-2.5</option></select></li>
               <li><span>Notifier lint · src/notifier/</span>
-                <select aria-label="Model for Notifier lint"><option selected>Auto</option><option>gpt-5</option><option>sonnet-4-thinking</option></select></li>
+                <select aria-label="Model for Notifier lint"><option selected>Smart routing</option><option>Cursor Auto</option><option>composer-2.5-fast</option><option>composer-2.5</option></select></li>
             </ul>
             <div class="actions">
               <button class="btn go" type="button">Approve plan</button>
@@ -257,7 +259,7 @@ select {
     <header>
       <h3>Parser tests</h3>
       <span class="mono" style="color:var(--muted)">tf/a1f9c2/tests</span>
-      <span class="mono" style="color:var(--muted)"> · gpt-5</span>
+      <span class="mono" style="color:var(--muted)"> · composer-2.5</span>
       <div class="status" style="margin-bottom:0"><span class="dot blue"></span>Cursor is editing · attempt 1</div>
     </header>
     <div class="tabs" role="tablist">

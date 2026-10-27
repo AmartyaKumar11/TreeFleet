@@ -82,13 +82,13 @@ S10, with `--sandbox disabled`, printed one JSON result that included `usage.inp
 
 | Field | Where | Meaning |
 |---|---|---|
-| `worker_model` | `RunRequest`, default `router` | `router` means TreeFleet picks a Cursor model per task. Any other value is one Cursor model id for every task in the run |
+| `worker_model` | `RunRequest`, default `router` | `router` means TreeFleet routing (UI label Smart routing). Any other value, including Cursor's own `auto`, is one discovered Cursor model id for every task |
 | `model_override` | `TaskSpec`, default null | Cursor model id for that task only |
 | `cursor_model` | `WorkerTaskEnvelope`, default null | Id passed to `cursor-agent`, or null to omit `--model` |
 | `cursor_model` | `RouteDecision`, default null | Id the router resolved |
 | `source` | `RouteDecision` | `override`, `run`, `router`, or `default`. Older values `jev` and `heuristic` still validate |
 
-The UI and `treefleet "goal" --model auto` label `router` as Auto. If the Cursor CLI lists its own auto model, that id is an ordinary model with its own label. `router` is not sent to `--model` and does not have to appear in the discovered list.
+`router` is TreeFleet routing. The UI label is Smart routing. It is not sent to `--model` and does not have to appear in the discovered list. `auto` is Cursor's own Auto, a normal discovered id. The UI label is Cursor Auto. The CLI passes `auto` through unchanged. Bracketed overrides such as `claude-opus-4-8[context=1m]` are not supported. The rejection names the id and says to run `treefleet models`.
 
 Resolution order for each task:
 
@@ -98,7 +98,7 @@ Resolution order for each task:
 4. `models.default`.
 5. Omit `--model` and use the CLI default. `cursor_model` is null and `source` is `default`.
 
-Phase 0 measured the flag as `--model`. That run's JSON included a `usage` object with token counts. The model list and a CLI auto id were not measured.
+Phase 0 measured the flag as `--model`. That run's JSON included a `usage` object with token counts. On 2026-10-27 `cursor-agent --list-models` exited 0. The list includes `auto` (label Auto, marked current default). Router tiers are `composer-2.5-fast`, `composer-2.5`, and `cursor-grok-4.6-high`. `default_tier` is `moderate`.
 
 At run start, every explicit id (an override, a non-`router` `worker_model`, a tier entry, and `models.default`) must appear in the model list discovered from the Cursor CLI. The list is cached for the process. An unknown id fails the run before any worktree is created. The message names the id and says to run `treefleet models`.
 
@@ -193,7 +193,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 
 All `/api` routes require a bearer token from the environment.
 
-The CLI accepts `treefleet "goal" --model auto|<id>`. `auto` stores `worker_model` as `router`. An `<id>` stores that Cursor model id. `treefleet models` prints the discovered ids and labels.
+The CLI accepts `treefleet "goal" --model router|<id>`. The default is `router`. An `<id>` must be a discovered Cursor model id, and `auto` is one of those ids. `treefleet models` prints the discovered ids and labels. The Worker model dropdown lists Smart routing, then Cursor Auto, then the other discovered models.
 
 ## 7. Naming and paths
 
