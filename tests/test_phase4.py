@@ -214,6 +214,7 @@ async def _run(
     approve=None,
     sleep: str = "1",
     kill: str | None = None,
+    mock: str = "1",
 ):
     _secrets(monkeypatch)
     llm, calls = _scripted(replies)
@@ -221,7 +222,7 @@ async def _run(
         RunRequest(goal=GOAL, repo=str(repo), plan_approval=approval),
         load_settings(ROOT / "treefleet.toml"),
         approve=approve,
-        fakes=OfflineFakes(planner=llm, cursor_cli=FAKE, fake_sleep=sleep, kill_task=kill),
+        fakes=OfflineFakes(planner=llm, cursor_cli=FAKE, fake_sleep=sleep, kill_task=kill, mock_llm=mock),
         runs_root=tmp_path / "runs",
         worktree_root=WT,
         port_start=_port(),
@@ -233,6 +234,29 @@ def test_ask_plan_uses_the_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = Plan.model_validate_json(_plan_json(["alpha"]))
     monkeypatch.setattr("builtins.input", lambda prompt: "n" if "Approve plan?" in prompt else "")
     assert ask_plan(plan) is False
+
+
+async def test_planner_accepts_low_medium_high() -> None:
+    raw = json.dumps(
+        {
+            "goal": GOAL,
+            "rationale": "Split the work.",
+            "tasks": [
+                {
+                    "id": task_id,
+                    "title": f"Edit {task_id}",
+                    "instructions": "Add one sentence to README.md.",
+                    "allowed_paths": ["README.md"],
+                    "complexity": word,
+                }
+                for task_id, word in (("alpha", "low"), ("beta", "medium"), ("gamma", "high"))
+            ],
+        }
+    )
+    llm, calls = _scripted([raw])
+    plan = await plan_goal(llm, GOAL, "README.md")
+    assert calls["n"] == 1
+    assert [task.complexity for task in plan.tasks] == ["trivial", "moderate", "complex"]
 
 
 async def test_planner_repairs_invalid_json_once() -> None:
@@ -382,3 +406,96 @@ async def test_cancelled_run_leaves_no_worker_process(tmp_path: Path, monkeypatc
         await task
     assert set(worker_pids()) <= before
     _sweep(repo)
+
+
+def test_long_notes_are_clipped_to_the_draft_limit() -> None:
+    from treefleet.worker.draft import parse_draft
+
+    draft = parse_draft(json.dumps({"notes": "x" * 3001}))
+    assert len(draft.notes) == 3000
+    assert draft.notes == "x" * 3000
+
+
+def test_changed_files_are_the_task_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _git(repo)
+    (repo / "extra.py").write_text("x\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "add", "extra.py"], cwd=repo, check=True, shell=False)
+    subprocess.run(["git", "commit", "-m", "extra"], cwd=repo, check=True, shell=False)
+    subprocess.run(["git", "branch", "demo"], cwd=repo, check=True, shell=False)
+    subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=repo, check=True, shell=False)
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "tf/file01/alpha", str(worktree), "demo"],
+        cwd=repo,
+        check=True,
+        shell=False,
+    )
+    (worktree / "README.md").write_text("base\nmore\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "add", "README.md"], cwd=worktree, check=True, shell=False)
+    subprocess.run(["git", "commit", "-m", "readme"], cwd=worktree, check=True, shell=False)
+    code = (
+        "import json, os\n"
+        "from pathlib import Path\n"
+        "from treefleet.worker.crew import _files\n"
+        "print(json.dumps([item.path for item in _files(Path(os.environ['WT']))]))\n"
+    )
+    proc = subprocess.run(
+        [str(WORKER), "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        shell=False,
+        env={**os.environ, "WT": str(worktree)},
+        check=False,
+    )
+    assert proc.returncode == 0, (proc.stdout[-1500:] + proc.stderr[-1500:]).strip()
+    assert json.loads(proc.stdout.strip().splitlines()[-1]) == ["README.md"]
+
+
+async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    _git(repo)
+    plan = json.dumps(
+        {
+            "goal": GOAL,
+            "rationale": "A task that changes nothing must not cancel the writer behind it.",
+            "tasks": [
+                {
+                    "id": "review",
+                    "title": "Review",
+                    "instructions": "Read the repository.",
+                    "allowed_paths": ["notes.txt"],
+                },
+                {
+                    "id": "write",
+                    "title": "Write",
+                    "instructions": "Add one sentence to README.md.",
+                    "allowed_paths": ["README.md"],
+                    "depends_on": ["review"],
+                },
+            ],
+        }
+    )
+    outcome = None
+    try:
+        outcome, _calls = await _run(repo, [plan], monkeypatch, tmp_path, sleep="0", mock="long")
+        assert outcome.report is not None, outcome.message
+        by_id = {item.task_id: item for item in outcome.report.results}
+        assert by_id["review"].status == "failed"
+        assert by_id["review"].error == "no commit was made"
+        assert by_id["write"].status == "done"
+        assert [item.path for item in by_id["write"].files_changed] == ["README.md"]
+        assert outcome.report.isolation.ok
+        spawned = [
+            json.loads(line)["task_id"]
+            for line in (tmp_path / "runs" / outcome.run_id / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip() and json.loads(line)["type"] == "worker.spawned"
+        ]
+        assert spawned == ["review", "write"]
+    finally:
+        if outcome is not None:
+            cleanup_run(repo, outcome.run_id)
+        _sweep(repo)

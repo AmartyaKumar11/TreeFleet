@@ -35,8 +35,31 @@ _PLAN_INSTRUCTION = (
     "Return one JSON object for a Plan and nothing else. "
     "No markdown. Fields: goal, rationale, tasks. "
     "Each task has id, title, instructions, allowed_paths, and optional depends_on, "
-    "complexity, and model_override. Ids are lowercase slugs."
+    "complexity, and model_override. complexity is trivial, moderate, or complex. Ids are lowercase slugs."
 )
+
+_COMPLEXITY_ALIASES = {"low": "trivial", "simple": "trivial", "medium": "moderate", "high": "complex"}
+
+
+def _normalize_plan(text: str) -> str:
+    """Map low/medium/high onto the contract values. Other text is left for validation."""
+    raw = _json_text(text)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list):
+        return raw
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        value = task.get("complexity")
+        if isinstance(value, str):
+            mapped = _COMPLEXITY_ALIASES.get(value.strip().lower())
+            if mapped:
+                task["complexity"] = mapped
+    return json.dumps(data)
 
 
 class RunBundle:
@@ -149,11 +172,15 @@ async def plan_goal(llm: Any, goal: str, tree: str) -> Plan:
     prompt = f"Goal:\n{goal}\n\nRepository files:\n{tree}"
     text = await _complete(llm, prompt)
     try:
-        return Plan.model_validate_json(_json_text(text))
+        return Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
-        repair = f"{prompt}\n\nThe previous JSON failed validation:\n{exc}\nReturn only the corrected JSON object."
+        repair = (
+            f"The previous JSON failed validation:\n{exc}\n"
+            "complexity is trivial, moderate, or complex. Return only the corrected JSON object.\n\n"
+            f"{prompt}"
+        )
         text = await _complete(llm, repair[:4000])
-        return Plan.model_validate_json(_json_text(text))
+        return Plan.model_validate_json(_normalize_plan(text))
 
 
 def route_plan(plan: Plan, request: RunRequest, settings: Settings) -> list[RouteDecision]:

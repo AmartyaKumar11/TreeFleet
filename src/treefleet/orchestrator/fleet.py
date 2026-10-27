@@ -20,7 +20,7 @@ from treefleet.contracts import (
 from treefleet.git.canary import write_canary
 from treefleet.git.cursor_scope import ScopeViolation
 from treefleet.git.proofs import snapshot_main, snapshot_siblings
-from treefleet.git.worktrees import GitError, branch_name, create_worktree, kill_tree
+from treefleet.git.worktrees import GitError, branch_name, create_worktree, kill_tree, run_git
 from treefleet.orchestrator.agents import RunBundle, _adk_event, read_plan, read_routing
 from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
 
@@ -39,6 +39,17 @@ def _event(bundle: RunBundle, kind: str, task_id: str, payload: dict[str, Any]) 
             payload=payload,
         )
     )
+
+
+def _unchanged_sha(worktree: Path) -> str | None:
+    """HEAD of a worktree whose task committed nothing. Dependents may build on that commit."""
+    if not worktree.is_dir():
+        return None
+    proc = run_git(["rev-parse", "HEAD"], cwd=worktree)
+    if proc.returncode != 0:
+        return None
+    sha = proc.stdout.strip()
+    return sha if len(sha) == 40 else None
 
 
 def _failed(envelope: WorkerTaskEnvelope, worktree: Path | str, message: str, pid: int) -> WorkerResult:
@@ -218,7 +229,12 @@ def _fleet_base():
             upstream: list[UpstreamContext] = []
             for dep in task.depends_on:
                 prev = results.get(dep)
-                if prev is None or not prev.head_sha:
+                sha = prev.head_sha if prev is not None else None
+                # A finished task with no commit still has the base HEAD. A main-checkout
+                # mutation stays fail-closed and does not unblock anyone.
+                if prev is not None and not sha and "main checkout" not in (prev.error or ""):
+                    sha = _unchanged_sha(self.bundle.worktree_root / self.bundle.run_id / dep)
+                if prev is None or not sha:
                     envelope = self._envelope(task, route, [])
                     return _failed(envelope, self.bundle.repo, f"upstream {dep} did not finish", 1)
                 upstream.append(
@@ -226,7 +242,7 @@ def _fleet_base():
                         task_id=dep,
                         summary=prev.summary,
                         branch=prev.branch,
-                        head_sha=prev.head_sha,
+                        head_sha=sha,
                     )
                 )
             envelope = self._envelope(task, route, upstream)

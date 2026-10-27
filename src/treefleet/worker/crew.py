@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shlex
 import subprocess
@@ -89,6 +90,8 @@ class MockLLM(BaseLLM):
             return "not json"
         if mode == "nodiff":
             return '{"notes": "no diff read"}'
+        if mode == "long" and self.calls > 2:
+            return json.dumps({"notes": "x" * 3001})
         if self.calls == 1:
             return [{"name": "cursor_code", "arguments": {"instruction": "Update README.md."}}]
         if self.calls == 2:
@@ -309,8 +312,11 @@ def _commit(worktree: Path, envelope: WorkerTaskEnvelope) -> str | None:
     return git_out(["rev-parse", "HEAD"], worktree).strip()
 
 
-def _files(worktree: Path, base: str) -> list[FileChange]:
-    proc = run_git(["diff", "--numstat", f"{base}...HEAD"], cwd=worktree)
+def _files(worktree: Path) -> list[FileChange]:
+    """Files in the commit just made. `main...HEAD` includes history that is not this task."""
+    proc = run_git(["diff", "--numstat", "HEAD^", "HEAD"], cwd=worktree)
+    if proc.returncode != 0:
+        return []
     found: list[FileChange] = []
     for line in proc.stdout.splitlines():
         added, deleted, path = line.split("\t", 2)
@@ -488,7 +494,7 @@ def _result(
     notes: str = "",
 ) -> WorkerResult:
     branch = git_out(["branch", "--show-current"], worktree).strip()
-    files = _files(worktree, "main") if sha else []
+    files = _files(worktree) if sha else []
     return WorkerResult(
         run_id=envelope.run_id,
         task_id=envelope.task.id,
