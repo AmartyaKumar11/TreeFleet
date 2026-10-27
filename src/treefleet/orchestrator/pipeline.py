@@ -25,6 +25,7 @@ from treefleet.orchestrator.agents import (
     VerifierAgent,
 )
 from treefleet.orchestrator.fleet import FleetAgent
+from treefleet.orchestrator.review import IntegratorAgent, ReviewerAgent
 
 
 @dataclass
@@ -38,6 +39,7 @@ class OfflineFakes:
     fake_sleep: str = "0"
     kill_task: str | None = None
     skip_jev: bool = True
+    review_script: list[str] | None = None
 
 
 @dataclass
@@ -134,6 +136,8 @@ async def run_pipeline(
             _agent(RouterAgent, "router"),
             _agent(FleetAgent, "fleet"),
             _agent(VerifierAgent, "verifier"),
+            _agent(ReviewerAgent, "reviewer"),
+            _agent(IntegratorAgent, "integrator"),
             _agent(ReporterAgent, "reporter"),
         ],
     )

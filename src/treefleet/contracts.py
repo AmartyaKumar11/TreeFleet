@@ -152,6 +152,7 @@ class RunRequest(_Model):
     )
     notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
     scenario: Scenario = "custom"
+    saboteur_task: Slug | None = None
     use_jev: bool = True
     worker_model: ModelChoice = "router"
     plan_approval: bool = True
@@ -345,6 +346,7 @@ class WorkerTaskEnvelope(_Model):
     limits: Limits = Field(default_factory=Limits)
     upstream: list[UpstreamContext] = Field(default_factory=list)
     revision_feedback: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    saboteur: bool = False
     trace: TraceContext | None = None
 
 
@@ -413,6 +415,10 @@ class WorkerResult(_Model):
     steps_used: int = Field(default=0, ge=0)
     duration_s: float = Field(default=0.0, ge=0)
     usage: TokenUsage = Field(default_factory=TokenUsage)
+    brain_usage: TokenUsage = Field(default_factory=TokenUsage)
+    brain_usage_reported: bool = False
+    cursor_model: str | None = None
+    cursor_usage_reported: bool = False
     model: str
     isolation: SelfReportedIsolation
     error: Annotated[str, StringConstraints(max_length=2000)] | None = None
@@ -462,12 +468,36 @@ class ReviewVerdict(_Model):
     verdict: Literal["approve", "revise", "reject"]
     confidence: Probability
     issues: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=20)
+    reasons: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=20)
+    required_changes: list[Annotated[str, StringConstraints(max_length=500)]] = Field(
+        default_factory=list, max_length=20
+    )
     scope_violation: bool = False
     revision_instructions: Annotated[str, StringConstraints(max_length=2000)] | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _copy_review_text(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        reasons = data.get("reasons") or []
+        if isinstance(reasons, str):
+            reasons = [reasons]
+        changes = data.get("required_changes") or []
+        if isinstance(changes, str):
+            changes = [changes]
+        copied = dict(data)
+        if reasons and not copied.get("issues"):
+            copied["issues"] = list(reasons)
+        if copied.get("issues") and not copied.get("reasons"):
+            copied["reasons"] = list(copied["issues"])
+        if changes and not copied.get("revision_instructions"):
+            copied["revision_instructions"] = "\n".join(str(item) for item in changes)[:2000]
+        return copied
+
     @model_validator(mode="after")
     def _revise_needs_instructions(self) -> Self:
-        if self.verdict == "revise" and not self.revision_instructions:
+        if self.verdict == "revise" and not (self.revision_instructions or self.required_changes):
             raise ValueError("verdict=revise requires revision_instructions")
         return self
 
@@ -538,6 +568,10 @@ class IntegrationReport(_Model):
     merged: list[Slug] = Field(default_factory=list)
     conflicts: list[IntegrationConflict] = Field(default_factory=list)
     skipped: list[Slug] = Field(default_factory=list)
+    checks: list[CheckResult] = Field(default_factory=list)
+    excluded: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
+    merge_command: str = ""
+    user_branch: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -554,6 +588,7 @@ class RunMetrics(_Model):
     task_seconds: float = Field(default=0, ge=0)
     costs: list[CostLine] = Field(default_factory=list)
     jev_calls: int = Field(default=0, ge=0)
+    task_count: int = Field(default=0, ge=0)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -574,14 +609,21 @@ class RunMetrics(_Model):
 
     def definitions(self) -> str:
         """One line each for the end-to-end clock and the fleet clock."""
+        single = self.task_count == 1
+        if single:
+            speedup = "n/a (single task)"
+            fleet = "n/a (single task)"
+        else:
+            speedup = f"{self.speedup}x (sequential time divided by wall time)"
+            fleet = f"{self.fleet_speedup}x (sum of task durations divided by fleet wall)"
         return "\n".join(
             [
                 f"- Wall time: {self.wall_seconds:.1f}s (end-to-end clock, including planning)",
                 "- Sequential time: "
                 f"{self.sequential_seconds:.1f}s (pre-fleet overhead plus the sum of task durations)",
-                f"- Speedup: {self.speedup}x (sequential time divided by wall time)",
+                f"- Speedup: {speedup}",
                 f"- Fleet wall: {self.fleet_wall_seconds:.1f}s (time while workers run)",
-                f"- Fleet speedup: {self.fleet_speedup}x (sum of task durations divided by fleet wall)",
+                f"- Fleet speedup: {fleet}",
                 f"- Total cost: ${self.total_usd:.4f}",
                 f"- Jev calls: {self.jev_calls}",
             ]
@@ -596,6 +638,7 @@ def assemble_metrics(
     task_seconds: float,
     costs: list[CostLine] | None = None,
     jev_calls: int = 0,
+    task_count: int = 0,
 ) -> RunMetrics:
     """End-to-end sequential time is the pre-fleet overhead plus the sum of task durations."""
     return RunMetrics(
@@ -605,6 +648,7 @@ def assemble_metrics(
         task_seconds=max(0.0, task_seconds),
         costs=costs or [],
         jev_calls=jev_calls,
+        task_count=task_count,
     )
 
 
@@ -626,12 +670,19 @@ class FinalReport(_Model):
         """Deterministic Markdown rendering. The LLM never writes the report."""
         verdicts = {v.task_id: v for v in self.verdicts}
         lines = [f"# TreeFleet run {self.run_id}", "", f"**Goal:** {self.goal}", ""]
-        lines += ["## Tasks", "", "| Task | Status | Verdict | Branch | Files | Checks |", "|---|---|---|---|---|---|"]
+        lines += [
+            "## Tasks",
+            "",
+            "| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |",
+            "|---|---|---|---|---|---|---|",
+        ]
         for r in self.results:
             v = verdicts.get(r.task_id)
             checks = ", ".join(f"{c.name}:{'pass' if c.passed else 'fail'}" for c in r.checks) or "none"
             verdict = v.verdict if v else "n/a"
-            lines.append(f"| {r.task_id} | {r.status} | {verdict} | `{r.branch}` | {len(r.files_changed)} | {checks} |")
+            rounds = max(0, r.attempt - 1)
+            cells = f"| {r.task_id} | {r.status} | {verdict} | {rounds} | `{r.branch}` | {len(r.files_changed)} |"
+            lines.append(f"{cells} {checks} |")
         if self.routing:
             lines += ["", "## Models", ""]
             for route in self.routing:
@@ -659,18 +710,38 @@ class FinalReport(_Model):
         ]
         if self.integration is not None:
             i = self.integration
-            lines += ["", "## Integration", "", f"Merged: {', '.join(i.merged) or 'none'}"]
+            lines += ["", "## Integration", ""]
+            if i.branch:
+                lines.append(f"Branch: `{i.branch}`")
+            lines.append(f"Merged: {', '.join(i.merged) or 'none'}")
+            if i.excluded:
+                lines.append("Excluded:")
+                lines.extend(f"- {item}" for item in i.excluded)
+            if i.checks:
+                rendered = ", ".join(f"{c.name}:{'pass' if c.passed else 'fail'}" for c in i.checks)
+            else:
+                rendered = "none"
+            lines.append(f"Post-merge checks: {rendered}")
+            if i.merge_command:
+                lines.append(f"Merge into `{i.user_branch or 'the current branch'}`: `{i.merge_command}`")
             for c in i.conflicts:
                 lines.append(f"- Conflict in `{c.path}` between {', '.join(c.between)}")
         if self.notes:
             lines += ["", "## Notes", ""]
             lines.extend(f"- {note}" for note in self.notes)
         if self.metrics.costs:
-            lines += ["", "## Cost", "", "| Role | Model | In | Out | USD | Note |", "|---|---|---|---|---|---|"]
+            lines += [
+                "",
+                "## Cost",
+                "",
+                "| Role | Model | In | Out | Cache read | Cache write | USD | Note |",
+                "|---|---|---|---|---|---|---|---|",
+            ]
             for item in self.metrics.costs:
                 lines.append(
                     f"| {item.component} | {item.model} | {item.usage.input_tokens} | "
-                    f"{item.usage.output_tokens} | {item.usd:.6f} | {item.label} |"
+                    f"{item.usage.output_tokens} | {item.usage.cached_input_tokens} | "
+                    f"{item.usage.cache_write_tokens} | {item.usd:.6f} | {item.label} |"
                 )
         lines += ["", "## Metrics", "", self.metrics.definitions()]
         return "\n".join(lines) + "\n"

@@ -1,6 +1,6 @@
 # Status
 
-Spec complete. Phases 1, 2, 3, and 4 are in the tree.
+Spec complete. Phases 1 through 6 are in the tree.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
@@ -10,12 +10,24 @@ Spec complete. Phases 1, 2, 3, and 4 are in the tree.
 | 3 | Worker (CrewAI, MCP, A2A server) | done | `evidence/phase-3/gate.txt` |
 | 4 | Orchestrator core (ADK) | done | `evidence/phase-4/gate.txt` |
 | 5 | Guardrails, Jev, callbacks, routing | done | `evidence/phase-5/gate.txt` |
-| 6 | Review loop and integration | not started | |
+| 6 | Review loop and integration | done | `evidence/phase-6/gate.txt` |
 | 7 | Observability | not started | |
 | 8 | Web UI | not started | |
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 6
+
+The reviewer is an ADK `LlmAgent` on `models.strong` (`deepseek/deepseek-v4-pro`), one per finished task, gathered with `asyncio.gather`. `output_schema` stays unset. The verdict JSON is a `ReviewVerdict` (`approve`, `revise`, or `reject`) with `reasons` and `required_changes`, parsed with one repair retry. Its tool list is the gitops read-only set. A revise re-runs the same worktree and branch with those changes appended to the cursor prompt, at most twice, and the isolation proofs run again. A third revise becomes `reject` and that task is left out of the merge.
+
+Integration merges approved branches, in dependency order, into `tf/<run>/integrated` inside its own worktree. The user's branch and the main checkout are not checked out. A conflict aborts that merge, marks the task `conflict`, and continues. Baseline checks then run on the integrated worktree. `FinalReport` adds Verdict and Revise rounds columns and an Integration section with the merge command.
+
+Cost rows are planner, worker (DeepSeek brain), cursor (the Cursor model and its token counts), and jev. A cursor call with no usage prints `usage not reported` and does not reuse the brain counts. A run with one task prints `n/a (single task)` for both speedup lines. Rates in `treefleet.toml` are from the DeepSeek pricing page and the Cursor models page, fetched 2026-10-27. Cursor rows are labeled `estimate`. `cursor-grok-4.6-high` is unset: that page lists Grok 4.6 and not that id. No price was invented.
+
+`--saboteur TASK` is demo-only and off unless passed. It appends a break-an-existing-test line to that task's cursor prompt, and plain code also adds `test_treefleet_saboteur_demo` so the suite fails when Cursor does not. Contract additions: `RunRequest.saboteur_task`, `WorkerTaskEnvelope.saboteur`, `WorkerResult.brain_usage`, `brain_usage_reported`, `cursor_model`, `cursor_usage_reported`, `ReviewVerdict.reasons`, `required_changes`, `IntegrationReport.checks`, `excluded`, `merge_command`, `user_branch`, `RunMetrics.task_count`, and the DeepSeek and Composer fields on `Pricing`.
+
+Live on `D:\pr-sentinel-demo`. Clean run `d89593f5`: all three tasks approved, branch `tf/d89593f5/integrated`, post-merge checks passed, and no `.pyc` in any task commit. Saboteur run `c412b654` (`--saboteur notifications-tests`, which also matches `add-notifications-tests`): that task's pytest failed, the reviewer rejected it after two revise rounds, the other two stayed approved, the integrator excluded it, and the post-merge checks passed. Its isolation row is out of scope because the demo break edits `tests/test_auth.py`. The worker brain row is `usage not reported`; the callback did not return token counts, and none were invented.
 
 ## 2026-10-27 — Phase 5
 

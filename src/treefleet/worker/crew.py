@@ -29,6 +29,7 @@ from treefleet.contracts import (
     WorkerResult,
     WorkerTaskEnvelope,
 )
+from treefleet.cursor_run import demo_break
 from treefleet.events import EventSink
 from treefleet.git.cursor_scope import ScopeViolation, check_cursor_scope
 from treefleet.git.proofs import revert_out_of_scope, snapshot_main, verify_main
@@ -92,6 +93,8 @@ class MockLLM(BaseLLM):
             Path(count_path).write_text(str(self.calls), encoding="utf-8")
         mode = os.environ.get("TREEFLEET_MOCK_LLM")
         if mode == "bad":
+            return "not json"
+        if mode == "edit-bad" and self.calls > 2:
             return "not json"
         if mode == "nodiff":
             return '{"notes": "no diff read"}'
@@ -218,6 +221,9 @@ def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
 
 
 def _timed(inner: Any, run_id: str) -> BaseLLM:
+    global _current_llm
+    _current_llm = inner
+
     class TimingLLM(BaseLLM):
         def supports_function_calling(self) -> bool:
             fn = getattr(inner, "supports_function_calling", None)
@@ -287,6 +293,8 @@ def build_agent(
         run_id=envelope.run_id,
         usages=usages,
         files=cursor_files,
+        revision=envelope.revision_feedback or "",
+        saboteur=envelope.saboteur,
     )
     fs_tools = _fs_tools(envelope, worktree)
     raw = MockLLM(model="mock") if os.environ.get("TREEFLEET_MOCK_LLM") else _deepseek()
@@ -305,7 +313,11 @@ def build_agent(
 def _deepseek():
     from crewai import LLM
 
-    return LLM(model="deepseek/deepseek-flash", api_key=os.environ.get("DEEPSEEK_API_KEY"))
+    return LLM(
+        model="deepseek/deepseek-flash",
+        api_key=os.environ.get("DEEPSEEK_API_KEY"),
+        timeout=180,
+    )
 
 
 def _main_repo(worktree: Path) -> Path:
@@ -389,8 +401,74 @@ def _files(worktree: Path, base: str) -> list[FileChange]:
     return found
 
 
+_brain_parts: list[TokenUsage] = []
+_brain_installed = False
+_current_llm: Any = None
+
+
+def reset_brain() -> None:
+    _brain_parts.clear()
+
+
+def _remember(response: object) -> None:
+    usage = getattr(response, "usage", None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get("usage")
+    if usage is None:
+        return
+    if not isinstance(usage, dict):
+        usage = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", 0),
+            "cached": getattr(usage, "prompt_cache_hit_tokens", None) or getattr(usage, "cached_tokens", 0),
+        }
+    prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    cached = int(usage.get("prompt_cache_hit_tokens") or usage.get("cached_tokens") or usage.get("cached") or 0)
+    if prompt == 0 and completion == 0 and cached == 0:
+        return
+    _brain_parts.append(TokenUsage(input_tokens=prompt, output_tokens=completion, cached_input_tokens=cached))
+
+
+def install_brain_capture() -> None:
+    """Record DeepSeek token counts. Cursor usage stays on CursorUsage and is never copied here."""
+    global _brain_installed
+    if _brain_installed:
+        return
+    try:
+        import litellm
+
+        def _on_success(_kwargs: object, response_obj: object, _start: object, _end: object) -> None:
+            _remember(response_obj)
+
+        callbacks = list(getattr(litellm, "success_callback", None) or [])
+        callbacks.append(_on_success)
+        litellm.success_callback = callbacks
+    except Exception:
+        return
+    _brain_installed = True
+
+
+def take_brain() -> tuple[TokenUsage, bool]:
+    if not _brain_parts and _current_llm is not None:
+        _remember(getattr(_current_llm, "usage", None))
+        inner = getattr(_current_llm, "_inner", None)
+        if inner is not None:
+            _remember(getattr(inner, "usage", None))
+    if not _brain_parts:
+        return TokenUsage(), False
+    total = TokenUsage()
+    for item in _brain_parts:
+        total = total + item
+    _brain_parts.clear()
+    return total, True
+
+
 def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     started = time.monotonic()
+    reset_brain()
+    if not os.environ.get("TREEFLEET_MOCK_LLM"):
+        install_brain_capture()
     reset_steps()
     tools_seen.clear()
     _watch_tools()
@@ -463,10 +541,14 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
         try:
             draft = _take(produce(str(first)))
         except (ValidationError, _NeedsDiff) as exc:
-            return _with_usage(
-                _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started),
-                cursor_usages,
-            )
+            if not _changed(worktree) and not envelope.saboteur:
+                return _with_usage(
+                    _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started),
+                    cursor_usages,
+                )
+            draft = WorkerDraft(notes="The model notes were not valid JSON. The committed diff is the result.")
+    if envelope.saboteur:
+        demo_break(worktree)
     checks = _checks(envelope, worktree)
     if any(not item.passed for item in checks):
         return _with_usage(
@@ -559,18 +641,20 @@ def _main_changed(main: Path, before) -> bool:
 
 
 def _with_usage(result: WorkerResult, usages: list[CursorUsage]) -> WorkerResult:
-    if not usages:
-        return result
-    return result.model_copy(
-        update={
-            "usage": TokenUsage(
-                input_tokens=sum(item.input_tokens for item in usages),
-                output_tokens=sum(item.output_tokens for item in usages),
-                cached_input_tokens=sum(item.cache_read_tokens for item in usages),
-                cache_write_tokens=sum(item.cache_write_tokens for item in usages),
-            )
-        }
-    )
+    brain, brain_reported = take_brain()
+    update: dict[str, object] = {
+        "brain_usage": brain,
+        "brain_usage_reported": brain_reported,
+        "cursor_usage_reported": bool(usages),
+    }
+    if usages:
+        update["usage"] = TokenUsage(
+            input_tokens=sum(item.input_tokens for item in usages),
+            output_tokens=sum(item.output_tokens for item in usages),
+            cached_input_tokens=sum(item.cache_read_tokens for item in usages),
+            cache_write_tokens=sum(item.cache_write_tokens for item in usages),
+        )
+    return result.model_copy(update=update)
 
 
 def _result(
@@ -599,6 +683,7 @@ def _result(
         checks=checks,
         duration_s=round(time.monotonic() - started, 3),
         model=envelope.model,
+        cursor_model=envelope.cursor_model,
         reverted_generated=list(last_reverted),
         isolation=SelfReportedIsolation(
             pid=os.getpid(),

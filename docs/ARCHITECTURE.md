@@ -203,10 +203,10 @@ sequenceDiagram
   end
   O->>G: verify isolation per task and main checkout
   O->>O: Reviewer verdicts (gitops MCP, read-only)
-  alt verdict revise and attempts < 2
+  alt verdict revise and fewer than 2 revisions have run
     O-->>W: A2A envelope with revision_feedback
   end
-  O->>G: merge approved branches into integration branch
+  O->>G: merge approved branches into tf/<run>/integrated in its own worktree
   O->>U: FinalReport (JSON + Markdown), SSE throughout
 ```
 
@@ -252,7 +252,7 @@ ADK `session.state` is the shared blackboard. The key contract is in `contracts.
 - Jev adapter: `POST https://api.typesafe.ai/v1/systemone` with `httpx`, retries on 429 and 529 honoring `Retry-After`, an in-memory cache keyed by the request body, strict Pydantic parsing of answers.
 - Where Jev is used: guard first pass (`noul`), complexity routing (`score`), review pre-checks (`noul` scope check), and relevance filtering of long tool outputs inside `worktree-fs-mcp` before they reach the worker model. Pruning at the MCP layer is deliberate: it works regardless of how CrewAI manages its own message history.
 - Other levers: strong model only for planner and reviewer, fast model for workers, identical system prompt and tool definitions first in every request so provider prefix caching applies, step and output caps from `Limits`, output truncation in tools.
-- Cursor cost: Cursor usage is billed by Cursor, not by DeepSeek. `cursor-agent --output-format json` reports a `usage` object (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`). The Cursor cost line uses that object and names its source as the CLI JSON. It does not report a usage pool. Each worker `CostLine` also records the Cursor model id for that task (`model` plus `task_id`), the number of invocations, and wall seconds. Never estimate usage the CLI did not return. DeepSeek covers only reasoning, so its token cost per run is small.
+- Cursor cost: Cursor usage is billed by Cursor, not by DeepSeek. `cursor-agent --output-format json` reports a `usage` object (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`). The cursor cost row uses that object and the Cursor model id. If the CLI returns no usage, the row says `usage not reported` and does not reuse the DeepSeek counts. The worker row is the DeepSeek brain. A single-task run prints `n/a (single task)` for the speedup lines.
 - Measurement: costs are never hand-entered. Token usage comes from the frameworks' usage metadata. Prices come from the LiteLLM cost map, and Jev's published rate (`$0.042` per million input tokens, output not billed) is a config value with its source URL beside it. The eval harness runs an ablation, Jev on versus off.
 
 ## 12. Deployment (requirement 11)
@@ -273,7 +273,7 @@ ADK `session.state` is the shared blackboard. The key contract is in `contracts.
 | Cursor edits outside `allowed_paths` | Revert those paths, emit `scope_violation`, fail the attempt through the guardrail |
 | Worker exceeds `timeout_s` | Cancel the A2A task, kill the process, `failed` |
 | Guardrail retries exhausted | `failed` with the last guard message |
-| Reviewer says `revise` twice | Final status `rejected` for that task, excluded from integration |
+| Reviewer still says `revise` after two revisions | Verdict `reject` for that task, excluded from integration |
 | Merge conflict | Reported in `IntegrationReport.conflicts`, task branches untouched, no auto-resolution |
 | Jev error | Deterministic or DeepSeek fallback, event logged, run continues |
 | Isolation proof fails | Run marked failed loudly, evidence kept, integration skipped |

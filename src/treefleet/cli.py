@@ -97,6 +97,12 @@ def _run(argv: list[str]) -> int:
     parser.add_argument("--no-checks", action="store_true", help="do not run detected checks")
     parser.add_argument("--check", action="append", default=[], help="name=command, repeatable")
     parser.add_argument("--python", default=None, help="interpreter for detected python checks")
+    parser.add_argument(
+        "--saboteur",
+        default=None,
+        metavar="TASK",
+        help="DEMO ONLY: append an instruction to break an existing test on this task",
+    )
     parsed = parser.parse_args(argv)
     worker_model = parsed.model
     settings = load_settings(Path.cwd() / "treefleet.toml")
@@ -131,6 +137,8 @@ def _run(argv: list[str]) -> int:
         plan_approval=not parsed.no_approval,
         checks=checks,
         notes=notes,
+        saboteur_task=parsed.saboteur,
+        scenario="saboteur" if parsed.saboteur else "custom",
     )
     print(request.model_dump_json())
     outcome = run_blocking(request, settings, approve=ask_plan if request.plan_approval else None)

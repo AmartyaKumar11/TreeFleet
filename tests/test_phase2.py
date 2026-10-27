@@ -275,24 +275,29 @@ def test_integrate_disjoint_hunks_and_reports_a_conflict(git_repo: tuple[Path, s
     beta = _add(repo, run_id, "beta", made)
     _commit(alpha, "README.md", "ALPHA\nmiddle\nbeta\n")
     _commit(beta, "README.md", "alpha\nmiddle\nBETA\n")
+    main_head = _git(["rev-parse", "HEAD"], repo).strip()
     clean = integrate(
         repo,
         run_id,
         ["alpha", "beta", "later"],
         {"alpha": f"tf/{run_id}/alpha", "beta": f"tf/{run_id}/beta"},
         "main",
+        worktree_root=_short_root(),
     )
     assert clean.merged == ["alpha", "beta"]
     assert clean.skipped == ["later"]
     assert clean.conflicts == []
-    assert clean.branch == f"tf/{run_id}/integration"
-    assert clean.head_sha == _git(["rev-parse", "HEAD"], repo).strip()
-    merged = _git(["show", "HEAD:README.md"], repo)
+    integrated_branch = clean.branch or ""
+    assert integrated_branch == f"tf/{run_id}/integrated"
+    assert clean.head_sha == _git(["rev-parse", integrated_branch], repo).strip()
+    assert _git(["rev-parse", "HEAD"], repo).strip() == main_head
+    merged = _git(["show", f"{integrated_branch}:README.md"], repo)
     assert "ALPHA" in merged and "BETA" in merged
     assert _git(["status", "--porcelain"], repo).strip() == ""
 
+    remove_worktree(repo, _short_root() / run_id / "integrated")
     _git(["checkout", "-B", "main", "main"], repo)
-    _git(["branch", "-D", f"tf/{run_id}/integration"], repo)
+    _git(["branch", "-D", integrated_branch], repo)
     _commit(beta, "README.md", "CHANGED\nmiddle\nbeta\n")
     alpha_sha = _git(["rev-parse", f"tf/{run_id}/alpha"], repo).strip()
     beta_sha = _git(["rev-parse", f"tf/{run_id}/beta"], repo).strip()
@@ -302,7 +307,9 @@ def test_integrate_disjoint_hunks_and_reports_a_conflict(git_repo: tuple[Path, s
         ["alpha", "beta"],
         {"alpha": f"tf/{run_id}/alpha", "beta": f"tf/{run_id}/beta"},
         "main",
+        worktree_root=_short_root(),
     )
+    made.append(_short_root() / run_id / "integrated")
     assert conflict.merged == ["alpha"]
     assert len(conflict.conflicts) == 1
     assert conflict.conflicts[0].path == "README.md"

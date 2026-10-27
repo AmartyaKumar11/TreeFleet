@@ -15,8 +15,10 @@ from treefleet.contracts import (
     FinalReport,
     GuardDecision,
     GuardStage,
+    IntegrationReport,
     IsolationReport,
     Plan,
+    ReviewVerdict,
     RouteDecision,
     RunEvent,
     RunRequest,
@@ -119,6 +121,8 @@ class RunBundle:
         self.jev: Any = None
         self.jev_calls = 0
         self.jev_tokens = 0
+        self.workers: dict[str, Any] = {}
+        self.envelopes: dict[str, Any] = {}
 
 
 def _phase(bundle: RunBundle, name: str, duration_s: float) -> None:
@@ -243,6 +247,10 @@ async def _complete(
     sink: EventSink | None = None,
     run_id: str = "",
     usage: Any = None,
+    agent_name: str = "planner",
+    instruction: str = "",
+    output_key: str = "plan",
+    tool_guard: Any = None,
 ) -> str:
     """One LlmAgent turn. output_schema stays unset (S1)."""
     from google.adk.agents import LlmAgent
@@ -252,23 +260,34 @@ async def _complete(
 
     from treefleet.orchestrator.callbacks import model_hooks, tool_hooks
 
-    before_model = after_model = before_tool = after_tool = None
+    before_model = after_model = hooked_before = after_tool = None
     if sink is not None and run_id and usage is not None:
-        before_model, after_model = model_hooks(sink, run_id, "planner", usage)
-        before_tool, after_tool = tool_hooks(sink, run_id)
+        before_model, after_model = model_hooks(sink, run_id, agent_name, usage)
+        hooked_before, after_tool = tool_hooks(sink, run_id)
+
+    def guarded(*_args: object, **kwargs: object) -> dict[str, str] | None:
+        raw = kwargs.get("args")
+        why = tool_guard(str(kwargs.get("tool_name") or ""), raw if isinstance(raw, dict) else {})
+        if why:
+            return {"error": str(why)}
+        if hooked_before is not None:
+            hooked_before(*_args, **kwargs)
+        return None
+
+    before_tool = guarded if tool_guard is not None else hooked_before
     agent = LlmAgent(
-        name="planner",
+        name=agent_name,
         model=llm,
-        instruction=_PLAN_INSTRUCTION,
-        output_key="plan",
+        instruction=instruction or _PLAN_INSTRUCTION,
+        output_key=output_key,
         before_model_callback=before_model,
         after_model_callback=after_model,
         before_tool_callback=before_tool,
         after_tool_callback=after_tool,
     )
     service = InMemorySessionService()
-    await service.create_session(app_name="planner", user_id="u", session_id="s")
-    runner = Runner(app_name="planner", agent=agent, session_service=service)
+    await service.create_session(app_name=agent_name, user_id="u", session_id="s")
+    runner = Runner(app_name=agent_name, agent=agent, session_service=service)
     message = types.Content(role="user", parts=[types.Part(text=user_text)])
     text = ""
     async for event in runner.run_async(user_id="u", session_id="s", new_message=message):
@@ -278,10 +297,10 @@ async def _complete(
         for part in content.parts or []:
             if getattr(part, "text", None):
                 text = part.text
-    session = await service.get_session(app_name="planner", user_id="u", session_id="s")
+    session = await service.get_session(app_name=agent_name, user_id="u", session_id="s")
     stored = ""
     if session is not None:
-        stored = str(session.state.get("plan") or "")
+        stored = str(session.state.get(output_key) or "")
     return stored or text
 
 
@@ -483,6 +502,8 @@ def build_report(
     isolation: IsolationReport,
     routing: list[RouteDecision],
     wall_seconds: float,
+    verdicts: list[ReviewVerdict] | None = None,
+    integration: IntegrationReport | None = None,
 ) -> FinalReport:
     task_seconds = sum(item.duration_s for item in results)
     pre_fleet = 0.0
@@ -492,6 +513,8 @@ def build_report(
     if bundle.fleet_ended and bundle.fleet_started:
         fleet_wall = max(0.0, bundle.fleet_ended - bundle.fleet_started)
     notes = list(bundle.request.notes)
+    if bundle.request.saboteur_task:
+        notes.append(f"DEMO ONLY saboteur: {bundle.request.saboteur_task}"[:300])
     for result in results:
         if result.reverted_generated:
             notes.append(("reverted generated artifacts: " + ", ".join(result.reverted_generated))[:300])
@@ -511,8 +534,9 @@ def build_report(
         goal=bundle.request.goal,
         plan=plan,
         results=results,
-        verdicts=[],
+        verdicts=verdicts or [],
         isolation=isolation,
+        integration=integration,
         routing=routing,
         notes=notes[:20],
         metrics=assemble_metrics(
@@ -522,6 +546,7 @@ def build_report(
             task_seconds=task_seconds,
             costs=costs,
             jev_calls=calls,
+            task_count=len(results),
         ),
     )
 
@@ -699,8 +724,20 @@ class ReporterAgent(BaseAgent):
         results = read_results(ctx.session.state)
         isolation = IsolationReport.model_validate(ctx.session.state[StateKey.ISOLATION])
         routing = read_routing(ctx.session.state)
+        verdicts = [ReviewVerdict.model_validate(item) for item in ctx.session.state.get(StateKey.VERDICTS, [])]
+        raw_integration = ctx.session.state.get(StateKey.INTEGRATION)
+        integration = IntegrationReport.model_validate(raw_integration) if raw_integration else None
         wall = max(0.0, time.monotonic() - self.bundle.started)
-        report = build_report(self.bundle, plan, list(results.values()), isolation, routing, wall)
+        report = build_report(
+            self.bundle,
+            plan,
+            list(results.values()),
+            isolation,
+            routing,
+            wall,
+            verdicts,
+            integration,
+        )
         folder = self.bundle.runs_root / self.bundle.run_id
         folder.mkdir(parents=True, exist_ok=True)
         body, _count = redact(report.model_dump_json(indent=2))

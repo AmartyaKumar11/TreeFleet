@@ -371,7 +371,7 @@ async def test_scripted_run_completes_without_jev_and_when_jev_fails(
     assert "deepseek-secret-value" not in events
     markdown = quiet.report.to_markdown() if quiet.report is not None else ""
     assert "## Cost" in markdown
-    assert "rate unknown" in markdown
+    assert "estimate" in markdown
 
     def boom(self, state: str, questions: dict) -> object:  # noqa: ANN001
         raise JevError("unreachable")

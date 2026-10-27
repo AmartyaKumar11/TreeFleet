@@ -12,6 +12,7 @@ from typing import Any
 
 from treefleet.checks import python_prefix
 from treefleet.contracts import (
+    Limits,
     RunEvent,
     SelfReportedIsolation,
     StateKey,
@@ -26,7 +27,15 @@ from treefleet.git.worktrees import GitError, branch_name, create_worktree, kill
 from treefleet.orchestrator.agents import RunBundle, _adk_event, _phase, read_plan, read_routing
 from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
 
+_WAIT_S = 600
 _START = b"<a2a_datapart_json>"
+
+
+def task_is_saboteur(flag: str | None, task_id: str) -> bool:
+    """The named task, including a planner prefix such as add-."""
+    return bool(flag) and (task_id == flag or task_id.endswith(flag))
+
+
 _END = b"</a2a_datapart_json>"
 
 
@@ -71,6 +80,7 @@ def _failed(envelope: WorkerTaskEnvelope, worktree: Path | str, message: str, pi
         status="failed",
         branch=branch,
         model=envelope.model,
+        cursor_model=envelope.cursor_model,
         isolation=SelfReportedIsolation(
             pid=max(pid, 1),
             cwd=str(worktree),
@@ -122,14 +132,14 @@ async def _via_remote(url: str, token: str, envelope: WorkerTaskEnvelope) -> Wor
         parts=[types.Part(inline_data=types.Blob(mime_type="text/plain", data=_START + raw + _END))],
     )
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(headers=headers, timeout=180) as http:
+    async with httpx.AsyncClient(headers=headers, timeout=_WAIT_S) as http:
         remote_cls: Any = RemoteA2aAgent
         agent = remote_cls(
             name="w_" + envelope.task.id.replace("-", "_"),
             agent_card=url + "/.well-known/agent-card.json",
             description="One TreeFleet worker.",
             httpx_client=http,
-            timeout=180,
+            timeout=_WAIT_S,
         )
         service = InMemorySessionService()
         session_id = "s_" + envelope.task.id.replace("-", "_")
@@ -151,7 +161,7 @@ async def _via_sdk(url: str, token: str, envelope: WorkerTaskEnvelope) -> Worker
     from a2a.types import DataPart, Message, MessageSendParams, Part, Role, SendMessageRequest, Task
 
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(headers=headers, timeout=180) as http:
+    async with httpx.AsyncClient(headers=headers, timeout=_WAIT_S) as http:
         client = A2AClient(http, url=url)
         message = Message(
             message_id=str(uuid.uuid4()),
@@ -302,6 +312,8 @@ def _fleet_base():
             fakes = self.bundle.fakes
             if fakes is not None and fakes.kill_task == task.id:
                 asyncio.get_running_loop().call_later(0.4, lambda pid=proc.popen.pid: kill_tree(pid))
+            self.bundle.workers[task.id] = proc
+            self.bundle.envelopes[task.id] = envelope
             result, note = await dispatch(proc.url, self.bundle.token, envelope)
             _event(
                 self.bundle,
@@ -319,14 +331,19 @@ def _fleet_base():
             checks = {
                 name: self.bundle.request.checks[name] for name in task.check_ids if name in self.bundle.request.checks
             }
+            # DEMO ONLY: the break must land in an existing test, which the plan does not allow.
+            if task_is_saboteur(self.bundle.request.saboteur_task, task.id) and "tests" not in task.allowed_paths:
+                task = task.model_copy(update={"allowed_paths": [*task.allowed_paths, "tests"]})
             return WorkerTaskEnvelope(
                 run_id=self.bundle.run_id,
                 task=task,
                 model=self.bundle.settings.models.fast,
                 cursor_model=route.cursor_model,
                 checks=checks,
+                limits=Limits(timeout_s=_WAIT_S),
                 base_sha=_base_sha(self.bundle.repo, self.bundle.request.base_ref),
                 upstream=upstream,
+                saboteur=task_is_saboteur(self.bundle.request.saboteur_task, task.id),
             )
 
     return FleetAgent

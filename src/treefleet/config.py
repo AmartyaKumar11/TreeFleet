@@ -85,8 +85,20 @@ class Pricing(_Strict):
     jev_source_url: str
     deepseek_input_per_million: float | None = None
     deepseek_output_per_million: float | None = None
+    deepseek_flash_input_per_million: float | None = None
+    deepseek_flash_cache_hit_per_million: float | None = None
+    deepseek_flash_output_per_million: float | None = None
+    deepseek_pro_input_per_million: float | None = None
+    deepseek_pro_cache_hit_per_million: float | None = None
+    deepseek_pro_output_per_million: float | None = None
     cursor_input_per_million: float | None = None
     cursor_output_per_million: float | None = None
+    cursor_composer_input_per_million: float | None = None
+    cursor_composer_cache_read_per_million: float | None = None
+    cursor_composer_output_per_million: float | None = None
+    cursor_composer_fast_input_per_million: float | None = None
+    cursor_composer_fast_cache_read_per_million: float | None = None
+    cursor_composer_fast_output_per_million: float | None = None
 
 
 class Guards(_Strict):

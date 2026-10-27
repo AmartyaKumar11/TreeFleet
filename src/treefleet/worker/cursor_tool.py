@@ -7,7 +7,7 @@ from pathlib import Path
 from crewai.tools import tool
 
 from treefleet.contracts import CursorUsage
-from treefleet.cursor_run import run_cursor
+from treefleet.cursor_run import cursor_instruction, run_cursor
 from treefleet.events import EventSink
 
 
@@ -23,6 +23,8 @@ def make_cursor_tool(
     run_id: str | None = None,
     usages: list[CursorUsage] | None = None,
     files: list[str] | None = None,
+    revision: str = "",
+    saboteur: bool = False,
 ):
     launched = 0
 
@@ -36,7 +38,7 @@ def make_cursor_tool(
         result = run_cursor(
             cli=cli,
             worktree=worktree,
-            instruction=instruction,
+            instruction=cursor_instruction(instruction, revision=revision, saboteur=saboteur),
             allowed=allowed,
             denied=denied,
             model=model,

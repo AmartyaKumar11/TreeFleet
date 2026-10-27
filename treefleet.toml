@@ -35,11 +35,31 @@ worktree_other = "/tmp/tf-wt"
 orchestrator_venv = ".venv-orch"
 worker_venv = ".venv-worker"
 
+# --saboteur TASK is a demo-only CLI flag. It is off unless you pass it.
+# It appends an instruction to break an existing test. Do not use it for real work.
+
 [pricing]
-# Rates checked 2026-10-27. DeepSeek and Cursor prices are unset on purpose.
-# DeepSeek: https://api-docs.deepseek.com/quick_start/pricing
-# Cursor is subscription-billed. An API-equivalent rate, if set, is labeled "estimate".
-# Lookup: https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
+# DeepSeek off-peak cache-miss input, cache-hit input, and output. Peak is double.
+# Fetched 2026-10-27 from https://api-docs.deepseek.com/quick_start/pricing
+# Peak is Mon-Fri 01:00-04:00 and 06:00-10:00 UTC.
+deepseek_flash_input_per_million = 0.15
+deepseek_flash_cache_hit_per_million = 0.003
+deepseek_flash_output_per_million = 0.6
+# deepseek-v4-pro off-peak. Same source and fetch date.
+deepseek_pro_input_per_million = 0.66
+deepseek_pro_cache_hit_per_million = 0.022
+deepseek_pro_output_per_million = 1.98
+# Composer 2.5 additional-usage rates. API-equivalent, labeled estimate.
+# Fetched 2026-10-27 from https://cursor.com/docs/models
+# Cache write is listed as "-" and is not priced.
+cursor_composer_input_per_million = 0.5
+cursor_composer_cache_read_per_million = 0.2
+cursor_composer_output_per_million = 2.5
+# Composer 2.5 (Fast). Same source and fetch date. estimate.
+cursor_composer_fast_input_per_million = 3
+cursor_composer_fast_cache_read_per_million = 0.5
+cursor_composer_fast_output_per_million = 15
+# cursor-grok-4.6-high is not on that page (Grok 4.6 is listed, the "high" id is not). Rate unset.
 litellm_url = "https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
 jev_usd_per_million_input = 0.042
 jev_source_url = "https://api.typesafe.ai/v1/systemone"

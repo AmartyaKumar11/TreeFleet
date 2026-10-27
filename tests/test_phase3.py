@@ -485,6 +485,21 @@ def test_worker_bad_draft_retries_once_then_fails(tmp_path: Path) -> None:
         remove_worktree(repo, worktree)
 
 
+def test_worker_keeps_cursor_edit_when_notes_are_not_json(tmp_path: Path) -> None:
+    repo, worktree, _run = _git_worktree(tmp_path)
+    try:
+        payload = _worker(
+            {"TREEFLEET_MOCK_LLM": "edit-bad", "TREEFLEET_FAKE_EDIT": "readme"},
+            _envelope(worktree),
+            worktree,
+        )
+        assert payload["status"] == "done"
+        assert payload["commit_made"] is True
+        assert (worktree / "README.md").read_text(encoding="utf-8").startswith("shim readme")
+    finally:
+        remove_worktree(repo, worktree)
+
+
 def test_worker_revision_reuses_branch(tmp_path: Path) -> None:
     repo, worktree, _run = _git_worktree(tmp_path)
     try:
