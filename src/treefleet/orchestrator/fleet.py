@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from treefleet.checks import python_prefix
 from treefleet.contracts import (
     RunEvent,
     SelfReportedIsolation,
@@ -21,7 +23,7 @@ from treefleet.git.canary import write_canary
 from treefleet.git.cursor_scope import ScopeViolation
 from treefleet.git.proofs import snapshot_main, snapshot_siblings
 from treefleet.git.worktrees import GitError, branch_name, create_worktree, kill_tree, run_git
-from treefleet.orchestrator.agents import RunBundle, _adk_event, read_plan, read_routing
+from treefleet.orchestrator.agents import RunBundle, _adk_event, _phase, read_plan, read_routing
 from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
 
 _START = b"<a2a_datapart_json>"
@@ -209,6 +211,7 @@ def _fleet_base():
             write_canary(self.bundle.repo, self.bundle.run_id)
             self.bundle.main_before = snapshot_main(self.bundle.repo)
             self.bundle.siblings_before = snapshot_siblings(self.bundle.repo)
+            self.bundle.fleet_started = time.monotonic()
             plan = read_plan(ctx.session.state)
             routes = {item.task_id: item for item in read_routing(ctx.session.state)}
             results: dict[str, WorkerResult] = {}
@@ -222,7 +225,8 @@ def _fleet_base():
                         for item in done:
                             results[item.task_id] = item
             finally:
-                pass
+                self.bundle.fleet_ended = time.monotonic()
+                _phase(self.bundle, "fleet", self.bundle.fleet_ended - self.bundle.fleet_started)
             yield _adk_event(
                 ctx,
                 self.name,
@@ -270,6 +274,10 @@ def _fleet_base():
                 return _failed(envelope, worktree, str(exc), 1)
             port = free_port(self.bundle.port_start, self.bundle.ports)
             self.bundle.ports.add(port)
+            extra = _extra_env(self.bundle)
+            prefix = python_prefix(dict(self.bundle.request.checks))
+            if prefix:
+                extra = {**extra, "TREEFLEET_PYTHON_DIR": prefix}
             try:
                 proc = await asyncio.to_thread(
                     spawn_worker,
@@ -279,7 +287,7 @@ def _fleet_base():
                     task_id=task.id,
                     token=self.bundle.token,
                     port=port,
-                    env=worker_env(self.bundle.token, _extra_env(self.bundle)),
+                    env=worker_env(self.bundle.token, extra),
                     log_path=self.bundle.runs_root / self.bundle.run_id / f"{task.id}.log",
                     owner=self.bundle.procs,
                 )

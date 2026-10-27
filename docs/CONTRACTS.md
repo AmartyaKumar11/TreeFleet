@@ -87,6 +87,10 @@ S10, with `--sandbox disabled`, printed one JSON result that included `usage.inp
 | `model_override` | `TaskSpec`, default null | Cursor model id for that task only |
 | `cursor_model` | `WorkerTaskEnvelope`, default null | Id passed to `cursor-agent`, or null to omit `--model` |
 | `base_sha` | `WorkerTaskEnvelope`, default null | Run base commit. File lists diff this sha through `HEAD`, including a revision's earlier commits |
+| `notes` | `RunRequest` and `FinalReport`, default empty | Setup commands that were not run, and checks dropped because they failed on the clean base. Each note is at most 300 characters, at most 20 notes |
+| `fleet_wall_seconds` | `RunMetrics`, default 0 | Time from the start of the fleet until the last worker returns |
+| `task_seconds` | `RunMetrics`, default 0 | Sum of task durations. `fleet_speedup` is this divided by `fleet_wall_seconds` |
+| `sequential_seconds` | `RunMetrics` | Pre-fleet overhead plus `task_seconds`. `speedup` is this divided by `wall_seconds` |
 | `cursor_model` | `RouteDecision`, default null | Id the router resolved |
 | `source` | `RouteDecision` | `override`, `run`, `router`, or `default`. Older values `jev` and `heuristic` still validate |
 
@@ -175,6 +179,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, or `default`, and `complexity`)
+- `phase` (payload: `name` of `scan`, `planner`, `router`, or `fleet`, and `duration_s`)
 - `awaiting_approval` (payload: `approved`) when `RunRequest.plan_approval` is true. The CLI prints the plan and asks `Approve plan? [y/N]` unless `--no-approval`. A decline exits without creating worktrees. The HTTP approval endpoint is Phase 8.
 - `mcp.call` (payload: server, tool, ok, error code)
 - `protocol_error`

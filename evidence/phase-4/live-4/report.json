@@ -1,0 +1,386 @@
+{
+  "schema_id": "treefleet.final_report.v1",
+  "run_id": "55d0986a",
+  "goal": "Add unit tests for the notifications module and the admin module, and document the exported types in the TypeScript client.",
+  "plan": {
+    "goal": "Add pytest unit tests for the notifications and admin modules, and document the exported types in the TypeScript client.",
+    "rationale": "The notifications and admin modules lack dedicated unit coverage, while the TypeScript client's exported types need doc comments to clarify their public API surface.",
+    "tasks": [
+      {
+        "id": "add-notifications-tests",
+        "title": "Add unit tests for notifications module",
+        "instructions": "Create tests/test_notifications.py with pytest unit tests covering the public functions and classes in src/notifications.py. Mock external dependencies and side effects. Follow existing pytest conventions used in tests/test_auth.py, tests/test_users.py, and tests/test_orders.py.",
+        "allowed_paths": [
+          "tests/test_notifications.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "add-admin-tests",
+        "title": "Add unit tests for admin module",
+        "instructions": "Create tests/test_admin.py with pytest unit tests covering the public functions and classes in src/admin.py. Mock external dependencies and use pytest fixtures where appropriate. Follow existing pytest conventions used elsewhere in the tests directory.",
+        "allowed_paths": [
+          "tests/test_admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "document-ts-exported-types",
+        "title": "Document exported TypeScript client types",
+        "instructions": "Add JSDoc comments to every exported interface, type alias, and exported constant in src/client/types.ts. Include descriptions, property or member meanings, and concise examples where helpful. Do not alter runtime behavior or type definitions themselves.",
+        "allowed_paths": [
+          "src/client/types.ts"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "npm-test",
+          "test"
+        ],
+        "complexity": "trivial",
+        "model_override": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "55d0986a",
+      "task_id": "add-notifications-tests",
+      "attempt": 1,
+      "status": "done",
+      "summary": "src/__pycache__/__init__.cpython-312.pyc +0 -0, src/__pycache__/auth.cpython-312.pyc +0 -0, src/__pycache__/notifications.cpython-312.pyc +0 -0, src/__pycache__/orders.cpython-312.pyc +0 -0, src/__pycache__/users.cpython-312.pyc +0 -0, tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc +0 -0, tests/test_notifications.py +31 -0",
+      "notes": "Created tests/test_notifications.py with pytest tests for the public send_email and send_sms functions in src/notifications.py. Tests follow the existing test conventions, mock the module logger to avoid side effects, verify return values, and assert expected logging calls. Only tests/test_notifications.py was changed; no source files were modified. git_diff returned no tracked diff, consistent with the new test file being untracked.",
+      "branch": "tf/55d0986a/add-notifications-tests",
+      "head_sha": "3587f94362a6e72f724639c41f0043509bc0c40f",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "src/__pycache__/__init__.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/auth.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/notifications.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/orders.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/users.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/test_notifications.py",
+          "additions": 31,
+          "deletions": 0
+        }
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": "................................                                         [100%]\n32 passed in 0.10s",
+          "stderr_tail": "",
+          "duration_s": 0.875,
+          "elided_by_jev": false
+        }
+      ],
+      "steps_used": 0,
+      "duration_s": 53.469,
+      "usage": {
+        "input_tokens": 16918,
+        "output_tokens": 1494,
+        "cached_input_tokens": 61125
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 19500,
+        "cwd": "C:\\wt\\55d0986a\\add-notifications-tests",
+        "toplevel": "C:/wt/55d0986a/add-notifications-tests",
+        "branch": "tf/55d0986a/add-notifications-tests",
+        "mcp_root": "C:\\wt\\55d0986a\\add-notifications-tests"
+      },
+      "error": null
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "55d0986a",
+      "task_id": "add-admin-tests",
+      "attempt": 1,
+      "status": "done",
+      "summary": "src/__pycache__/__init__.cpython-312.pyc +0 -0, src/__pycache__/auth.cpython-312.pyc +0 -0, src/__pycache__/notifications.cpython-312.pyc +0 -0, src/__pycache__/orders.cpython-312.pyc +0 -0, src/__pycache__/users.cpython-312.pyc +0 -0, tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc +0 -0, tests/test_admin.py +60 -0",
+      "notes": "Created tests/test_admin.py via cursor-agent (single call) targeting the public API of src/admin.py: dashboard() and audit_log(). Conventions follow tests/test_orders.py and tests/test_users.py: top-level imports, plain test_* functions, and a local _make_valid_token() helper building a base64url JWT-like token with a future exp claim. External dependencies are mocked at the point of use (src.admin namespace) with pytest fixtures: mock_validate_token patching src.admin.validate_token and mock_check_permissions patching src.admin.check_permissions. Coverage: (1) test_dashboard_returns_metrics — asserts total_users=1000, total_orders=5000, revenue=250000.00, and that validate_token/check_permissions are each called once with the expected args ('admin', 'dashboard:read'); (2) test_dashboard_propagates_token_validation_error — validate_token raises ValueError('Invalid token'), error propagates and check_permissions is not called; (3) test_dashboard_propagates_permission_error — check_permissions raises after successful token validation; (4) test_audit_log_records_action — happy path asserting action/details/timestamp and that validate_token was called with the token; (5) test_audit_log_propagates_token_validation_error — invalid token raises and no result is returned. Unused imports in admin (get_user, create_order, charge, send_email) are not patched since dashboard()/audit_log() never invoke them. Note: git_diff returned empty output because tests/test_admin.py is a newly created, still-untracked file, so there is no tracked diff to display; the only path changed by this task was tests/test_admin.py (no other files modified). Verify with: python -m pytest tests/test_admin.py -q.",
+      "branch": "tf/55d0986a/add-admin-tests",
+      "head_sha": "1494de7bf914900a779b02eea9a720e174971981",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "src/__pycache__/__init__.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/auth.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/notifications.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/orders.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/users.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/test_admin.py",
+          "additions": 60,
+          "deletions": 0
+        }
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": ".................................                                        [100%]\n33 passed in 0.15s",
+          "stderr_tail": "",
+          "duration_s": 0.968,
+          "elided_by_jev": false
+        }
+      ],
+      "steps_used": 0,
+      "duration_s": 73.312,
+      "usage": {
+        "input_tokens": 15246,
+        "output_tokens": 2384,
+        "cached_input_tokens": 57236
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 45644,
+        "cwd": "C:\\wt\\55d0986a\\add-admin-tests",
+        "toplevel": "C:/wt/55d0986a/add-admin-tests",
+        "branch": "tf/55d0986a/add-admin-tests",
+        "mcp_root": "C:\\wt\\55d0986a\\add-admin-tests"
+      },
+      "error": null
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "55d0986a",
+      "task_id": "document-ts-exported-types",
+      "attempt": 1,
+      "status": "done",
+      "summary": "src/client/types.ts +83 -0",
+      "notes": "Added JSDoc comments to all six exported interfaces in src/client/types.ts: CreateOrderRequest, Order, ChargeRequest, ChargeResult, LoginRequest, and Session. Each has a descriptive block comment, per-property documentation, and concise examples where helpful. No exported type aliases or constants exist in the file. Only comments were added; type definitions, names, values, imports/exports, and runtime behavior were unchanged. git_diff confirms changes are limited to src/client/types.ts.",
+      "branch": "tf/55d0986a/document-ts-exported-types",
+      "head_sha": "bf2c10b29e9a63541deac75c48685cbbaca574ae",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "src/client/types.ts",
+          "additions": 83,
+          "deletions": 0
+        }
+      ],
+      "checks": [
+        {
+          "name": "npm-test",
+          "command": "npm test",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": "> test\n> node --experimental-strip-types --test tests/client.test.ts\n\nTAP version 13\n# (node:66884) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 21.5972\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 0.561\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 0.4315\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 23.7023\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 191.4531",
+          "stderr_tail": "",
+          "duration_s": 0.625,
+          "elided_by_jev": false
+        },
+        {
+          "name": "test",
+          "command": "node --experimental-strip-types --test tests/client.test.ts",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": "TAP version 13\n# (node:18952) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 19.3872\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 0.6153\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 0.4642\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 21.6382\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 149.3563",
+          "stderr_tail": "",
+          "duration_s": 0.203,
+          "elided_by_jev": false
+        }
+      ],
+      "steps_used": 0,
+      "duration_s": 63.531,
+      "usage": {
+        "input_tokens": 13836,
+        "output_tokens": 1377,
+        "cached_input_tokens": 72401
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 65152,
+        "cwd": "C:\\wt\\55d0986a\\document-ts-exported-types",
+        "toplevel": "C:/wt/55d0986a/document-ts-exported-types",
+        "branch": "tf/55d0986a/document-ts-exported-types",
+        "mcp_root": "C:\\wt\\55d0986a\\document-ts-exported-types"
+      },
+      "error": null
+    }
+  ],
+  "verdicts": [],
+  "isolation": {
+    "tasks": [
+      {
+        "task_id": "add-notifications-tests",
+        "worktree_path": "C:\\wt\\55d0986a\\add-notifications-tests",
+        "branch": "tf/55d0986a/add-notifications-tests",
+        "pid": 19500,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "add-admin-tests",
+        "worktree_path": "C:\\wt\\55d0986a\\add-admin-tests",
+        "branch": "tf/55d0986a/add-admin-tests",
+        "pid": 45644,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "document-ts-exported-types",
+        "worktree_path": "C:\\wt\\55d0986a\\document-ts-exported-types",
+        "branch": "tf/55d0986a/document-ts-exported-types",
+        "pid": 65152,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      }
+    ],
+    "main": {
+      "status_before": [],
+      "status_after": [],
+      "head_before": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "head_after": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "canary_present": true,
+      "ok": true
+    },
+    "ok": true
+  },
+  "integration": null,
+  "routing": [
+    {
+      "task_id": "add-notifications-tests",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "add-admin-tests",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "document-ts-exported-types",
+      "model": "composer-2.5",
+      "complexity": "trivial",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    }
+  ],
+  "metrics": {
+    "wall_seconds": 126.25,
+    "sequential_seconds": 235.99899999991806,
+    "fleet_wall_seconds": 79.29700000002049,
+    "task_seconds": 190.312,
+    "costs": [],
+    "jev_calls": 0,
+    "speedup": 1.87,
+    "fleet_speedup": 2.4,
+    "total_usd": 0.0
+  },
+  "guard_decisions": [],
+  "notes": [
+    "pip-install-pytest is setup (python -m pip install pytest) and was not run",
+    "baseline checks 2.671s"
+  ]
+}

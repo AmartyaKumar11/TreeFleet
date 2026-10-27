@@ -29,6 +29,7 @@ _KEEP = (
     "LOCALAPPDATA",
     "HOMEDRIVE",
     "HOMEPATH",
+    "COMSPEC",
 )
 
 

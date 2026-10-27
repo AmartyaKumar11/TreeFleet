@@ -150,6 +150,7 @@ class RunRequest(_Model):
     checks: dict[Slug, Annotated[str, StringConstraints(min_length=1, max_length=300)]] = Field(
         default_factory=dict, max_length=8
     )
+    notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
     scenario: Scenario = "custom"
     use_jev: bool = True
     worker_model: ModelChoice = "router"
@@ -544,6 +545,8 @@ class RunMetrics(_Model):
 
     wall_seconds: float = Field(ge=0)
     sequential_seconds: float = Field(ge=0)
+    fleet_wall_seconds: float = Field(default=0, ge=0)
+    task_seconds: float = Field(default=0, ge=0)
     costs: list[CostLine] = Field(default_factory=list)
     jev_calls: int = Field(default=0, ge=0)
 
@@ -554,8 +557,40 @@ class RunMetrics(_Model):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def fleet_speedup(self) -> float:
+        if self.fleet_wall_seconds <= 0:
+            return 0.0
+        return round(self.task_seconds / self.fleet_wall_seconds, 2)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def total_usd(self) -> float:
         return round(sum(c.usd for c in self.costs), 6)
+
+    def definitions(self) -> str:
+        """One line each for the end-to-end clock and the fleet clock."""
+        return "\n".join(
+            [
+                f"- Wall time: {self.wall_seconds:.1f}s (end-to-end clock, including planning)",
+                "- Sequential time: "
+                f"{self.sequential_seconds:.1f}s (pre-fleet overhead plus the sum of task durations)",
+                f"- Speedup: {self.speedup}x (sequential time divided by wall time)",
+                f"- Fleet wall: {self.fleet_wall_seconds:.1f}s (time while workers run)",
+                f"- Fleet speedup: {self.fleet_speedup}x (sum of task durations divided by fleet wall)",
+                f"- Total cost: ${self.total_usd:.4f}",
+                f"- Jev calls: {self.jev_calls}",
+            ]
+        )
+
+
+def assemble_metrics(*, wall: float, pre_fleet: float, fleet_wall: float, task_seconds: float) -> RunMetrics:
+    """End-to-end sequential time is the pre-fleet overhead plus the sum of task durations."""
+    return RunMetrics(
+        wall_seconds=max(0.0, wall),
+        sequential_seconds=max(0.0, pre_fleet) + max(0.0, task_seconds),
+        fleet_wall_seconds=max(0.0, fleet_wall),
+        task_seconds=max(0.0, task_seconds),
+    )
 
 
 class FinalReport(_Model):
@@ -570,6 +605,7 @@ class FinalReport(_Model):
     routing: list[RouteDecision] = Field(default_factory=list)
     metrics: RunMetrics
     guard_decisions: list[GuardDecision] = Field(default_factory=list)
+    notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
 
     def to_markdown(self) -> str:
         """Deterministic Markdown rendering. The LLM never writes the report."""
@@ -611,16 +647,10 @@ class FinalReport(_Model):
             lines += ["", "## Integration", "", f"Merged: {', '.join(i.merged) or 'none'}"]
             for c in i.conflicts:
                 lines.append(f"- Conflict in `{c.path}` between {', '.join(c.between)}")
-        lines += [
-            "",
-            "## Metrics",
-            "",
-            f"- Wall time: {self.metrics.wall_seconds:.1f}s",
-            f"- Sequential estimate: {self.metrics.sequential_seconds:.1f}s",
-            f"- Speedup: {self.metrics.speedup}x",
-            f"- Total cost: ${self.metrics.total_usd:.4f}",
-            f"- Jev calls: {self.metrics.jev_calls}",
-        ]
+        if self.notes:
+            lines += ["", "## Notes", ""]
+            lines.extend(f"- {note}" for note in self.notes)
+        lines += ["", "## Metrics", "", self.metrics.definitions()]
         return "\n".join(lines) + "\n"
 
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
-from treefleet.checks import detect_checks
+from treefleet.checks import detect_checks, select_checks
 from treefleet.config import load_settings
 from treefleet.contracts import RunRequest
 from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers
@@ -22,21 +23,42 @@ def main(argv: list[str] | None = None) -> int:
     return _run(args)
 
 
-def _confirmed_checks(repo: Path, no_checks: bool, yes: bool, extra: list[str]) -> dict[str, str]:
+def _confirmed_checks(
+    repo: Path,
+    no_checks: bool,
+    yes: bool,
+    extra: list[str],
+    python: str | None,
+    worktree_root: Path,
+) -> tuple[dict[str, str], list[str]]:
     checks = {} if no_checks else detect_checks(repo)
     for item in extra:
         name, sep, command = item.partition("=")
         if not sep or not name.strip() or not command.strip():
             raise SystemExit("check must be name=command")
         checks[name.strip()] = command.strip()
-    for name, command in checks.items():
+    if not checks:
+        return {}, []
+    started = time.monotonic()
+    selected = select_checks(
+        repo,
+        checks,
+        worktree_root=worktree_root,
+        explicit=Path(python) if python else None,
+    )
+    notes = [*selected.notes, f"baseline checks {time.monotonic() - started:.3f}s"]
+    for note in notes:
+        print(note)
+    if selected.python_path:
+        print(f"python: {selected.python_path} ({selected.python_source})")
+    for name, command in selected.checks.items():
         print(f"{name}: {command}")
-    if not checks or yes or no_checks or extra:
-        return checks
+    if not selected.checks or yes or no_checks or extra:
+        return selected.checks, notes
     answer = input("Use these checks? [Y/n] ")
     if answer.strip().lower() in {"n", "no"}:
-        return {}
-    return checks
+        return {}, notes
+    return selected.checks, notes
 
 
 def _models() -> int:
@@ -66,6 +88,7 @@ def _run(argv: list[str]) -> int:
     parser.add_argument("--yes", action="store_true", help="accept detected checks without asking")
     parser.add_argument("--no-checks", action="store_true", help="do not run detected checks")
     parser.add_argument("--check", action="append", default=[], help="name=command, repeatable")
+    parser.add_argument("--python", default=None, help="interpreter for detected python checks")
     parsed = parser.parse_args(argv)
     worker_model = parsed.model
     settings = load_settings(Path.cwd() / "treefleet.toml")
@@ -85,13 +108,21 @@ def _run(argv: list[str]) -> int:
     except UnknownModelError as exc:
         raise SystemExit(str(exc)) from None
     repo = Path(parsed.repo or Path.cwd())
-    checks = _confirmed_checks(repo, parsed.no_checks, parsed.yes, parsed.check)
+    checks, notes = _confirmed_checks(
+        repo,
+        parsed.no_checks,
+        parsed.yes,
+        parsed.check,
+        parsed.python,
+        Path(settings.worktree_root),
+    )
     request = RunRequest(
         goal=parsed.goal,
         repo=str(repo),
         worker_model=worker_model,
         plan_approval=not parsed.no_approval,
         checks=checks,
+        notes=notes,
     )
     print(request.model_dump_json())
     outcome = run_blocking(request, settings, approve=ask_plan if request.plan_approval else None)

@@ -22,7 +22,7 @@ from treefleet.git.worktrees import list_worktrees, remove_worktree
 from treefleet.mcp_servers.worktree_fs_server import execute_check
 from treefleet.orchestrator.agents import assign_checks, plan_goal, plan_problems, scan_text
 from treefleet.orchestrator.pipeline import OfflineFakes, ask_plan, cleanup_run, run_pipeline
-from treefleet.worker.spawner import before_spawn, worker_pids
+from treefleet.worker.spawner import before_spawn, worker_env, worker_pids
 
 pytestmark = pytest.mark.phase4
 
@@ -692,12 +692,123 @@ def _payload(text: str) -> dict:
     return json.loads(next(line for line in text.splitlines() if line.startswith("{")))
 
 
+def test_setup_commands_are_never_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from treefleet.checks import is_setup, select_checks
+
+    assert is_setup("python -m pip install pytest")
+    assert is_setup("npm ci")
+    assert is_setup("npm install")
+    assert is_setup("uv sync")
+    assert not is_setup("npm test")
+    assert not is_setup("python -m pytest -q")
+    repo = tmp_path / "repo"
+    _git(repo)
+    ran = tmp_path / "ran.txt"
+    target = str(ran).replace("\\", "/")
+    py = sys.executable
+    calls: list[list[str]] = []
+    real_run = __import__("subprocess").run
+
+    def _spy(argv, *args, **kwargs):  # noqa: ANN001
+        if isinstance(argv, list):
+            calls.append([str(part) for part in argv])
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr("treefleet.checks.subprocess.run", _spy)
+    selected = select_checks(
+        repo,
+        {
+            "pip-install-pytest": "python -m pip install pytest",
+            "npm-ci": "npm ci",
+            "ok": f"{py} -c \"open(r'{target}', 'w').write('1')\"",
+            "bad": f'{py} -c "import sys; raise SystemExit(3)"',
+        },
+        worktree_root=Path(r"C:\tf"),
+    )
+    assert "pip-install-pytest" not in selected.checks
+    assert "npm-ci" not in selected.checks
+    assert "ok" in selected.checks
+    assert "bad" not in selected.checks
+    assert ran.is_file()
+    assert any("setup" in note and "not run" in note for note in selected.notes)
+    assert any(note.startswith("dropped bad:") for note in selected.notes)
+    assert not any("pip" in part for argv in calls for part in argv)
+    assert not any(item.branch == "tf/probe01/probe" for item in list_worktrees(repo))
+
+
+def test_python_resolution_order(tmp_path: Path) -> None:
+    from treefleet.checks import resolve_python, rewrite_python
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    venv_py = repo / ".venv" / "Scripts" / "python.exe"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_bytes(b"")
+    flag = tmp_path / "flag-python.exe"
+    flag.write_bytes(b"")
+    path_py = tmp_path / "path-python.exe"
+    path_py.write_bytes(b"")
+    tried: list[Path] = []
+
+    def _none(exe: Path) -> bool:
+        tried.append(exe)
+        return False
+
+    found, source = resolve_python(repo, flag, imports=_none, path_exes=[path_py])
+    assert found is None and source == ""
+    assert tried == [flag, venv_py, path_py, Path(sys.executable)]
+    tried.clear()
+
+    def _venv(exe: Path) -> bool:
+        tried.append(exe)
+        return exe == venv_py
+
+    found, source = resolve_python(repo, None, imports=_venv, path_exes=[path_py])
+    assert found == venv_py and source == ".venv"
+    assert tried == [venv_py]
+    py = Path(r"D:\py\python.exe")
+    assert rewrite_python("python -m pytest -q", py) == r"D:\py\python.exe -m pytest -q"
+    assert rewrite_python("npm test", py) == "npm test"
+    assert rewrite_python(r"C:\other\python.exe -m pytest -q", py) == r"C:\other\python.exe -m pytest -q"
+
+
+def test_worker_env_keeps_comspec_so_npm_can_run_scripts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COMSPEC", r"C:\WINDOWS\system32\cmd.exe")
+    env = worker_env("token")
+    assert env.get("COMSPEC") == r"C:\WINDOWS\system32\cmd.exe"
+
+
+def test_check_env_prepends_the_interpreter_folder(monkeypatch: pytest.MonkeyPatch) -> None:
+    from treefleet.checks import check_env
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
+    monkeypatch.setenv("CURSOR_API_KEY", "cursor-secret-value")
+    monkeypatch.setenv("TREEFLEET_PYTHON_DIR", r"D:\py")
+    env = check_env()
+    assert env["PATH"].startswith("D:\\py" + os.pathsep)
+    assert "DEEPSEEK_API_KEY" not in env
+    assert "CURSOR_API_KEY" not in env
+    assert "TREEFLEET_PYTHON_DIR" not in env
+
+
+def _probe_repo(repo: Path) -> None:
+    _git(repo)
+    workflow = repo / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    (workflow / "ci.yml").write_text(
+        "jobs:\n  test:\n    steps:\n"
+        "      - run: python -m pip install pytest\n"
+        "      - run: python -c \"open('kept.txt','w').write('1')\"\n"
+        '      - run: python -c "import sys; raise SystemExit(3)"\n',
+        encoding="utf-8",
+    )
+
+
 def test_cli_asks_before_using_detected_checks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = tmp_path / "repo"
-    repo.mkdir()
-    _ci_repo(repo)
+    _probe_repo(repo)
     _cli(monkeypatch)
     prompts: list[str] = []
 
@@ -707,16 +818,18 @@ def test_cli_asks_before_using_detected_checks(
 
     monkeypatch.setattr("builtins.input", _answer)
     assert main([GOAL, "--repo", str(repo), "--no-approval"]) == 0
+    out = capsys.readouterr().out
     assert prompts == ["Use these checks? [Y/n] "]
-    assert _payload(capsys.readouterr().out)["checks"] == {}
+    assert "not run" in out
+    assert "dropped " in out
+    assert _payload(out)["checks"] == {}
 
 
 def test_cli_yes_no_checks_and_explicit_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = tmp_path / "repo"
-    repo.mkdir()
-    _ci_repo(repo)
+    _probe_repo(repo)
     _cli(monkeypatch)
 
     def _refuse(_prompt: str) -> str:
@@ -724,10 +837,18 @@ def test_cli_yes_no_checks_and_explicit_check(
 
     monkeypatch.setattr("builtins.input", _refuse)
     assert main([GOAL, "--repo", str(repo), "--yes", "--no-approval"]) == 0
-    yes = _payload(capsys.readouterr().out)
-    assert yes["checks"]["pytest"] == "python -m pytest -q"
+    yes_out = capsys.readouterr().out
+    yes = _payload(yes_out)
+    assert "pip install" not in " ".join(yes["checks"].values())
+    assert any(
+        "open('kept.txt','w').write('1')" in command and not command.startswith("python ")
+        for command in yes["checks"].values()
+    )
+    assert "not run" in yes_out
+    assert "(" in yes_out and "python:" in yes_out
     assert main([GOAL, "--repo", str(repo), "--no-checks", "--no-approval"]) == 0
     assert _payload(capsys.readouterr().out)["checks"] == {}
-    assert main([GOAL, "--repo", str(repo), "--no-checks", "--check", "pyok=python -m pytest -q"]) == 0
+    ok = f'{sys.executable} -c "import sys; raise SystemExit(0)"'
+    assert main([GOAL, "--repo", str(repo), "--no-checks", "--check", f"pyok={ok}"]) == 0
     explicit = _payload(capsys.readouterr().out)
-    assert explicit["checks"] == {"pyok": "python -m pytest -q"}
+    assert explicit["checks"] == {"pyok": ok}

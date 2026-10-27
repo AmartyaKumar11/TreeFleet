@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -15,10 +16,10 @@ from treefleet.contracts import (
     Plan,
     RouteDecision,
     RunEvent,
-    RunMetrics,
     RunRequest,
     StateKey,
     WorkerResult,
+    assemble_metrics,
 )
 from treefleet.events import EventSink
 from treefleet.git.proofs import (
@@ -103,7 +104,24 @@ class RunBundle:
         self.procs: list[Any] = []
         self.ports: set[int] = set()
         self.started = 0.0
+        self.fleet_started = 0.0
+        self.fleet_ended = 0.0
+        self.phases: dict[str, float] = {}
         self.notes: list[str] = []
+
+
+def _phase(bundle: RunBundle, name: str, duration_s: float) -> None:
+    duration = round(duration_s, 3)
+    bundle.phases[name] = duration
+    bundle.sink.emit_sync(
+        RunEvent(
+            run_id=bundle.run_id,
+            seq=0,
+            source="orchestrator",
+            type="phase",
+            payload={"name": name, "duration_s": duration},
+        )
+    )
 
 
 def repo_map(repo: Path) -> str:
@@ -329,7 +347,13 @@ def build_report(
     routing: list[RouteDecision],
     wall_seconds: float,
 ) -> FinalReport:
-    sequential = sum(item.duration_s for item in results)
+    task_seconds = sum(item.duration_s for item in results)
+    pre_fleet = 0.0
+    fleet_wall = 0.0
+    if bundle.fleet_started and bundle.started:
+        pre_fleet = max(0.0, bundle.fleet_started - bundle.started)
+    if bundle.fleet_ended and bundle.fleet_started:
+        fleet_wall = max(0.0, bundle.fleet_ended - bundle.fleet_started)
     return FinalReport(
         run_id=bundle.run_id,
         goal=bundle.request.goal,
@@ -338,7 +362,13 @@ def build_report(
         verdicts=[],
         isolation=isolation,
         routing=routing,
-        metrics=RunMetrics(wall_seconds=wall_seconds, sequential_seconds=sequential),
+        notes=list(bundle.request.notes),
+        metrics=assemble_metrics(
+            wall=wall_seconds,
+            pre_fleet=pre_fleet,
+            fleet_wall=fleet_wall,
+            task_seconds=task_seconds,
+        ),
     )
 
 
@@ -400,7 +430,9 @@ class RepoScanAgent(BaseAgent):
     bundle: Any
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
+        started = time.monotonic()
         text = scan_text(self.bundle.repo)
+        _phase(self.bundle, "scan", time.monotonic() - started)
         yield _adk_event(
             ctx,
             self.name,
@@ -415,6 +447,7 @@ class PlannerAgent(BaseAgent):
     bundle: Any
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
+        started = time.monotonic()
         tree = str(ctx.session.state.get(StateKey.REPO_MAP, ""))
         plan = await plan_goal(
             planner_llm(self.bundle),
@@ -435,6 +468,7 @@ class PlannerAgent(BaseAgent):
                 )
             )
         self.bundle.approved = approved
+        _phase(self.bundle, "planner", time.monotonic() - started)
         yield _adk_event(ctx, self.name, {StateKey.PLAN: dump_plan(plan), "approved": approved})
 
 
@@ -444,6 +478,7 @@ class RouterAgent(BaseAgent):
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
         if not self.bundle.approved:
             return
+        started = time.monotonic()
         plan = read_plan(ctx.session.state)
         routing = route_plan(plan, self.bundle.request, self.bundle.settings)
         for decision in routing:
@@ -462,6 +497,7 @@ class RouterAgent(BaseAgent):
                     },
                 )
             )
+        _phase(self.bundle, "router", time.monotonic() - started)
         yield _adk_event(
             ctx,
             self.name,

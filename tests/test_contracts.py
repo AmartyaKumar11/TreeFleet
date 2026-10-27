@@ -22,6 +22,7 @@ from treefleet.contracts import (
     TokenUsage,
     WorkerResult,
     WorkerTaskEnvelope,
+    assemble_metrics,
     from_wire,
     to_wire,
 )
@@ -197,3 +198,15 @@ def test_final_report_markdown_and_metrics() -> None:
     assert "Overall:** PASS" in md and "Speedup: 2.5x" in md and "Conflict in `README.md`" in md
     assert metrics.total_usd == 0.0123
     assert from_wire(to_wire(report), FinalReport) == report
+
+
+def test_end_to_end_sequential_adds_pre_fleet_and_fleet_speedup_uses_task_time() -> None:
+    metrics = assemble_metrics(wall=134.4, pre_fleet=64.4, fleet_wall=70, task_seconds=196.8)
+    assert metrics.sequential_seconds == pytest.approx(261.2)
+    assert metrics.speedup == round(261.2 / 134.4, 2)
+    assert metrics.fleet_wall_seconds == 70
+    assert metrics.fleet_speedup == round(196.8 / 70, 2)
+    text = metrics.definitions()
+    assert "pre-fleet overhead plus the sum of task durations" in text
+    assert "sum of task durations divided by fleet wall" in text
+    assert "Fleet speedup:" in text

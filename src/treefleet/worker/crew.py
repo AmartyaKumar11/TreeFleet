@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +17,7 @@ from crewai.mcp.transports.stdio import StdioTransport
 from crewai.tools import BaseTool
 from pydantic import ValidationError
 
-from treefleet.checks import check_env, command_argv
+from treefleet.checks import run_command
 from treefleet.contracts import (
     CheckResult,
     CursorUsage,
@@ -270,49 +269,19 @@ def _main_repo(worktree: Path) -> Path:
     return common.parent
 
 
-def _check_failed(name: str, command: str, message: str) -> CheckResult:
-    return CheckResult(
-        name=name,
-        command=command,
-        exit_code=127,
-        passed=False,
-        stderr_tail=message[:4000],
-    )
-
-
 def _checks(envelope: WorkerTaskEnvelope, worktree: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
     for name, command in envelope.checks.items():
-        try:
-            argv = command_argv(command)
-        except ValueError as exc:
-            results.append(_check_failed(name, command, str(exc)))
-            continue
         started = time.monotonic()
-        try:
-            completed = subprocess.run(
-                argv,
-                cwd=worktree,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-                shell=False,
-                check=False,
-                env=check_env(),
-            )
-        except OSError as exc:
-            results.append(_check_failed(name, command, str(exc)))
-            continue
+        code, out, err = run_command(command, worktree)
         results.append(
             CheckResult(
                 name=name,
                 command=command,
-                exit_code=completed.returncode,
-                passed=completed.returncode == 0,
-                stdout_tail=completed.stdout[-4000:],
-                stderr_tail=completed.stderr[-4000:],
+                exit_code=code,
+                passed=code == 0,
+                stdout_tail=out[-4000:],
+                stderr_tail=err[-4000:],
                 duration_s=round(time.monotonic() - started, 3),
             )
         )
