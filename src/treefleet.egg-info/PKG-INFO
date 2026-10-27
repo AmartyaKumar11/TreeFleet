@@ -1,0 +1,28 @@
+Metadata-Version: 2.4
+Name: treefleet
+Version: 0.1.0
+Summary: Parallel coding agents in isolated git worktrees: ADK orchestrator, CrewAI workers, A2A between them.
+Requires-Python: >=3.12
+Requires-Dist: pydantic>=2.7
+Requires-Dist: httpx>=0.27
+Requires-Dist: mcp>=1.2
+Requires-Dist: psutil>=5.9
+Requires-Dist: langfuse>=3
+Requires-Dist: opentelemetry-api
+Requires-Dist: opentelemetry-sdk
+Provides-Extra: orchestrator
+Requires-Dist: google-adk>=2; extra == "orchestrator"
+Requires-Dist: litellm; extra == "orchestrator"
+Requires-Dist: openinference-instrumentation-google-adk; extra == "orchestrator"
+Requires-Dist: fastapi; extra == "orchestrator"
+Requires-Dist: uvicorn[standard]; extra == "orchestrator"
+Provides-Extra: worker
+Requires-Dist: crewai[a2a]; extra == "worker"
+Requires-Dist: litellm; extra == "worker"
+Requires-Dist: openinference-instrumentation-crewai; extra == "worker"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: pyright; extra == "dev"
+Requires-Dist: respx; extra == "dev"
