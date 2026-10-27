@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — Phase 6 live fixes
+
+Sequential time is pre-fleet overhead plus task, review and integration time. The report lists review and integration on their own lines. `timing.md` records scan, baseline, planner, fleet, review, revise and integrate. Cursor cost is one row per call, including revise rounds, labeled with the task and round. Reviewer calls are their own rows on `deepseek/deepseek-flash`, with `deepseek/deepseek-v4-pro` only after flash JSON stays unparseable. A revise round whose diff matches the previous round stops with reason `no new diff`. Worker tokens come from CrewAI `token_usage` when the LiteLLM callback is empty; if both are empty the worker row says `usage not reported` and the notes say why. A reverted out-of-scope edit that the next proof finds clean is `NO (reverted)` and the overall line is `PASS (1 contained violation)`. Overall stays `FAIL` when the main checkout changed, the canary is missing, a worktree proof fails, or a violation is still present. An unknown Cursor id falls back to the default tier and the `model_selected` event notes the fallback. Contract additions: `CursorCall`, `ReviewerUsage`, `WorkerResult.cursor_calls`, `WorkerResult.reverted_scope`, `RunMetrics.review_seconds`, `RunMetrics.integration_seconds`, and route source `fallback`.
+
 ## 2026-10-27 — Phase 6
 
 The reviewer is an ADK `LlmAgent` on `models.strong` (`deepseek/deepseek-v4-pro`), one per finished task, gathered with `asyncio.gather`. `output_schema` stays unset. The verdict JSON is a `ReviewVerdict` (`approve`, `revise`, or `reject`) with `reasons` and `required_changes`, parsed with one repair retry. Its tool list is the gitops read-only set. A revise re-runs the same worktree and branch with those changes appended to the cursor prompt, at most twice, and the isolation proofs run again. A third revise becomes `reject` and that task is left out of the merge.

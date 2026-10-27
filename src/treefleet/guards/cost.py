@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from treefleet.config import Pricing, Settings
-from treefleet.contracts import CostLine, TokenUsage, WorkerResult
+from treefleet.contracts import CostLine, CursorCall, ReviewerUsage, TokenUsage, WorkerResult
 
 
 def is_peak(when: datetime) -> bool:
@@ -126,6 +126,55 @@ def _priced(
     return item
 
 
+def usage_from_object(metrics: object) -> TokenUsage | None:
+    """Read CrewAI UsageMetrics or a dict. Zeros mean the source had no counts."""
+    if metrics is None:
+        return None
+
+    def _get(*names: str) -> int:
+        for name in names:
+            raw = metrics.get(name) if isinstance(metrics, dict) else getattr(metrics, name, None)
+            if raw:
+                return int(raw)
+        return 0
+
+    prompt = _get("prompt_tokens", "input_tokens")
+    completion = _get("completion_tokens", "output_tokens")
+    cached = _get("cached_prompt_tokens", "prompt_cache_hit_tokens", "cached_tokens")
+    if prompt == 0 and completion == 0 and cached == 0:
+        return None
+    return TokenUsage(input_tokens=prompt, output_tokens=completion, cached_input_tokens=cached)
+
+
+def _cursor_line(
+    pricing: Pricing,
+    result: WorkerResult,
+    call: CursorCall | None,
+    usage: TokenUsage,
+    *,
+    reported: bool,
+    model: str,
+) -> CostLine:
+    item = _priced(
+        "cursor",
+        model,
+        usage,
+        _cursor(pricing, model),
+        estimate=True,
+        reported=reported,
+        peak=False,
+        task_id=result.task_id,
+    )
+    if call is None:
+        return item
+    if item.label == "usage not reported":
+        return item
+    note = f"{result.task_id} r{call.round}"
+    if item.label == "estimate":
+        note = f"{note} estimate"
+    return item.model_copy(update={"label": note[:40]})
+
+
 def cost_rows(
     pricing: Pricing,
     results: list[WorkerResult],
@@ -136,8 +185,9 @@ def cost_rows(
     jev_calls: int,
     jev_tokens: int,
     when: datetime | None = None,
+    reviewer: list[ReviewerUsage] | None = None,
 ) -> list[CostLine]:
-    """Planner, one DeepSeek worker row, one Cursor row per task, then Jev."""
+    """Planner, worker, one cursor row per call, reviewer, then Jev."""
     moment = when or datetime.now(UTC)
     peak = is_peak(moment)
     lines = [
@@ -173,18 +223,46 @@ def cost_rows(
             lines.append(line_for("worker", worker_model, TokenUsage(), rate_in=None, rate_out=None, reported=False))
         for result in results:
             model = result.cursor_model or "cursor"
-            lines.append(
-                _priced(
-                    "cursor",
-                    model,
-                    result.usage,
-                    _cursor(pricing, model),
-                    estimate=True,
-                    reported=result.cursor_usage_reported,
-                    peak=False,
-                    task_id=result.task_id,
+            if result.cursor_calls:
+                for call in result.cursor_calls:
+                    lines.append(
+                        _cursor_line(
+                            pricing,
+                            result,
+                            call,
+                            call.usage,
+                            reported=call.reported,
+                            model=call.model or model,
+                        )
+                    )
+            else:
+                lines.append(
+                    _cursor_line(
+                        pricing,
+                        result,
+                        None,
+                        result.usage,
+                        reported=result.cursor_usage_reported,
+                        model=model,
+                    )
                 )
-            )
+    for item in reviewer or []:
+        priced = _priced(
+            "reviewer",
+            item.model,
+            item.usage,
+            _deepseek(pricing, item.model),
+            estimate=False,
+            reported=item.reported,
+            peak=peak,
+            task_id=item.task_id,
+        )
+        if priced.label != "usage not reported":
+            note = f"{item.task_id} r{item.round}"
+            if priced.label:
+                note = f"{note} {priced.label}"
+            priced = priced.model_copy(update={"label": note[:40]})
+        lines.append(priced)
     if jev_calls:
         item = line_for(
             "jev",
@@ -206,6 +284,7 @@ def collect_costs(
     jev_calls: int,
     jev_tokens: int,
     when: datetime | None = None,
+    reviewer: list[ReviewerUsage] | None = None,
 ) -> list[CostLine]:
     return cost_rows(
         settings.pricing,
@@ -216,4 +295,5 @@ def collect_costs(
         jev_calls=jev_calls,
         jev_tokens=jev_tokens,
         when=when,
+        reviewer=reviewer,
     )

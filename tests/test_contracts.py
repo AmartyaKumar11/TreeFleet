@@ -207,6 +207,6 @@ def test_end_to_end_sequential_adds_pre_fleet_and_fleet_speedup_uses_task_time()
     assert metrics.fleet_wall_seconds == 70
     assert metrics.fleet_speedup == round(196.8 / 70, 2)
     text = metrics.definitions()
-    assert "pre-fleet overhead plus the sum of task durations" in text
+    assert "pre-fleet overhead plus task, review and integration time" in text
     assert "sum of task durations divided by fleet wall" in text
     assert "Fleet speedup:" in text

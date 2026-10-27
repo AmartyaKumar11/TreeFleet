@@ -19,6 +19,7 @@ from treefleet.orchestrator.agents import (
     _adk_event,
     _complete,
     _json_text,
+    _phase,
     prove,
     read_plan,
     read_results,
@@ -141,6 +142,25 @@ def _forced_reject(task_id: str, source: ReviewVerdict | str) -> ReviewVerdict:
     )
 
 
+def verdict_unparseable(verdict: ReviewVerdict) -> bool:
+    return any(str(item).startswith("verdict JSON was not valid") for item in verdict.reasons)
+
+
+async def review_or_escalate(
+    complete_for: Callable[[str, str], Awaitable[str]],
+    models: list[str],
+    task_id: str,
+    prompt: str,
+) -> tuple[ReviewVerdict, str]:
+    """Flash first. v4-pro only after flash is still unparseable following its repair."""
+    verdict = await verdict_with_repair(lambda text: complete_for(models[0], text), task_id, prompt)
+    used = models[0]
+    if verdict_unparseable(verdict) and len(models) > 1:
+        verdict = await verdict_with_repair(lambda text: complete_for(models[1], text), task_id, prompt)
+        used = models[1]
+    return verdict, used
+
+
 async def review_loop(
     task_ids: list[str],
     results: dict[str, WorkerResult],
@@ -150,6 +170,8 @@ async def review_loop(
     prove: ProveFn | None = None,
     emit: EmitFn | None = None,
     max_revisions: int = MAX_REVISIONS,
+    diff_of: Callable[[WorkerResult], str] | None = None,
+    timings: dict[str, float] | None = None,
 ) -> tuple[dict[str, WorkerResult], dict[str, ReviewVerdict]]:
     """One reviewer per task, in parallel. A revise re-runs the same branch, at most twice."""
     import asyncio
@@ -159,16 +181,23 @@ async def review_loop(
             emit(kind, task_id, round_no, payload)
 
     async def _one(task_id: str) -> tuple[str, WorkerResult, ReviewVerdict]:
+        import time
+
         result = results[task_id]
         verdict: ReviewVerdict | None = None
         for round_no in range(1, max_revisions + 2):
             _emit("review_started", task_id, round_no, {})
+            started = time.monotonic()
             try:
                 verdict = await review(task_id, result, round_no)
             except Exception as exc:
                 verdict = _forced_reject(task_id, type(exc).__name__)
                 _emit("review_verdict", task_id, round_no, {"verdict": "reject"})
+                if timings is not None:
+                    timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
                 break
+            if timings is not None:
+                timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
             if verdict.verdict == "revise" and round_no > max_revisions:
                 verdict = _forced_reject(task_id, verdict)
                 _emit("review_verdict", task_id, round_no, {"verdict": "reject"})
@@ -178,15 +207,41 @@ async def review_loop(
                 break
             feedback = "\n".join(verdict.required_changes) or (verdict.revision_instructions or "")
             _emit("revise_started", task_id, round_no, {})
+            before = diff_of(result) if diff_of is not None else None
+            prior_calls = list(result.cursor_calls)
+            prior_duration = result.duration_s
+            prior_scope = list(result.reverted_scope)
+            revise_started = time.monotonic()
             try:
-                result = await rerun(task_id, result, feedback[:2000], result.attempt + 1)
+                fresh = await rerun(task_id, result, feedback[:2000], result.attempt + 1)
             except Exception as exc:
                 verdict = _forced_reject(task_id, str(exc))
+                if timings is not None:
+                    timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
                 break
+            if timings is not None:
+                timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
+            result = fresh.model_copy(
+                update={
+                    "cursor_calls": [*prior_calls, *fresh.cursor_calls],
+                    "duration_s": prior_duration + fresh.duration_s,
+                    "reverted_scope": [*prior_scope, *fresh.reverted_scope],
+                }
+            )
             if prove is not None:
                 snapshot = dict(results)
                 snapshot[task_id] = result
                 prove(snapshot)
+            if diff_of is not None and diff_of(result) == before:
+                verdict = ReviewVerdict(
+                    task_id=task_id,  # type: ignore[arg-type]
+                    verdict="reject",
+                    confidence=1,
+                    reasons=["no new diff"],
+                    issues=["no new diff"],
+                )
+                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": "no new diff"})
+                break
         assert verdict is not None
         return task_id, result, verdict
 
@@ -295,16 +350,17 @@ async def _review_one(bundle: RunBundle, plan: Plan, result: WorkerResult, round
 async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, round_no: int) -> ReviewVerdict:
     from google.adk.models.lite_llm import LiteLlm
 
+    from treefleet.contracts import ReviewerUsage
     from treefleet.orchestrator.callbacks import UsageBox
 
     snapshot = gitops_snapshot(bundle.repo, bundle.request.base_ref, result.branch)
     prompt = _prompt(task, result, round_no, snapshot, _jev_note(bundle, task, snapshot))
-    llm = LiteLlm(model=bundle.settings.models.strong)
     box = UsageBox()
+    models = [bundle.settings.models.fast, bundle.settings.models.strong]
 
-    async def complete(text: str) -> str:
+    async def complete_for(model: str, text: str) -> str:
         return await _complete(
-            llm,
+            LiteLlm(model=model),
             text,
             sink=bundle.sink,
             run_id=bundle.run_id,
@@ -315,7 +371,17 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
             tool_guard=screen_review_call,
         )
 
-    verdict = await verdict_with_repair(complete, result.task_id, prompt)
+    verdict, used = await review_or_escalate(complete_for, models, result.task_id, prompt)
+    reported = box.usage.input_tokens + box.usage.output_tokens > 0
+    bundle.reviewer_usages.append(
+        ReviewerUsage(
+            task_id=result.task_id,
+            round=round_no,
+            model=used,
+            usage=box.usage,
+            reported=reported,
+        )
+    )
     if verdict.verdict == "approve" and any(not item.passed for item in result.checks):
         reason = "checks failed"
         return ReviewVerdict(task_id=result.task_id, verdict="reject", confidence=1, reasons=[reason], issues=[reason])
@@ -362,6 +428,7 @@ class ReviewerAgent(BaseAgent):
         def prove_now(snapshot: dict[str, WorkerResult]) -> None:
             holder["isolation"] = prove(self.bundle, plan, snapshot)
 
+        timings: dict[str, float] = {}
         updated, verdicts = await review_loop(
             [task.id for task in plan.tasks],
             results,
@@ -369,7 +436,13 @@ class ReviewerAgent(BaseAgent):
             rerun=lambda task_id, _result, feedback, attempt: _redispatch(self.bundle, task_id, feedback, attempt),
             prove=prove_now,
             emit=lambda kind, task_id, round_no, payload: _emit(self.bundle, kind, task_id, round_no, payload),
+            diff_of=lambda result: gitops_snapshot(self.bundle.repo, self.bundle.request.base_ref, result.branch),
+            timings=timings,
         )
+        self.bundle.review_seconds += timings.get("review", 0.0)
+        self.bundle.revise_seconds += timings.get("revise", 0.0)
+        _phase(self.bundle, "review", self.bundle.review_seconds)
+        _phase(self.bundle, "revise", self.bundle.revise_seconds)
         delta: dict[str, Any] = {
             StateKey.WORKER_RESULTS: {key: value.model_dump(mode="json") for key, value in updated.items()},
             StateKey.VERDICTS: [item.model_dump(mode="json") for item in verdicts.values()],
@@ -409,6 +482,9 @@ class IntegratorAgent(BaseAgent):
                 reasons[task_id] = "rejected: " + (verdict.reasons[0] if verdict.reasons else "rejected")
             else:
                 reasons[task_id] = verdict.verdict
+        import time
+
+        started = time.monotonic()
         report = integrate(
             self.bundle.repo,
             self.bundle.run_id,
@@ -419,4 +495,6 @@ class IntegratorAgent(BaseAgent):
             checks=dict(self.bundle.request.checks) or None,
             reasons=reasons,
         )
+        self.bundle.integration_seconds = time.monotonic() - started
+        _phase(self.bundle, "integrate", self.bundle.integration_seconds)
         yield _adk_event(ctx, self.name, {StateKey.INTEGRATION: report.model_dump(mode="json")})

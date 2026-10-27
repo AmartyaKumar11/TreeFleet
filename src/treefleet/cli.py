@@ -10,7 +10,7 @@ from pathlib import Path
 from treefleet.checks import detect_checks, select_checks
 from treefleet.config import load_settings
 from treefleet.contracts import RunRequest
-from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers
+from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers  # noqa: F401
 from treefleet.orchestrator.pipeline import ask_plan, cleanup_run, run_blocking
 
 
@@ -109,16 +109,7 @@ def _run(argv: list[str]) -> int:
     cli = Path(settings.cursor.cli)
     try:
         require_known(worker_model, cli, settings.cursor.list_flag)
-        require_tiers(
-            [
-                settings.models.router.simple,
-                settings.models.router.moderate,
-                settings.models.router.complex,
-                settings.models.default,
-            ],
-            cli,
-            settings.cursor.list_flag,
-        )
+        # Unknown tier ids fall back at routing time. They do not abort the run.
     except UnknownModelError as exc:
         raise SystemExit(str(exc)) from None
     repo = Path(parsed.repo or Path.cwd())

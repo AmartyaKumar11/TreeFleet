@@ -228,7 +228,7 @@ class RouteDecision(_Model):
     model: str
     complexity: Complexity
     confidence: Probability
-    source: Literal["jev", "heuristic", "override", "run", "router", "default"]
+    source: Literal["jev", "heuristic", "override", "run", "router", "default", "fallback"]
     cursor_model: ModelChoice | None = None
 
 
@@ -251,6 +251,25 @@ class TokenUsage(_Model):
             cached_input_tokens=self.cached_input_tokens + other.cached_input_tokens,
             cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
         )
+
+
+class CursorCall(_Model):
+    """One cursor-agent invocation. Revise rounds keep every call."""
+
+    round: int = Field(ge=1, le=5)
+    model: str = ""
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    reported: bool = False
+
+
+class ReviewerUsage(_Model):
+    """One reviewer call. Priced as its own cost row."""
+
+    task_id: Slug
+    round: int = Field(ge=1, le=5)
+    model: str
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    reported: bool = False
 
 
 class CursorUsage(BaseModel):
@@ -419,6 +438,8 @@ class WorkerResult(_Model):
     brain_usage_reported: bool = False
     cursor_model: str | None = None
     cursor_usage_reported: bool = False
+    cursor_calls: list[CursorCall] = Field(default_factory=list, max_length=10)
+    reverted_scope: list[str] = Field(default_factory=list, max_length=50)
     model: str
     isolation: SelfReportedIsolation
     error: Annotated[str, StringConstraints(max_length=2000)] | None = None
@@ -589,6 +610,8 @@ class RunMetrics(_Model):
     costs: list[CostLine] = Field(default_factory=list)
     jev_calls: int = Field(default=0, ge=0)
     task_count: int = Field(default=0, ge=0)
+    review_seconds: float = Field(default=0, ge=0)
+    integration_seconds: float = Field(default=0, ge=0)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -620,10 +643,12 @@ class RunMetrics(_Model):
             [
                 f"- Wall time: {self.wall_seconds:.1f}s (end-to-end clock, including planning)",
                 "- Sequential time: "
-                f"{self.sequential_seconds:.1f}s (pre-fleet overhead plus the sum of task durations)",
+                f"{self.sequential_seconds:.1f}s (pre-fleet overhead plus task, review and integration time)",
                 f"- Speedup: {speedup}",
                 f"- Fleet wall: {self.fleet_wall_seconds:.1f}s (time while workers run)",
                 f"- Fleet speedup: {fleet}",
+                f"- Review time: {self.review_seconds:.1f}s",
+                f"- Integration time: {self.integration_seconds:.1f}s",
                 f"- Total cost: ${self.total_usd:.4f}",
                 f"- Jev calls: {self.jev_calls}",
             ]
@@ -639,17 +664,55 @@ def assemble_metrics(
     costs: list[CostLine] | None = None,
     jev_calls: int = 0,
     task_count: int = 0,
+    review_seconds: float = 0,
+    integration_seconds: float = 0,
 ) -> RunMetrics:
-    """End-to-end sequential time is the pre-fleet overhead plus the sum of task durations."""
+    """Sequential time is the work a one-at-a-time run would still have to do."""
+    review = max(0.0, review_seconds)
+    integration = max(0.0, integration_seconds)
     return RunMetrics(
         wall_seconds=max(0.0, wall),
-        sequential_seconds=max(0.0, pre_fleet) + max(0.0, task_seconds),
+        sequential_seconds=max(0.0, pre_fleet) + max(0.0, task_seconds) + review + integration,
         fleet_wall_seconds=max(0.0, fleet_wall),
         task_seconds=max(0.0, task_seconds),
         costs=costs or [],
         jev_calls=jev_calls,
         task_count=task_count,
+        review_seconds=review,
+        integration_seconds=integration,
     )
+
+
+def isolation_overall(report: IsolationReport, results: list[WorkerResult]) -> str:
+    """PASS, PASS with a contained revert, or FAIL. A leftover violation is FAIL."""
+    main = report.main
+    if main.status_before != main.status_after or main.head_before != main.head_after:
+        return "FAIL"
+    if not main.canary_present:
+        return "FAIL"
+    by_id = {item.task_id: item for item in results}
+    contained = 0
+    for proof in report.tasks:
+        worktree_ok = proof.process_cwd_matches and proof.toplevel_matches and proof.registered_in_worktree_list
+        if not worktree_ok or not proof.canary_absent or not proof.changes_within_allowed_paths:
+            return "FAIL"
+        result = by_id.get(proof.task_id)
+        if result is not None and result.reverted_scope:
+            contained += 1
+    if contained == 1:
+        return "PASS (1 contained violation)"
+    if contained > 1:
+        return f"PASS ({contained} contained violations)"
+    return "PASS"
+
+
+def scope_mark(proof: IsolationProof, result: WorkerResult | None) -> str:
+    """Within-scope cell. A reverted edit that the next proof found clean says so."""
+    if not proof.changes_within_allowed_paths:
+        return "NO"
+    if result is not None and result.reverted_scope:
+        return "NO (reverted)"
+    return "yes"
 
 
 class FinalReport(_Model):
@@ -687,19 +750,20 @@ class FinalReport(_Model):
             lines += ["", "## Models", ""]
             for route in self.routing:
                 lines.append(f"- {route.task_id}: {route.cursor_model} ({route.source})")
-        lines += ["", "## Isolation proof", "", f"**Overall:** {'PASS' if self.isolation.ok else 'FAIL'}", ""]
+        lines += ["", "## Isolation proof", "", f"**Overall:** {isolation_overall(self.isolation, self.results)}", ""]
         lines += [
             "| Task | Process cwd | Toplevel | Registered | Canary absent | Within scope |",
             "|---|---|---|---|---|---|",
         ]
         mark = {True: "yes", False: "NO"}
+        by_id = {item.task_id: item for item in self.results}
         for p in self.isolation.tasks:
             cells = [
                 mark[p.process_cwd_matches],
                 mark[p.toplevel_matches],
                 mark[p.registered_in_worktree_list],
                 mark[p.canary_absent],
-                mark[p.changes_within_allowed_paths],
+                scope_mark(p, by_id.get(p.task_id)),
             ]
             lines.append(f"| {p.task_id} | " + " | ".join(cells) + " |")
         m = self.isolation.main

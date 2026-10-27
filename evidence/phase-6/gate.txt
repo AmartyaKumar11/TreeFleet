@@ -3,17 +3,17 @@
 [1;32mAll checks passed![0m
 
 === ruff format: d:\TreeFleet\.venv-orch\Scripts\python.exe -m ruff format --check .
-74 files already formatted
+79 files already formatted
 
-=== pyright orch: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pyright --pythonpath D:\TreeFleet\.venv-orch\Scripts\python.exe tests scripts src/treefleet/checks.py src/treefleet/cli.py src/treefleet/config.py src/treefleet/contracts.py src/treefleet/cursor_models.py src/treefleet/cursor_run.py src/treefleet/events.py src/treefleet/timing.py src/treefleet/__init__.py src/treefleet/git/canary.py src/treefleet/git/cursor_scope.py src/treefleet/git/merge.py src/treefleet/git/proofs.py src/treefleet/git/worktrees.py src/treefleet/git/__init__.py src/treefleet/guards/artifacts.py src/treefleet/guards/cost.py src/treefleet/guards/draft.py src/treefleet/guards/input.py src/treefleet/guards/paths.py src/treefleet/guards/text.py src/treefleet/guards/__init__.py src/treefleet/jev/client.py src/treefleet/jev/__init__.py src/treefleet/mcp_servers/gitops_server.py src/treefleet/mcp_servers/worktree_fs_server.py src/treefleet/mcp_servers/__init__.py src/treefleet/orchestrator/agents.py src/treefleet/orchestrator/callbacks.py src/treefleet/orchestrator/fleet.py src/treefleet/orchestrator/pipeline.py src/treefleet/orchestrator/review.py src/treefleet/orchestrator/__init__.py
+=== pyright orch: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pyright --pythonpath D:\TreeFleet\.venv-orch\Scripts\python.exe tests scripts src/treefleet/checks.py src/treefleet/cli.py src/treefleet/config.py src/treefleet/contracts.py src/treefleet/cursor_models.py src/treefleet/cursor_run.py src/treefleet/events.py src/treefleet/timing.py src/treefleet/__init__.py src/treefleet/evals/harness.py src/treefleet/evals/report.py src/treefleet/evals/scenarios.py src/treefleet/evals/__init__.py src/treefleet/git/canary.py src/treefleet/git/cursor_scope.py src/treefleet/git/merge.py src/treefleet/git/proofs.py src/treefleet/git/worktrees.py src/treefleet/git/__init__.py src/treefleet/guards/artifacts.py src/treefleet/guards/cost.py src/treefleet/guards/draft.py src/treefleet/guards/input.py src/treefleet/guards/paths.py src/treefleet/guards/text.py src/treefleet/guards/__init__.py src/treefleet/jev/client.py src/treefleet/jev/__init__.py src/treefleet/mcp_servers/gitops_server.py src/treefleet/mcp_servers/worktree_fs_server.py src/treefleet/mcp_servers/__init__.py src/treefleet/orchestrator/agents.py src/treefleet/orchestrator/callbacks.py src/treefleet/orchestrator/fleet.py src/treefleet/orchestrator/pipeline.py src/treefleet/orchestrator/review.py src/treefleet/orchestrator/__init__.py
 0 errors, 0 warnings, 0 informations
 
 === pyright worker: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pyright --pythonpath D:\TreeFleet\.venv-worker\Scripts\python.exe src/treefleet/worker
 0 errors, 0 warnings, 0 informations
 
 === pytest: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pytest -q -m (phase0 or phase1 or phase2 or phase3 or phase4 or phase5 or phase6) and not live
-........................................................................ [ 59%]
-.................................................                        [100%]
+........................................................................ [ 55%]
+.........................................................                [100%]
 ============================== warnings summary ===============================
 tests/test_phase3.py::test_a2a_card_client_and_busy_reject
   D:\TreeFleet\tests\test_phase3.py:612: DeprecationWarning: A2AClient is deprecated and will be removed in a future version. Use ClientFactory to create a client with a JSON-RPC transport.
@@ -52,6 +52,6 @@ tests/test_phase4.py::test_killed_worker_fails_and_the_others_finish
     client = A2AClient(http, url=url)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-121 passed, 15 warnings in 220.81s (0:03:40)
+129 passed, 3 deselected, 15 warnings in 242.83s (0:04:02)
 
 GATE GREEN (phase 6)

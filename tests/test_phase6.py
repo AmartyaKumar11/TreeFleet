@@ -15,12 +15,14 @@ from treefleet.cli import main
 from treefleet.config import Pricing, load_settings
 from treefleet.contracts import (
     CheckResult,
+    CursorCall,
     FinalReport,
     IntegrationReport,
     IsolationProof,
     IsolationReport,
     MainCheckoutProof,
     Plan,
+    ReviewerUsage,
     ReviewVerdict,
     RunMetrics,
     RunRequest,
@@ -28,21 +30,27 @@ from treefleet.contracts import (
     TaskSpec,
     TokenUsage,
     WorkerResult,
+    assemble_metrics,
+    isolation_overall,
 )
 from treefleet.cursor_run import SABOTEUR_LINE, cursor_instruction, demo_break
 from treefleet.git.merge import integrate
 from treefleet.git.worktrees import GitError, create_worktree, remove_worktree
-from treefleet.guards.cost import cost_rows, is_peak
+from treefleet.guards.cost import cost_rows, is_peak, usage_from_object
 from treefleet.mcp_servers.gitops_server import READ_ONLY_TOOLS
+from treefleet.orchestrator.agents import model_selected_payload, route_plan
 from treefleet.orchestrator.review import (
     MAX_REVISIONS,
     approved_branches,
     review_loop,
+    review_or_escalate,
     reviewer_tools,
     screen_review_call,
     screen_review_result,
+    verdict_unparseable,
     verdict_with_repair,
 )
+from treefleet.timing import timing_markdown
 
 pytestmark = pytest.mark.phase6
 
@@ -489,6 +497,221 @@ def test_demo_break_fails_an_existing_test_once(tmp_path: Path) -> None:
     text = target.read_text(encoding="utf-8")
     assert text.count("test_treefleet_saboteur_demo") == 1
     assert "DEMO ONLY saboteur" in text
+
+
+def test_sequential_time_adds_review_and_integration() -> None:
+    metrics = assemble_metrics(
+        wall=100,
+        pre_fleet=10,
+        fleet_wall=20,
+        task_seconds=30,
+        review_seconds=4,
+        integration_seconds=6,
+        task_count=2,
+    )
+    assert metrics.sequential_seconds == pytest.approx(50)
+    assert metrics.wall_seconds == 100
+    text = metrics.definitions()
+    assert "Review time: 4.0s" in text
+    assert "Integration time: 6.0s" in text
+
+
+def test_reviewer_rows_and_every_cursor_call_sum_to_the_total() -> None:
+    calls = [
+        CursorCall(
+            round=1, model="composer-2.5", usage=TokenUsage(input_tokens=1000, output_tokens=100), reported=True
+        ),
+        CursorCall(round=2, model="composer-2.5", usage=TokenUsage(input_tokens=2000, output_tokens=50), reported=True),
+    ]
+    result = _result(cursor_model="composer-2.5", cursor_calls=calls, brain_usage_reported=False)
+    reviewer = [
+        ReviewerUsage(
+            task_id="alpha",
+            round=1,
+            model="deepseek/deepseek-flash",
+            usage=TokenUsage(input_tokens=10, output_tokens=5),
+            reported=True,
+        )
+    ]
+    lines = cost_rows(
+        _pricing(),
+        [result],
+        planner=TokenUsage(input_tokens=10, output_tokens=4),
+        planner_model="deepseek/deepseek-v4-pro",
+        worker_model="deepseek/deepseek-flash",
+        jev_calls=0,
+        jev_tokens=0,
+        when=datetime(2026, 10, 31, 16, tzinfo=UTC),
+        reviewer=reviewer,
+    )
+    cursor = [item for item in lines if item.component == "cursor"]
+    assert len(cursor) == 2
+    assert "alpha r1" in cursor[0].label and "alpha r2" in cursor[1].label
+    assert any(item.component == "reviewer" and "flash" in item.model for item in lines)
+    assert RunMetrics(wall_seconds=1, sequential_seconds=1, costs=lines).total_usd == round(
+        sum(c.usd for c in lines), 6
+    )
+
+
+def test_empty_crew_usage_is_not_reported() -> None:
+    assert usage_from_object(None) is None
+    empty = usage_from_object({"prompt_tokens": 0, "completion_tokens": 0})
+    assert empty is None
+    found = usage_from_object({"prompt_tokens": 8, "completion_tokens": 3, "cached_prompt_tokens": 1})
+    assert found is not None
+    assert found.input_tokens == 8
+    assert found.output_tokens == 3
+    assert found.cached_input_tokens == 1
+
+
+def test_timing_breakdown_lists_each_stage() -> None:
+    text = timing_markdown(
+        {"scan": 0.1, "baseline": 2.2, "planner": 3, "fleet": 4, "review": 5, "revise": 6, "integrate": 7}
+    )
+    for name in ("scan", "baseline", "planner", "fleet", "review", "revise", "integrate"):
+        assert f"- {name}:" in text
+
+
+async def test_flash_reviewer_escalates_when_json_stays_invalid() -> None:
+    seen: list[str] = []
+
+    async def complete_for(model: str, _text: str) -> str:
+        seen.append(model)
+        if "flash" in model:
+            return "not json"
+        return '{"verdict": "approve", "confidence": 0.9, "reasons": ["ok"]}'
+
+    verdict, used = await review_or_escalate(
+        complete_for,
+        ["deepseek/deepseek-flash", "deepseek/deepseek-v4-pro"],
+        "alpha",
+        "review",
+    )
+    assert used == "deepseek/deepseek-v4-pro"
+    assert verdict.verdict == "approve"
+    assert seen[0].endswith("flash")
+    assert verdict_unparseable(
+        ReviewVerdict(task_id="alpha", verdict="reject", confidence=0, reasons=["verdict JSON was not valid: x"])
+    )
+
+
+async def test_identical_diff_stops_the_revise_loop() -> None:
+    reruns = 0
+
+    async def review(task_id: str, _result: WorkerResult, _round_no: int) -> ReviewVerdict:
+        return ReviewVerdict(
+            task_id=task_id,
+            verdict="revise",
+            confidence=0.4,
+            reasons=["again"],
+            required_changes=["fix the test"],
+        )
+
+    async def rerun(_task_id: str, result: WorkerResult, _feedback: str, attempt: int) -> WorkerResult:
+        nonlocal reruns
+        reruns += 1
+        return result.model_copy(update={"attempt": attempt})
+
+    _results, verdicts = await review_loop(
+        ["alpha"],
+        {"alpha": _result()},
+        review=review,
+        rerun=rerun,
+        diff_of=lambda _result: "same diff",
+    )
+    assert reruns == 1
+    assert verdicts["alpha"].verdict == "reject"
+    assert verdicts["alpha"].reasons == ["no new diff"]
+
+
+def test_unknown_cursor_id_falls_back_to_the_default_tier(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
+    settings = load_settings(ROOT / "treefleet.toml")
+    plan = Plan(
+        goal="Add one sentence to README.md about pull requests.",
+        rationale="The readme is the only file this task should touch.",
+        tasks=[
+            TaskSpec(
+                id="alpha",
+                title="Edit readme",
+                instructions="Add one sentence to README.md about pull requests.",
+                allowed_paths=["README.md"],
+                model_override="not-a-real-model",
+            )
+        ],
+    )
+    request = RunRequest(goal=plan.goal, repo="D:/repo")
+    known = {"composer-2.5", "composer-2.5-fast"}
+    decision = route_plan(plan, request, settings, known=known)[0]
+    assert decision.cursor_model == settings.models.router.fallback()
+    assert decision.cursor_model in known
+    assert decision.source == "fallback"
+    assert model_selected_payload(decision)["note"] == "fallback to default tier"
+
+
+def _proof(**update: object) -> IsolationProof:
+    base: dict[str, object] = {
+        "task_id": "alpha",
+        "worktree_path": "C:/wt/alpha",
+        "branch": "tf/abc12345/alpha",
+        "process_cwd_matches": True,
+        "toplevel_matches": True,
+        "registered_in_worktree_list": True,
+        "canary_absent": True,
+        "changes_within_allowed_paths": True,
+    }
+    base.update(update)
+    return IsolationProof(**base)  # type: ignore[arg-type]
+
+
+def _main(**update: object) -> MainCheckoutProof:
+    base: dict[str, object] = {
+        "status_before": ["?? .treefleet-canary"],
+        "status_after": ["?? .treefleet-canary"],
+        "head_before": SHA,
+        "head_after": SHA,
+        "canary_present": True,
+    }
+    base.update(update)
+    return MainCheckoutProof(**base)  # type: ignore[arg-type]
+
+
+def test_contained_scope_violation_is_labeled_and_four_failures_stay_fail() -> None:
+    clean = IsolationReport(tasks=[_proof()], main=_main())
+    reverted = _result(reverted_scope=["tests/test_auth.py"])
+    assert isolation_overall(clean, [reverted]) == "PASS (1 contained violation)"
+    report = FinalReport(
+        run_id="abc12345",
+        goal="Add one sentence to README.md about pull requests.",
+        plan=Plan(
+            goal="Add one sentence to README.md about pull requests.",
+            rationale="One file.",
+            tasks=[
+                TaskSpec(
+                    id="alpha",
+                    title="Edit readme",
+                    instructions="Add one sentence to README.md about pull requests.",
+                    allowed_paths=["README.md"],
+                )
+            ],
+        ),
+        results=[reverted],
+        verdicts=[],
+        isolation=clean,
+        metrics=RunMetrics(wall_seconds=1, sequential_seconds=1, task_count=1),
+    )
+    assert "NO (reverted)" in report.to_markdown()
+    assert isolation_overall(IsolationReport(tasks=[_proof()], main=_main(head_after="b" * 40)), []) == "FAIL"
+    assert isolation_overall(IsolationReport(tasks=[_proof()], main=_main(canary_present=False)), []) == "FAIL"
+    assert (
+        isolation_overall(IsolationReport(tasks=[_proof(registered_in_worktree_list=False)], main=_main()), [])
+        == "FAIL"
+    )
+    assert (
+        isolation_overall(IsolationReport(tasks=[_proof(changes_within_allowed_paths=False)], main=_main()), [])
+        == "FAIL"
+    )
 
 
 def test_cli_help_labels_saboteur_as_demo(capsys: pytest.CaptureFixture[str]) -> None:

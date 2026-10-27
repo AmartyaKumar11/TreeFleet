@@ -123,6 +123,10 @@ class RunBundle:
         self.jev_tokens = 0
         self.workers: dict[str, Any] = {}
         self.envelopes: dict[str, Any] = {}
+        self.reviewer_usages: list[Any] = []
+        self.review_seconds = 0.0
+        self.revise_seconds = 0.0
+        self.integration_seconds = 0.0
 
 
 def _phase(bundle: RunBundle, name: str, duration_s: float) -> None:
@@ -433,7 +437,47 @@ async def plan_goal(
     return plan
 
 
-def route_plan(plan: Plan, request: RunRequest, settings: Settings, jev: Any = None) -> list[RouteDecision]:
+def _discovered_ids(bundle: RunBundle) -> set[str] | None:
+    """None keeps offline tests off the real CLI. An empty set means discovery failed."""
+    if bundle.fakes is not None:
+        return None
+    from treefleet.cursor_models import UnknownModelError, discover
+
+    try:
+        found = discover(Path(bundle.settings.cursor.cli), bundle.settings.cursor.list_flag)
+    except (UnknownModelError, OSError):
+        return set()
+    return {item.id for item in found}
+
+
+def model_selected_payload(decision: RouteDecision) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "task_id": decision.task_id,
+        "model": decision.cursor_model or "",
+        "source": decision.source,
+        "complexity": decision.complexity,
+    }
+    if decision.source == "fallback":
+        payload["note"] = "fallback to default tier"
+    return payload
+
+
+def _known_or_default(chosen: str | None, known: set[str] | None, default_id: str) -> tuple[str | None, bool]:
+    """Keep a discovered id. An unknown id falls back to the default tier when that id is known."""
+    if known is None or not chosen or chosen in known:
+        return chosen, False
+    if default_id and default_id in known:
+        return default_id, True
+    return None, True
+
+
+def route_plan(
+    plan: Plan,
+    request: RunRequest,
+    settings: Settings,
+    jev: Any = None,
+    known: set[str] | None = None,
+) -> list[RouteDecision]:
     scored: dict[str, str] = {}
     if jev is not None and request.use_jev and request.worker_model == "router":
         try:
@@ -448,6 +492,9 @@ def route_plan(plan: Plan, request: RunRequest, settings: Settings, jev: Any = N
             complexity = Complexity(scored[task.id])
             cursor = settings.models.router.model_for(complexity.value)
             source = "jev"
+        cursor, fell_back = _known_or_default(cursor, known, settings.models.router.fallback())
+        if fell_back:
+            source = "fallback"
         decisions.append(
             RouteDecision(
                 task_id=task.id,
@@ -518,6 +565,8 @@ def build_report(
     for result in results:
         if result.reverted_generated:
             notes.append(("reverted generated artifacts: " + ", ".join(result.reverted_generated))[:300])
+    if results and not any(item.brain_usage_reported for item in results):
+        notes.append("worker usage not reported: CrewAI token_usage and the LiteLLM callback were empty"[:300])
     jev = getattr(bundle, "jev", None)
     calls = jev.calls if jev is not None else bundle.jev_calls
     tokens = jev.input_tokens if jev is not None else bundle.jev_tokens
@@ -528,6 +577,7 @@ def build_report(
         planner_model=bundle.settings.models.strong,
         jev_calls=calls,
         jev_tokens=tokens,
+        reviewer=list(bundle.reviewer_usages),
     )
     return FinalReport(
         run_id=bundle.run_id,
@@ -547,6 +597,8 @@ def build_report(
             costs=costs,
             jev_calls=calls,
             task_count=len(results),
+            review_seconds=bundle.review_seconds,
+            integration_seconds=bundle.integration_seconds,
         ),
     )
 
@@ -675,7 +727,8 @@ class RouterAgent(BaseAgent):
             return
         started = time.monotonic()
         plan = read_plan(ctx.session.state)
-        routing = route_plan(plan, self.bundle.request, self.bundle.settings, getattr(self.bundle, "jev", None))
+        known = _discovered_ids(self.bundle)
+        routing = route_plan(plan, self.bundle.request, self.bundle.settings, getattr(self.bundle, "jev", None), known)
         for decision in routing:
             self.bundle.sink.emit_sync(
                 RunEvent(
@@ -684,12 +737,7 @@ class RouterAgent(BaseAgent):
                     source="orchestrator",
                     type="model_selected",
                     task_id=decision.task_id,
-                    payload={
-                        "task_id": decision.task_id,
-                        "model": decision.cursor_model or "",
-                        "source": decision.source,
-                        "complexity": decision.complexity,
-                    },
+                    payload=model_selected_payload(decision),
                 )
             )
         _phase(self.bundle, "router", time.monotonic() - started)
@@ -744,4 +792,12 @@ class ReporterAgent(BaseAgent):
         markdown, _count = redact(report.to_markdown())
         (folder / "report.json").write_text(body, encoding="utf-8")
         (folder / "report.md").write_text(markdown, encoding="utf-8")
+        from treefleet.timing import baseline_seconds, timing_markdown
+
+        phases = dict(self.bundle.phases)
+        phases.setdefault("baseline", baseline_seconds(self.bundle.request.notes))
+        phases["review"] = self.bundle.review_seconds
+        phases["revise"] = self.bundle.revise_seconds
+        phases["integrate"] = self.bundle.integration_seconds
+        (folder / "timing.md").write_text(timing_markdown(phases), encoding="utf-8")
         yield _adk_event(ctx, self.name, {StateKey.REPORT: report.model_dump(mode="json")})

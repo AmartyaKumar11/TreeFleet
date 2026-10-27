@@ -90,7 +90,9 @@ S10, with `--sandbox disabled`, printed one JSON result that included `usage.inp
 | `notes` | `RunRequest` and `FinalReport`, default empty | Setup commands that were not run, and checks dropped because they failed on the clean base. Each note is at most 300 characters, at most 20 notes |
 | `fleet_wall_seconds` | `RunMetrics`, default 0 | Time from the start of the fleet until the last worker returns |
 | `task_seconds` | `RunMetrics`, default 0 | Sum of task durations. `fleet_speedup` is this divided by `fleet_wall_seconds` |
-| `sequential_seconds` | `RunMetrics` | Pre-fleet overhead plus `task_seconds`. `speedup` is this divided by `wall_seconds` |
+| `sequential_seconds` | `RunMetrics` | Pre-fleet overhead plus task, review and integration time. `speedup` is this divided by `wall_seconds` |
+| `review_seconds` | `RunMetrics`, default 0 | Sum of reviewer call durations |
+| `integration_seconds` | `RunMetrics`, default 0 | Time spent merging approved branches and running post-merge checks |
 | `cursor_model` | `RouteDecision`, default null | Id the router resolved |
 | `source` | `RouteDecision` | `override`, `run`, `router`, or `default`. Older values `jev` and `heuristic` still validate |
 

@@ -255,17 +255,22 @@ def test_bracket_override_is_rejected(
 def test_missing_tier_id_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The CLI no longer aborts. Routing falls back. require_tiers still names the id."""
+    from treefleet.cursor_models import UnknownModelError, require_tiers
+    from treefleet.orchestrator.pipeline import RunOutcome
+
     _secrets(monkeypatch)
     cli = _printer(tmp_path)
     text = _tier_toml(cli).replace('simple = "composer-2.5-fast"', 'simple = "missing-tier-id"')
     _write(tmp_path, text)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit) as caught:
-        main([GOAL, "--model", "router", "--repo", str(tmp_path)])
-    message = str(caught.value)
-    assert "missing-tier-id" in message
-    assert "treefleet models" in message
-    assert capsys.readouterr().out == ""
+    monkeypatch.setattr("treefleet.cli.run_blocking", lambda *_args, **_kwargs: RunOutcome(0, None, {}, ""))
+    assert main([GOAL, "--model", "router", "--repo", str(tmp_path)]) == 0
+    with pytest.raises(UnknownModelError) as caught:
+        require_tiers(["missing-tier-id"], cli, "--list-models")
+    assert "missing-tier-id" in str(caught.value)
+    assert "treefleet models" in str(caught.value)
+    assert capsys.readouterr().out != ""
 
 
 def test_unknown_model_is_rejected_before_a_run(

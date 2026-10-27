@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from treefleet.checks import run_command
 from treefleet.contracts import (
     CheckResult,
+    CursorCall,
     CursorUsage,
     FileChange,
     RunEvent,
@@ -35,6 +36,7 @@ from treefleet.git.cursor_scope import ScopeViolation, check_cursor_scope
 from treefleet.git.proofs import revert_out_of_scope, snapshot_main, verify_main
 from treefleet.git.worktrees import git_out, run_git
 from treefleet.guards.artifacts import revert_undeclared
+from treefleet.guards.cost import usage_from_object
 from treefleet.guards.draft import draft_problems
 from treefleet.mcp_servers.worktree_fs_server import handshake, mcp_env, mcp_stdio
 from treefleet.timing import record_step, reset_steps
@@ -404,10 +406,25 @@ def _files(worktree: Path, base: str) -> list[FileChange]:
 _brain_parts: list[TokenUsage] = []
 _brain_installed = False
 _current_llm: Any = None
+_from_crew = False
 
 
 def reset_brain() -> None:
+    global _from_crew
     _brain_parts.clear()
+    _from_crew = False
+
+
+def remember_crew(metrics: object) -> None:
+    """Prefer CrewAI token_usage over a callback that recorded the same calls."""
+    global _from_crew
+    found = usage_from_object(metrics)
+    if found is None:
+        return
+    if not _from_crew:
+        _brain_parts.clear()
+        _from_crew = True
+    _brain_parts.append(found)
 
 
 def _remember(response: object) -> None:
@@ -422,6 +439,8 @@ def _remember(response: object) -> None:
             "completion_tokens": getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", 0),
             "cached": getattr(usage, "prompt_cache_hit_tokens", None) or getattr(usage, "cached_tokens", 0),
         }
+    if _from_crew:
+        return
     prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
     completion = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
     cached = int(usage.get("prompt_cache_hit_tokens") or usage.get("cached_tokens") or usage.get("cached") or 0)
@@ -506,17 +525,17 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
             callback=lambda _output: emit_task(_sink(), envelope.run_id, envelope.task.id, task_started),
         )
         try:
-            return str(
-                Crew(
-                    agents=[agent],
-                    tasks=[task],
-                    process=Process.sequential,
-                    verbose=False,
-                    step_callback=lambda step: emit_step(
-                        _sink(), envelope.run_id, envelope.task.id, type(step).__name__, task_started
-                    ),
-                ).kickoff()
-            )
+            output = Crew(
+                agents=[agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=False,
+                step_callback=lambda step: emit_step(
+                    _sink(), envelope.run_id, envelope.task.id, type(step).__name__, task_started
+                ),
+            ).kickoff()
+            remember_crew(getattr(output, "token_usage", None))
+            return str(output)
         except Exception as exc:
             return str(exc)
 
@@ -550,9 +569,20 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     if envelope.saboteur:
         demo_break(worktree)
     checks = _checks(envelope, worktree)
+    reverted_scope = _undo_demo_break(worktree) if envelope.saboteur else []
     if any(not item.passed for item in checks):
         return _with_usage(
-            _result(envelope, worktree, "failed", "a named check failed", None, checks, started, notes=draft.notes),
+            _result(
+                envelope,
+                worktree,
+                "failed",
+                "a named check failed",
+                None,
+                checks,
+                started,
+                notes=draft.notes,
+                reverted_scope=reverted_scope,
+            ),
             cursor_usages,
         )
     commit_started = time.monotonic()
@@ -560,11 +590,23 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     record_step("commit", time.monotonic() - commit_started, name="commit", sink=_sink(), run_id=envelope.run_id)
     if sha is None:
         return _with_usage(
-            _result(envelope, worktree, "failed", "no commit was made", None, checks, started, notes=draft.notes),
+            _result(
+                envelope,
+                worktree,
+                "failed",
+                "no commit was made",
+                None,
+                checks,
+                started,
+                notes=draft.notes,
+                reverted_scope=reverted_scope,
+            ),
             cursor_usages,
         )
     return _with_usage(
-        _result(envelope, worktree, "done", None, sha, checks, started, notes=draft.notes),
+        _result(
+            envelope, worktree, "done", None, sha, checks, started, notes=draft.notes, reverted_scope=reverted_scope
+        ),
         cursor_usages,
     )
 
@@ -640,12 +682,40 @@ def _main_changed(main: Path, before) -> bool:
     return proof.status_before != proof.status_after or proof.head_before != proof.head_after
 
 
+def _undo_demo_break(worktree: Path) -> list[str]:
+    """DEMO ONLY. Restore the existing test after the check has already failed."""
+    target = worktree / "tests" / "test_auth.py"
+    if not target.is_file():
+        return []
+    if "test_treefleet_saboteur_demo" not in target.read_text(encoding="utf-8"):
+        return []
+    run_git(["checkout", "--", "tests/test_auth.py"], cwd=worktree)
+    return ["tests/test_auth.py"]
+
+
 def _with_usage(result: WorkerResult, usages: list[CursorUsage]) -> WorkerResult:
     brain, brain_reported = take_brain()
+    calls = [
+        CursorCall(
+            round=result.attempt,
+            model=result.cursor_model or "cursor",
+            usage=TokenUsage(
+                input_tokens=item.input_tokens,
+                output_tokens=item.output_tokens,
+                cached_input_tokens=item.cache_read_tokens,
+                cache_write_tokens=item.cache_write_tokens,
+            ),
+            reported=True,
+        )
+        for item in usages
+    ]
+    if not calls:
+        calls = [CursorCall(round=result.attempt, model=result.cursor_model or "cursor", reported=False)]
     update: dict[str, object] = {
         "brain_usage": brain,
         "brain_usage_reported": brain_reported,
         "cursor_usage_reported": bool(usages),
+        "cursor_calls": calls,
     }
     if usages:
         update["usage"] = TokenUsage(
@@ -666,6 +736,7 @@ def _result(
     checks: list[CheckResult],
     started: float,
     notes: str = "",
+    reverted_scope: list[str] | None = None,
 ) -> WorkerResult:
     branch = git_out(["branch", "--show-current"], worktree).strip()
     files = _files(worktree, _task_base(worktree, envelope.base_sha)) if sha else []
@@ -685,6 +756,7 @@ def _result(
         model=envelope.model,
         cursor_model=envelope.cursor_model,
         reverted_generated=list(last_reverted),
+        reverted_scope=reverted_scope or [],
         isolation=SelfReportedIsolation(
             pid=os.getpid(),
             cwd=str(worktree.resolve()),
