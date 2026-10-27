@@ -1,12 +1,12 @@
 # Status
 
-Spec complete. Phase 1 adds config, the event sink, Cursor model discovery, and the folder-first CLI. `contracts.py` is unchanged in Phase 1.
+Spec complete. Phases 1 and 2 are in the tree. `contracts.py` is unchanged.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
 | 0 | Spikes | done | `docs/spikes/summary.md` |
 | 1 | Skeleton, config, events, gate | done | `evidence/phase-1/gate.txt` |
-| 2 | Git layer and isolation proofs | not started | |
+| 2 | Git layer and isolation proofs | done | `evidence/phase-2/gate.txt` |
 | 3 | Worker (CrewAI, MCP, A2A server) | not started | |
 | 4 | Orchestrator core (ADK) | not started | |
 | 5 | Guardrails, Jev, callbacks, routing | not started | |
@@ -16,6 +16,12 @@ Spec complete. Phase 1 adds config, the event sink, Cursor model discovery, and 
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 2
+
+The git library creates short worktrees (`C:\tf/<run>/<task>` in tests, under 120 characters), writes the canary through `.git/info/exclude`, and removes a worktree only after its process tree is gone, retrying when Windows still holds the directory. `collect_changes` is the branch's commits since the base (`base...HEAD`) plus staged, unstaged, and untracked files. A later commit on the base is not a task change. `revert_out_of_scope` restores tracked files and deletes untracked ones outside `allowed_paths` or inside `denied_paths`.
+
+The cwd check walks the child tree. On Windows the uv launcher's cwd is the temp directory, and the child interpreter's cwd is the worktree. `verify_main` compares status and HEAD and requires the canary. `snapshot_siblings` and `verify_siblings` fail when a worktree that no task owns changes. Cursor has no sandbox on Windows, so the tests write into the main checkout and into a sibling worktree, and both proofs fail. Integration merges approved branches in order. A same-hunk conflict is reported, `git merge --abort` runs, and the repository is left clean. `gitops-mcp` exposes only `worktree_list`, `branch_summary`, `diff`, `show_file`, and `scope_check`. Each returns `{ok, data}` or `{ok: false, error: {code, message}}`. That shape is already in CONTRACTS.md section 2, so it stays next to the server. No contract change.
 
 ## 2026-10-27 — Phase 1
 
