@@ -20,6 +20,8 @@ def main(argv: list[str] | None = None) -> int:
         return _models()
     if args and args[0] == "cleanup":
         return _cleanup(args[1:])
+    if args and args[0] == "eval":
+        return _eval(args[1:])
     return _run(args)
 
 
@@ -67,6 +69,39 @@ def _confirmed_checks(
     if answer.strip().lower() in {"n", "no"}:
         return {}, notes
     return selected.checks, notes
+
+
+def _eval(argv: list[str]) -> int:
+    from treefleet.evals.harness import harness_status, load_env, run_live
+    from treefleet.evals.report import render_json, render_markdown
+    from treefleet.evals.scenarios import load_scenarios
+
+    parser = argparse.ArgumentParser(prog="treefleet eval")
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--scenarios", default="eval/scenarios.toml")
+    parsed = parser.parse_args(argv)
+    root = Path.cwd()
+    load_env(root)
+    settings = load_settings(root / "treefleet.toml")
+    cap = settings.workers.max_workers
+    folder = root / "eval"
+    folder.mkdir(parents=True, exist_ok=True)
+    evidence = root / "evidence" / "phase-9"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    def _save(rows: list[dict[str, object]]) -> None:
+        markdown = render_markdown(rows, cap)
+        body = render_json(rows, cap)
+        (folder / "report.md").write_text(markdown, encoding="utf-8")
+        (folder / "report.json").write_text(body, encoding="utf-8")
+        (evidence / "eval-report.md").write_text(markdown, encoding="utf-8")
+        (evidence / "eval-report.json").write_text(body, encoding="utf-8")
+
+    rows = run_live(root, Path(parsed.repo), load_scenarios(root / parsed.scenarios), on_row=_save)
+    print((folder / "report.md").read_text(encoding="utf-8"))
+    if any(row.get("checkout") for row in rows):
+        return 1
+    return harness_status(rows)
 
 
 def _models() -> int:

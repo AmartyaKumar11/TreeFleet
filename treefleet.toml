@@ -28,6 +28,7 @@ on_topic = 0.3
 [workers]
 port_start = 9101
 mcp_startup_s = 15
+max_workers = 3
 
 [paths]
 worktree_windows = 'C:\wt'

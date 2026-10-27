@@ -13,9 +13,13 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 6 | Review loop and integration | done | `evidence/phase-6/gate.txt` |
 | 7 | Observability | not started | |
 | 8 | Web UI | not started | |
-| 9 | Evaluation, cost, time | not started | |
+| 9 | Evaluation, cost, time | done | `eval/report.md` |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-28 — Phase 9 evaluation
+
+`treefleet eval` runs `eval/scenarios.toml` once per scenario, and E2 twice, against `D:\pr-sentinel-demo` reset to `demo-base`. There are no retries. The report is `eval/report.md` and `eval/report.json`, copied to `evidence/phase-9/`. E1, E2 (both runs), E3, E4 and E6 passed their expectations. E5 failed and was left as a failure: the planner did not emit `../x`, so the plan was not rejected. Worker tokens are `usage not reported` because CrewAI `token_usage` and the LiteLLM callback were empty. The Estimates section is an extrapolation from measured sequential time per task, batched by `workers.max_workers` (3). Worktrees were removed after each scenario and the main checkout was clean at the end.
 
 ## 2026-10-28 — Phase 6 live fixes
 
