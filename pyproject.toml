@@ -35,13 +35,16 @@ worker = [
   "litellm",
   "openinference-instrumentation-crewai",
 ]
-dev = ["pytest>=8", "pytest-asyncio", "ruff", "pyright", "respx"]
+dev = ["pytest>=8", "pytest-asyncio", "ruff", "pyright", "respx", "playwright"]
 
 [project.scripts]
 treefleet = "treefleet.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+treefleet = ["ui/*.html"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

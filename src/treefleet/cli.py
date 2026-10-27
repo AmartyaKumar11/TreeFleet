@@ -23,6 +23,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cleanup(args[1:])
     if args and args[0] == "eval":
         return _eval(args[1:])
+    if args and args[0] == "ui":
+        return _ui(args[1:])
     return _run(args)
 
 
@@ -116,6 +118,24 @@ def _eval(argv: list[str]) -> int:
     if any(row.get("checkout") for row in rows):
         return 1
     return harness_status(rows)
+
+
+def _ui(argv: list[str]) -> int:
+    import uvicorn
+
+    from treefleet.ui.server import create_app
+
+    parser = argparse.ArgumentParser(prog="treefleet ui")
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--replay", default=None)
+    parser.add_argument("--port", type=int, default=8765)
+    parsed = parser.parse_args(argv)
+    repo = Path(parsed.repo)
+    if not (repo / ".git").exists():
+        raise SystemExit("not a git repository")
+    app = create_app(repo, replay=Path(parsed.replay) if parsed.replay else None)
+    uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
+    return 0
 
 
 def _models() -> int:

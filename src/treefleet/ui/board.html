@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="tf-token" content="{{TOKEN}}">
+<title>TreeFleet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #121314; --surface: #17181a; --raised: #1e1f22;
+  --line: #2a2b2f; --line-strong: #3a3b40;
+  --text: #e6e6e3; --muted: #8b8c92; --faint: #5d5e64;
+  --green: #4cc38a; --red: #f0616d; --yellow: #e5b94a; --blue: #5aa2f0;
+  --ui: "Schibsted Grotesk", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html { color-scheme: dark; }
+body { background: var(--ground); color: var(--text); font: 14px/1.45 var(--ui); min-height: 100vh; }
+button, textarea, select { font: inherit; color: inherit; }
+select { background: var(--raised); border: 1px solid var(--line-strong); border-radius: 5px; padding: 5px 8px; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 100vh; }
+.main { padding: 0 24px 32px; min-width: 0; }
+.drawer { border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; }
+.replay { position: sticky; top: 0; z-index: 2; background: var(--yellow); color: var(--ground); text-align: center; font-weight: 600; padding: 6px; }
+.bar { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.bar h1 { font-size: 15px; font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; display: inline-block; }
+.dot.green { background: var(--green); } .dot.red { background: var(--red); }
+.dot.yellow { background: var(--yellow); } .dot.blue { background: var(--blue); }
+.spacer { flex: 1; }
+.switch { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; cursor: pointer; color: var(--muted); }
+.switch .track { width: 30px; height: 16px; border-radius: 8px; background: var(--line-strong); position: relative; }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text); }
+.switch[aria-checked="true"] .track { background: var(--blue); }
+.switch[aria-checked="true"] .track::after { transform: translateX(14px); }
+.prompt { margin: 20px 0 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); }
+.prompt textarea { width: 100%; min-height: 64px; resize: vertical; background: none; border: 0; padding: 14px 16px 6px; outline: none; }
+.prompt .row, .actions { display: flex; align-items: center; gap: 10px; padding: 8px 12px 12px 16px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line-strong); background: var(--raised); border-radius: 5px; padding: 6px 14px; cursor: pointer; }
+.btn.primary { background: var(--text); color: var(--ground); border-color: var(--text); font-weight: 600; }
+.btn.go { border-color: var(--green); color: var(--green); }
+.lanes { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 14px; margin-top: 18px; }
+.lane h2 { font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; text-align: left; width: 100%; cursor: pointer; display: block; color: inherit; }
+.card.plan { border-color: var(--yellow); }
+.card .title { font-weight: 500; }
+.status { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.map, .panel { margin-top: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 14px 16px; }
+.map svg { width: 100%; height: auto; display: block; }
+.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.1s ease-out .2s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-weight: 400; }
+th { color: var(--muted); }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tab { background: none; border: 0; padding: 10px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.pane { padding: 14px 16px; overflow: auto; }
+.pane[hidden] { display: none; }
+.log { white-space: pre-wrap; color: var(--muted); }
+.err { color: var(--red); margin-top: 8px; }
+@media (max-width: 1100px) { .app { grid-template-columns: 1fr; } .drawer { border-left: 0; border-top: 1px solid var(--line); } }
+@media (max-width: 900px) { .lanes { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .main { padding: 0 16px 24px; } .lanes { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .draw { animation: none; stroke-dashoffset: 0; } }
+</style>
+</head>
+<body>
+<div id="replay" class="replay" hidden>REPLAY</div>
+<div class="app">
+  <main class="main">
+    <div class="bar">
+      <h1 id="title">TreeFleet</h1>
+      <span class="mono path" id="path"></span>
+      <span class="pill mono" id="ref"></span>
+      <span class="pill" id="clean"></span>
+      <span class="pill" id="stage">Stage: guard</span>
+      <span class="pill mono" id="elapsed">0:00</span>
+      <span class="spacer"></span>
+      <button class="switch" id="auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval">
+        <span class="track"></span><span>Auto-run without plan approval</span>
+      </button>
+    </div>
+    <section class="prompt" aria-label="New run">
+      <textarea id="goal" aria-label="Goal" placeholder="Describe what to build"></textarea>
+      <div class="row">
+        <label>Worker model
+          <select id="model" aria-label="Worker model"></select>
+        </label>
+        <button class="btn primary" id="run" type="button">Run</button>
+      </div>
+      <p class="err" id="error" hidden></p>
+    </section>
+    <section class="lanes" aria-label="Tasks by state">
+      <div class="lane"><h2><span class="dot yellow"></span>Needs you</h2><div class="stack" id="needs"></div></div>
+      <div class="lane"><h2><span class="dot blue"></span>Working</h2><div class="stack" id="working"></div></div>
+      <div class="lane"><h2><span class="dot yellow"></span>In review</h2><div class="stack" id="review"></div></div>
+      <div class="lane"><h2><span class="dot green"></span>Ready to merge</h2><div class="stack" id="ready"></div></div>
+    </section>
+    <section class="map" aria-label="Branch map">
+      <h2>Branch map</h2>
+      <svg id="map" viewBox="0 0 900 120" role="img" aria-label="Worktree branches"></svg>
+    </section>
+    <section class="panel" aria-label="Worktrees">
+      <h2>Worktrees</h2>
+      <table id="worktrees"><thead><tr><th>Path</th><th>Branch</th><th>Changed files</th></tr></thead><tbody></tbody></table>
+    </section>
+    <section class="panel" aria-label="Guards">
+      <h2>Guard decisions</h2>
+      <div id="guards"></div>
+    </section>
+    <section class="panel" aria-label="Isolation proof">
+      <h2>Isolation proof</h2>
+      <table id="proof"><thead><tr><th>Task</th><th>Process cwd</th><th>Toplevel</th><th>Registered</th><th>Canary absent</th><th>Within scope</th></tr></thead><tbody></tbody></table>
+    </section>
+    <section class="panel" aria-label="Integration">
+      <h2>Integration</h2>
+      <div id="integration">No merge yet.</div>
+    </section>
+    <section class="panel" aria-label="Metrics">
+      <h2>Cost and metrics</h2>
+      <p class="mono" id="metrics-elapsed">Elapsed 0:00</p>
+      <table id="metrics"><thead><tr><th>Component</th><th>Model</th><th>USD</th></tr></thead><tbody></tbody></table>
+    </section>
+  </main>
+  <aside class="drawer" aria-label="Task details">
+    <header style="padding:16px"><h3 id="task-title">No task selected</h3><div class="mono" id="task-meta"></div></header>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button">Live output</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button">Diff</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button">Proof</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button">Feedback</button>
+    </div>
+    <div class="pane log mono" id="live" role="tabpanel" aria-readonly="true"></div>
+    <div class="pane" id="diff" role="tabpanel" hidden></div>
+    <div class="pane" id="proofpane" role="tabpanel" hidden></div>
+    <div class="pane" id="fb" role="tabpanel" hidden>
+      <textarea aria-label="Feedback for this worker" id="feedback" placeholder="Tell this worker what to change"></textarea>
+      <button class="btn primary" id="send" type="button">Send feedback</button>
+      <p class="note" id="fb-note">Shown here only. It is not sent to the worker.</p>
+    </div>
+  </aside>
+</div>
+<script>
+(function () {
+  var token = document.querySelector('meta[name="tf-token"]').content;
+  var replay = "{{REPLAY}}" === "true";
+  var started = 0;
+  var selected = null;
+  var state = {};
+  var streamFor = "";
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[ch];
+    });
+  }
+  function auth(extra) {
+    var headers = {"Authorization": "Bearer " + token};
+    if (extra) Object.keys(extra).forEach(function (k) { headers[k] = extra[k]; });
+    return headers;
+  }
+  function clock(seconds) {
+    var s = Math.max(0, Math.floor(seconds));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  function lane(task) {
+    var verdict = task.verdict || "";
+    if (verdict === "approve") return "ready";
+    if (verdict === "revise" || verdict === "reject" || task.status === "failed") return "needs";
+    if (task.status === "done") return "review";
+    return "working";
+  }
+  function tasksFrom(data) {
+    var byId = {};
+    (data.events || []).forEach(function (event) {
+      var id = event.task_id;
+      if (!id) return;
+      var task = byId[id] || {id: id, title: id, status: "", verdict: "", model: "", round: 0, lines: []};
+      if (event.type === "model_selected") task.model = (event.payload || {}).model || task.model;
+      if (event.type === "worker.exited") task.status = (event.payload || {}).status || task.status;
+      if (event.type === "review_verdict") task.verdict = (event.payload || {}).verdict || task.verdict;
+      if (event.type === "revise_started") task.round = (event.payload || {}).round || task.round;
+      if (event.type === "output_line") task.lines.push((event.payload || {}).line || "");
+      byId[id] = task;
+    });
+    var report = data.report;
+    if (report && report.results) {
+      report.results.forEach(function (result) {
+        var task = byId[result.task_id] || {id: result.task_id, title: result.task_id, lines: []};
+        task.status = result.status;
+        task.title = result.task_id;
+        byId[result.task_id] = task;
+      });
+    }
+    if (report && report.verdicts) {
+      report.verdicts.forEach(function (item) {
+        if (byId[item.task_id]) byId[item.task_id].verdict = item.verdict;
+      });
+    }
+    return Object.keys(byId).map(function (id) { return byId[id]; });
+  }
+  function render(data) {
+    state = data;
+    if (data.replay || replay) document.getElementById("replay").hidden = false;
+    document.getElementById("path").textContent = data.repo || "";
+    document.getElementById("title").textContent = (data.repo || "TreeFleet").split(/[\\/]/).pop();
+    document.getElementById("ref").textContent = (data.branch || "") + (data.head ? " @ " + data.head : "");
+    document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
+    document.getElementById("stage").textContent = "Stage: " + (data.stage || "guard");
+    if (data.started_at) started = data.started_at;
+    ["needs", "working", "review", "ready"].forEach(function (id) { document.getElementById(id).innerHTML = ""; });
+    if (data.awaiting) {
+      var card = document.createElement("div");
+      card.className = "card plan";
+      var items = data.awaiting.map(function (task) {
+        return "<li>" + esc(task.title) + " · " + esc((task.allowed_paths || []).join(", ")) + "</li>";
+      }).join("");
+      card.innerHTML = '<div class="title">Plan ready: ' + data.awaiting.length + ' tasks</div><ul>' + items + '</ul>';
+      var actions = document.createElement("div");
+      actions.className = "actions";
+      var ok = document.createElement("button");
+      ok.className = "btn go";
+      ok.type = "button";
+      ok.textContent = "Approve plan";
+      ok.addEventListener("click", function () { post("/api/runs/" + data.run_id + "/approve"); });
+      var cancel = document.createElement("button");
+      cancel.className = "btn";
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", function () { post("/api/runs/" + data.run_id + "/cancel"); });
+      actions.appendChild(ok);
+      actions.appendChild(cancel);
+      card.appendChild(actions);
+      document.getElementById("needs").appendChild(card);
+    }
+    var tasks = data.tasks || tasksFrom(data);
+    tasks.forEach(function (task) {
+      var button = document.createElement("button");
+      button.className = "card";
+      button.type = "button";
+      button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.model || "") + '</div>';
+      button.addEventListener("click", function () { select(task); });
+      document.getElementById(lane(task)).appendChild(button);
+    });
+    var body = document.querySelector("#worktrees tbody");
+    body.innerHTML = "";
+    (data.worktrees || []).forEach(function (row) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(row.changed) + "</td>";
+      body.appendChild(tr);
+    });
+    drawMap(data.worktrees || []);
+    if (data.run_id) openEvents(data.run_id);
+    var guards = document.getElementById("guards");
+    guards.innerHTML = "";
+    (data.events || []).filter(function (event) { return event.type === "guard.decision"; }).forEach(function (event) {
+      var payload = event.payload || {};
+      var p = document.createElement("p");
+      var scores = payload.scores || {};
+      p.textContent = (payload.stage || "") + " " + (payload.allowed ? "allowed" : "blocked") + " " + JSON.stringify(scores);
+      guards.appendChild(p);
+    });
+    var proofBody = document.querySelector("#proof tbody");
+    proofBody.innerHTML = "";
+    var proofs = (data.report && data.report.isolation && data.report.isolation.tasks) || data.proof || [];
+    proofs.forEach(function (item) {
+      var tr = document.createElement("tr");
+      function mark(value) { return value ? "yes" : "NO"; }
+      tr.innerHTML = "<td>" + esc(item.task_id || "") + "</td><td>" + mark(item.process_cwd_matches) + "</td><td>" + mark(item.toplevel_matches) + "</td><td>" + mark(item.registered_in_worktree_list) + "</td><td>" + mark(item.canary_absent) + "</td><td>" + mark(item.changes_within_allowed_paths) + "</td>";
+      proofBody.appendChild(tr);
+    });
+    var integration = document.getElementById("integration");
+    var merged = data.report && data.report.integration;
+    integration.textContent = merged ? ("Branch " + (merged.branch || "") + " checks " + ((merged.checks || []).map(function (c) { return c.name + (c.passed ? " pass" : " fail"); }).join(", ") || "none")) : "No merge yet.";
+    var costBody = document.querySelector("#metrics tbody");
+    costBody.innerHTML = "";
+    var costs = (data.report && data.report.metrics && data.report.metrics.costs) || [];
+    costs.forEach(function (row) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + row.component + "</td><td>" + row.model + "</td><td>" + row.usd + "</td>";
+      costBody.appendChild(tr);
+    });
+    if (data.message) {
+      document.getElementById("error").hidden = false;
+      document.getElementById("error").textContent = data.message;
+    }
+  }
+  function drawMap(rows) {
+    var svg = document.getElementById("map");
+    var height = Math.max(80, 36 + rows.length * 28);
+    svg.setAttribute("viewBox", "0 0 900 " + height);
+    var paths = rows.map(function (row, index) {
+      var y = 28 + index * 28;
+      return '<path class="draw" d="M40 16 C40 ' + y + ' 80 ' + y + ' 120 ' + y + ' L860 ' + y + '" fill="none" stroke="#5aa2f0" stroke-width="2" pathLength="1"/>' +
+        '<text x="130" y="' + (y - 6) + '" fill="#8b8c92" font-size="11">' + esc(row.branch) + "  " + esc(row.path) + '</text>';
+    }).join("");
+    svg.innerHTML = '<line x1="24" y1="16" x2="876" y2="16" stroke="#3a3b40" stroke-width="2"/><text x="24" y="12" fill="#8b8c92" font-size="11">main</text>' + paths;
+  }
+  function worktreeFor(task) {
+    var branch = task.branch || "";
+    var rows = state.worktrees || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].branch === branch || (branch && String(rows[i].path).indexOf(task.id) >= 0)) return rows[i].path;
+    }
+    return "";
+  }
+  function select(task) {
+    selected = task;
+    document.getElementById("task-title").textContent = task.title;
+    document.getElementById("task-meta").textContent = (task.model || "") + " " + (task.branch || "");
+    document.getElementById("live").textContent = (task.lines || []).join("\n");
+    var proof = ((state.report && state.report.isolation && state.report.isolation.tasks) || state.proof || []).filter(function (item) {
+      return item.task_id === task.id;
+    })[0];
+    document.getElementById("proofpane").textContent = proof ? JSON.stringify(proof, null, 2) : "Proof rows are in the isolation table.";
+    var path = worktreeFor(task);
+    document.getElementById("diff").textContent = path ? "Loading diff…" : "No worktree for this task yet.";
+    if (!path) return;
+    fetch("/api/diff?path=" + encodeURIComponent(path), {headers: auth()}).then(function (res) { return res.json(); }).then(function (data) {
+      document.getElementById("diff").textContent = data.diff || data.error || "No diff.";
+    });
+  }
+  function openEvents(runId) {
+    if (!runId || streamFor === runId || !window.fetch) return;
+    streamFor = runId;
+    fetch("/api/runs/" + runId + "/events", {headers: auth()}).then(function (res) {
+      if (!res.body) return;
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = "";
+      function pump() {
+        reader.read().then(function (chunk) {
+          if (chunk.done) return;
+          buf += decoder.decode(chunk.value, {stream: true});
+          var parts = buf.split("\n\n");
+          buf = parts.pop();
+          parts.forEach(function (block) {
+            var line = block.split("\n").filter(function (item) { return item.indexOf("data: ") === 0; })[0];
+            if (!line) return;
+            var event = JSON.parse(line.slice(6));
+            state.events = state.events || [];
+            if (!state.events.some(function (item) { return item.seq === event.seq; })) state.events.push(event);
+            render(state);
+          });
+          pump();
+        }).catch(function () {});
+      }
+      pump();
+    }).catch(function () {});
+  }
+  function post(url, body) {
+    return fetch(url, {method: "POST", headers: auth({"Content-Type": "application/json"}), body: body ? JSON.stringify(body) : "{}"});
+  }
+  function tick() {
+    if (!started) return;
+    var shown = clock(Date.now() / 1000 - started);
+    document.getElementById("elapsed").textContent = shown;
+    document.getElementById("metrics-elapsed").textContent = "Elapsed " + shown;
+  }
+  function refresh() {
+    fetch("/api/board", {headers: auth()}).then(function (res) { return res.json(); }).then(render).catch(function () {});
+    fetch("/api/worktrees", {headers: auth()}).then(function (res) { return res.json(); }).then(function (data) {
+      if (!state.worktrees) state.worktrees = [];
+      state.worktrees = data.worktrees || [];
+      var body = document.querySelector("#worktrees tbody");
+      body.innerHTML = "";
+      state.worktrees.forEach(function (row) {
+        var tr = document.createElement("tr");
+        tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(row.changed) + "</td>";
+        body.appendChild(tr);
+      });
+      drawMap(state.worktrees);
+    }).catch(function () {});
+  }
+  document.getElementById("auto").addEventListener("click", function () {
+    var button = document.getElementById("auto");
+    button.setAttribute("aria-checked", String(button.getAttribute("aria-checked") !== "true"));
+  });
+  document.querySelectorAll(".tab").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      document.querySelectorAll(".tab").forEach(function (item) { item.setAttribute("aria-selected", String(item === tab)); });
+      document.querySelectorAll(".pane").forEach(function (pane) { pane.hidden = pane.id !== tab.dataset.pane; });
+    });
+  });
+  document.getElementById("send").addEventListener("click", function () {
+    document.getElementById("fb-note").textContent = "Not sent. This board does not start a revise.";
+  });
+  document.getElementById("run").addEventListener("click", function () {
+    var auto = document.getElementById("auto").getAttribute("aria-checked") === "true";
+    post("/api/runs", {
+      goal: document.getElementById("goal").value,
+      worker_model: document.getElementById("model").value,
+      plan_approval: !auto
+    }).then(function (res) { return res.json(); }).then(function (data) {
+      if (data.error) {
+        document.getElementById("error").hidden = false;
+        document.getElementById("error").textContent = data.error;
+        return;
+      }
+      started = Date.now() / 1000;
+      refresh();
+    });
+  });
+  fetch("/api/models", {headers: auth()}).then(function (res) { return res.json(); }).then(function (models) {
+    var select = document.getElementById("model");
+    models.forEach(function (item) {
+      var option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.label;
+      select.appendChild(option);
+    });
+  });
+  if (replay) document.getElementById("replay").hidden = false;
+  refresh();
+  setInterval(refresh, 1000);
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

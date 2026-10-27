@@ -86,6 +86,7 @@ async def run_pipeline(
     runs_root: Path | None = None,
     worktree_root: Path | None = None,
     port_start: int | None = None,
+    run_id: str | None = None,
 ) -> RunOutcome:
     repo = Path(request.repo)
     try:
@@ -101,7 +102,7 @@ async def run_pipeline(
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
 
-    run_id = secrets.token_hex(4)
+    run_id = run_id or secrets.token_hex(4)
     root = Path(runs_root) if runs_root is not None else Path.cwd() / "runs"
     sink = LiveSink(root)
     bundle = RunBundle(

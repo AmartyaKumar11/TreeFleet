@@ -12,10 +12,14 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 5 | Guardrails, Jev, callbacks, routing | done | `evidence/phase-5/gate.txt` |
 | 6 | Review loop and integration | done | `evidence/phase-6/gate.txt` |
 | 7 | Observability | not started | |
-| 8 | Web UI | not started | |
+| 8 | Web UI | lite board | `tests/test_phase8.py` |
 | 9 | Evaluation, cost, time | done | `eval/report.md` |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-28 — Phase 8 lite board
+
+`treefleet ui --repo <path>` serves the dark board on `127.0.0.1`. The page starts the same pipeline as the CLI. Plan approval is on unless Auto-run is switched on, and the plan card waits on Approve or Cancel. Events arrive as Server-Sent Events from `events.jsonl`, redacted, and the live pane is read-only. The worktrees panel polls `git worktree list` and a per-worktree status count once a second. A non-local Host is rejected, `/api` requires the page token, and a goal or path that fails the input guard is not started. The diff route only reads a worktree of that repo. No new contract.
 
 ## 2026-10-28 — Eval fixes
 

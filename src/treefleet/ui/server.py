@@ -1,0 +1,410 @@
+"""Localhost board. The pipeline runs in a background thread. Replay never starts one."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import secrets
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+from treefleet.config import Settings, load_settings
+from treefleet.contracts import Plan, RunRequest
+from treefleet.git.worktrees import run_git
+from treefleet.guards.input import deterministic_reasons, screen_goal
+from treefleet.guards.text import redact_payload
+
+_PAGE = Path(__file__).with_name("board.html")
+_STAGES = ("guard", "plan", "approve", "fleet", "review", "integrate", "done")
+
+
+def local_host(value: str) -> bool:
+    name = value.split(",")[0].strip().split(":")[0].strip("[]")
+    return name in {"127.0.0.1", "localhost"}
+
+
+class Approval:
+    """Blocks the planner until the page approves or cancels."""
+
+    def __init__(self) -> None:
+        self.plan: Plan | None = None
+        self._decision = threading.Event()
+        self.ok = False
+
+    def __call__(self, plan: Plan) -> bool:
+        self.plan = plan
+        self._decision.wait()
+        return self.ok
+
+    def waiting(self) -> bool:
+        return self.plan is not None and not self._decision.is_set()
+
+    def finish(self, ok: bool) -> None:
+        self.ok = ok
+        self._decision.set()
+
+
+def worktree_rows(repo: Path) -> list[dict[str, Any]]:
+    """Live git worktree list, excluding the main checkout, with a changed-file count."""
+    from treefleet.git.worktrees import list_worktrees
+
+    rows: list[dict[str, Any]] = []
+    try:
+        found = list_worktrees(repo)
+    except Exception:
+        return rows
+    main = repo.resolve()
+    for item in found:
+        try:
+            if item.path.resolve() == main:
+                continue
+        except OSError:
+            continue
+        status = run_git(["status", "--porcelain"], cwd=item.path)
+        changed = len([line for line in status.stdout.splitlines() if line.strip()])
+        rows.append({"path": str(item.path), "branch": item.branch or "", "changed": changed, "head": item.head[:7]})
+    return rows
+
+
+def _head(repo: Path) -> tuple[str, str, bool]:
+    branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo).stdout.strip()
+    head = run_git(["rev-parse", "--short", "HEAD"], cwd=repo).stdout.strip()
+    clean = not run_git(["status", "--porcelain"], cwd=repo).stdout.strip()
+    return branch, head, clean
+
+
+def _events(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            rows.append(item)
+    return rows
+
+
+def _stage(events: list[dict[str, Any]], waiting: bool, finished: bool) -> str:
+    if finished:
+        return "done"
+    if waiting:
+        return "approve"
+    names = [str(item.get("type")) for item in events]
+
+    def phase(name: str) -> bool:
+        return any(item.get("type") == "phase" and (item.get("payload") or {}).get("name") == name for item in events)
+
+    if "review_started" in names or phase("review"):
+        return "integrate" if phase("integrate") else "review"
+    fleet = any(item.get("type") in {"worker.spawned", "worker.exited"} for item in events)
+    fleet = fleet or any(
+        item.get("type") == "phase" and (item.get("payload") or {}).get("name") == "fleet" for item in events
+    )
+    if fleet:
+        return "fleet"
+    if any(item.get("type") == "phase" and item.get("payload", {}).get("name") == "planner" for item in events):
+        return "plan"
+    return "guard"
+
+
+class Board:
+    def __init__(self, repo: Path, settings: Settings, token: str, runs: Path) -> None:
+        self.repo = repo
+        self.settings = settings
+        self.token = token
+        self.runs = runs
+        self.approvals: dict[str, Approval] = {}
+        self.started: dict[str, float] = {}
+        self.finished: set[str] = set()
+        self.messages: dict[str, str] = {}
+        self.replay = False
+        self.replay_events: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+
+    def launch(self, goal: str, worker_model: str, plan_approval: bool) -> str:
+        run_id = secrets.token_hex(4)
+        approval = Approval()
+        with self._lock:
+            self.approvals[run_id] = approval
+            self.started[run_id] = time.time()
+
+        def work() -> None:
+            from treefleet.checks import detect_checks, select_checks
+            from treefleet.orchestrator.pipeline import run_pipeline
+
+            detected = detect_checks(self.repo)
+            selected = select_checks(self.repo, detected, worktree_root=Path(self.settings.worktree_root))
+            request = RunRequest(
+                goal=goal,
+                repo=str(self.repo),
+                worker_model=worker_model,
+                plan_approval=plan_approval,
+                checks=selected.checks,
+                notes=list(selected.notes),
+            )
+            outcome = asyncio.run(
+                run_pipeline(
+                    request,
+                    self.settings,
+                    approve=approval if plan_approval else None,
+                    run_id=run_id,
+                    runs_root=self.runs,
+                )
+            )
+            with self._lock:
+                self.finished.add(run_id)
+                self.messages[run_id] = outcome.message
+
+        threading.Thread(target=work, name=f"tf-{run_id}", daemon=True).start()
+        return run_id
+
+    def snapshot(self, run_id: str) -> dict[str, Any]:
+        approval = self.approvals.get(run_id)
+        waiting = bool(approval and approval.waiting())
+        events = list(self.replay_events) if self.replay else _events(self.runs / run_id / "events.jsonl")
+        plan = None
+        if approval and approval.plan is not None:
+            plan = [
+                {"id": task.id, "title": task.title, "allowed_paths": list(task.allowed_paths)}
+                for task in approval.plan.tasks
+            ]
+        report_path = self.runs / run_id / "report.json"
+        report: dict[str, Any] | None = None
+        if report_path.is_file():
+            try:
+                loaded = json.loads(report_path.read_text(encoding="utf-8"))
+                report = loaded if isinstance(loaded, dict) and loaded.get("schema_id") else None
+            except json.JSONDecodeError:
+                report = None
+        branch, head, clean = _head(self.repo)
+        body = {
+            "repo": str(self.repo),
+            "branch": branch,
+            "head": head,
+            "clean": clean,
+            "replay": self.replay,
+            "run_id": run_id,
+            "stage": _stage(events, waiting, run_id in self.finished or report is not None),
+            "started_at": self.started.get(run_id, time.time()),
+            "awaiting": plan if waiting else None,
+            "events": events[-400:],
+            "worktrees": worktree_rows(self.repo),
+            "report": report,
+            "message": self.messages.get(run_id, ""),
+            "stages": list(_STAGES),
+        }
+        clean_body, _count = redact_payload(body)
+        return clean_body if isinstance(clean_body, dict) else body
+
+
+def create_app(
+    repo: Path,
+    *,
+    root: Path | None = None,
+    token: str | None = None,
+    fixture: dict[str, Any] | None = None,
+    replay: Path | None = None,
+    models: list[dict[str, str]] | None = None,
+    runs: Path | None = None,
+) -> FastAPI:
+    base = root or Path.cwd()
+    settings = load_settings(base / "treefleet.toml")
+    board = Board(repo, settings, token or secrets.token_urlsafe(18), runs or base / "runs")
+    app = FastAPI()
+    app.state.board = board
+    app.state.fixture = fixture
+    app.state.models = models
+
+    if replay is not None:
+        board.replay = True
+        recorded = _events(replay)
+
+        def play() -> None:
+            previous: str | None = None
+            for item in recorded:
+                stamp = str(item.get("ts") or "")
+                if previous and stamp:
+                    try:
+                        from datetime import datetime
+
+                        gap = (datetime.fromisoformat(stamp) - datetime.fromisoformat(previous)).total_seconds()
+                    except ValueError:
+                        gap = 0
+                    if gap > 0:
+                        # ponytail: a gap over 30s plays at 30s so a bad timestamp cannot stall the demo
+                        time.sleep(min(gap, 30))
+                previous = stamp or previous
+                board.replay_events.append(item)
+            board.finished.add(str(recorded[-1].get("run_id")) if recorded else "replay")
+
+        threading.Thread(target=play, name="tf-replay", daemon=True).start()
+
+    @app.middleware("http")
+    async def _local(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if not local_host(request.headers.get("host", "")):
+            return JSONResponse({"error": "local only"}, status_code=403)
+        if request.url.path.startswith("/api"):
+            header = request.headers.get("authorization", "")
+            if header != f"Bearer {board.token}":
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> HTMLResponse:
+        page = _PAGE.read_text(encoding="utf-8")
+        page = page.replace("{{TOKEN}}", board.token).replace("{{REPLAY}}", "true" if board.replay else "false")
+        return HTMLResponse(page)
+
+    @app.get("/api/models")
+    def models_route() -> JSONResponse:
+        return JSONResponse(_model_options(settings, app.state.models))
+
+    @app.get("/api/worktrees")
+    def worktrees() -> JSONResponse:
+        rows = fixture.get("worktrees") if fixture is not None and fixture.get("worktrees") else worktree_rows(repo)
+        body, _count = redact_payload({"worktrees": rows})
+        return JSONResponse(body)
+
+    @app.get("/api/board")
+    def current() -> JSONResponse:
+        if fixture is not None:
+            body, _count = redact_payload(fixture)
+            return JSONResponse(body)
+        run_id = next(iter(board.approvals), "")
+        if board.replay and board.replay_events:
+            run_id = str(board.replay_events[-1].get("run_id") or run_id)
+        if not run_id:
+            branch, head, clean = _head(repo)
+            return JSONResponse(
+                {
+                    "repo": str(repo),
+                    "branch": branch,
+                    "head": head,
+                    "clean": clean,
+                    "replay": board.replay,
+                    "stage": "guard",
+                    "stages": list(_STAGES),
+                    "events": list(board.replay_events),
+                    "worktrees": worktree_rows(repo),
+                    "awaiting": None,
+                    "report": None,
+                }
+            )
+        return JSONResponse(board.snapshot(run_id))
+
+    @app.post("/api/runs")
+    async def start(request: Request) -> JSONResponse:
+        if board.replay:
+            return JSONResponse({"error": "replay is not a live run"}, status_code=409)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "bad request"}, status_code=400)
+        goal = str(payload.get("goal") or "")
+        raw_repo = str(payload.get("repo") or repo)
+        if deterministic_reasons(goal) or deterministic_reasons(raw_repo):
+            return JSONResponse({"error": "input blocked"}, status_code=400)
+        target = Path(raw_repo)
+        if not (target / ".git").exists():
+            return JSONResponse({"error": "not a git repository"}, status_code=400)
+        screen = screen_goal(goal, settings, None)
+        if not screen.decision.allowed:
+            return JSONResponse({"error": "input blocked"}, status_code=400)
+        model = str(payload.get("worker_model") or "router")
+        approval = bool(payload.get("plan_approval", True))
+        run_id = board.launch(goal, model, approval)
+        return JSONResponse({"run_id": run_id})
+
+    @app.get("/api/diff")
+    def diff(path: str) -> JSONResponse:
+        from treefleet.git.worktrees import list_worktrees
+
+        try:
+            target = Path(path).resolve()
+            allowed = {item.path.resolve() for item in list_worktrees(repo)}
+        except (OSError, ValueError, RuntimeError):
+            return JSONResponse({"error": "unknown worktree"}, status_code=404)
+        if target not in allowed or target.resolve() == repo.resolve():
+            return JSONResponse({"error": "unknown worktree"}, status_code=404)
+        shown = run_git(["diff", "--stat", "HEAD"], cwd=target)
+        full = run_git(["diff", "HEAD"], cwd=target)
+        text = (full.stdout or shown.stdout)[:8000]
+        body, _count = redact_payload({"diff": text})
+        return JSONResponse(body)
+
+    @app.post("/api/runs/{run_id}/approve")
+    def approve(run_id: str) -> JSONResponse:
+        gate = board.approvals.get(run_id)
+        if gate is None:
+            return JSONResponse({"error": "unknown run"}, status_code=404)
+        gate.finish(True)
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel(run_id: str) -> JSONResponse:
+        gate = board.approvals.get(run_id)
+        if gate is None:
+            return JSONResponse({"error": "unknown run"}, status_code=404)
+        gate.finish(False)
+        return JSONResponse({"ok": True})
+
+    @app.get("/api/runs/{run_id}/events")
+    def events(run_id: str, request: Request) -> StreamingResponse:
+        last = request.headers.get("last-event-id")
+        seen = int(last) if last and last.isdigit() else -1
+
+        def generate():
+            path = board.runs / run_id / "events.jsonl"
+            if not board.replay and run_id not in board.approvals and not path.is_file():
+                return
+            cursor = seen
+            quiet = 0
+            while quiet < 3:
+                rows = board.replay_events if board.replay else _events(board.runs / run_id / "events.jsonl")
+                emitted = False
+                for item in rows:
+                    seq = int(item.get("seq") or 0)
+                    if seq <= cursor:
+                        continue
+                    cursor = seq
+                    emitted = True
+                    line, _count = redact_payload(item)
+                    yield f"id: {seq}\ndata: {json.dumps(line)}\n\n"
+                if run_id in board.finished and not emitted:
+                    quiet += 1
+                else:
+                    quiet = 0
+                time.sleep(0.4)
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    return app
+
+
+def _model_options(settings: Settings, override: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    options = [{"id": "router", "label": "Smart routing"}, {"id": "auto", "label": "Cursor Auto"}]
+    if override is not None:
+        for item in override:
+            if item["id"] not in {"router", "auto"}:
+                options.append(item)
+        return options
+    from treefleet.cursor_models import UnknownModelError, discover
+
+    try:
+        found = discover(Path(settings.cursor.cli), settings.cursor.list_flag)
+    except (UnknownModelError, OSError):
+        return options
+    for model in found:
+        if model.id not in {"router", "auto"}:
+            options.append({"id": model.id, "label": model.label or model.id})
+    return options
