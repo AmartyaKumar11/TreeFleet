@@ -14,6 +14,7 @@ from treefleet.contracts import CursorRunResult, CursorUsage, OutputLine, RunEve
 from treefleet.events import EventSink
 from treefleet.git.proofs import collect_changes, revert_out_of_scope
 from treefleet.git.worktrees import GitError, kill_tree
+from treefleet.timing import record_step
 
 _SECRET = re.compile(r"(sk-[A-Za-z0-9]+|apikey_[A-Za-z0-9]+|api[_-]?key\s*[:=]\s*\S+)", re.IGNORECASE)
 
@@ -21,6 +22,10 @@ _SECRET = re.compile(r"(sk-[A-Za-z0-9]+|apikey_[A-Za-z0-9]+|api[_-]?key\s*[:=]\s
 def redact_line(text: str) -> str:
     cleaned = _SECRET.sub("[redacted]", text).replace("\r", " ").replace("\n", " ").strip()
     return cleaned[:200]
+
+
+def redact_blob(text: str, limit: int = 2000) -> str:
+    return _SECRET.sub("[redacted]", text)[:limit]
 
 
 def command_for(cli: Path, worktree: Path, model: str | None, instruction: str) -> list[str]:
@@ -125,11 +130,12 @@ def run_cursor(
 ) -> CursorRunResult:
     header = (
         f"Allowed paths: {', '.join(allowed)}. Denied paths: {', '.join(denied) or 'none'}. "
+        "Edit only the allowed files. Do not explore or search the repository. "
         "Do not run git commands. Do not touch files outside the listed paths.\n"
     )
     started = time.monotonic()
     proc = subprocess.Popen(
-        command_for(cli, worktree, model, header + instruction[:6000]),
+        command_for(cli, worktree, model, header + instruction[:400]),
         cwd=worktree,
         env=_minimal_env(),
         stdout=subprocess.PIPE,
@@ -152,6 +158,15 @@ def run_cursor(
             proc.kill()
         stdout = ""
     _emit(sink, run_id, stdout)
+    record_step(
+        "cursor",
+        time.monotonic() - started,
+        timed_out=timed_out,
+        name=model or "",
+        output_tail=redact_blob(stdout[-2000:]),
+        sink=sink,
+        run_id=run_id,
+    )
     try:
         changed = collect_changes(worktree, "HEAD") if worktree.exists() else []
         reverted = revert_out_of_scope(worktree, allowed, denied) if worktree.exists() else []

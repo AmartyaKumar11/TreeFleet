@@ -11,6 +11,7 @@ from treefleet.contracts import (
     IntegrationReport,
     IsolationProof,
     IsolationReport,
+    Limits,
     MainCheckoutProof,
     Plan,
     ReviewVerdict,
@@ -140,6 +141,7 @@ def test_run_request_limits() -> None:
         RunRequest(goal="A sufficiently long goal", repo="x", base_ref="main; rm -rf /")
     with pytest.raises(ValidationError):
         RunRequest(goal="A sufficiently long goal", repo="x", max_workers=9)
+    assert Limits().timeout_s == 180
 
 
 def test_final_report_markdown_and_metrics() -> None:

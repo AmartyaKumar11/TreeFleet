@@ -31,7 +31,8 @@ description: Implements one scoped task inside a single git worktree by directin
 version: 1
 skills: [ { id: implement_task, name: Implement task,
             description: Accepts a WorkerTaskEnvelope, directs cursor-agent to edit files inside its worktree,
-                         verifies scope, runs named checks, commits on its branch, returns a WorkerResult. } ]
+                         verifies scope, runs named checks, commits on its branch, returns a WorkerResult.
+                         `summary` is built from git facts. The agent's text is `notes`, written only after `git_diff`. } ]
 capabilities: { streaming: true }   # set explicitly; verify the server really streams in P0
 auth: bearer token from the per-run token
 ```
@@ -169,7 +170,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `guard.decision` (payload is a `GuardDecision`)
 - `orchestrator.agent_start`, `orchestrator.agent_end`, `orchestrator.model_call`, `orchestrator.tool_call`, `orchestrator.tool_result`, `orchestrator.state_delta`
 - `git.worktree_created`, `git.worktree_removed`, `git.commit`, `git.merge`, `git.proof`
-- `worker.spawned`, `worker.progress`, `worker.step`, `worker.task_callback`, `worker.guardrail`, `worker.exited`
+- `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, or `default`, and `complexity`)
 - `mcp.call` (payload: server, tool, ok, error code)

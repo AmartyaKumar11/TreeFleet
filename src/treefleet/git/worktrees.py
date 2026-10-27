@@ -31,6 +31,7 @@ def run_git(args: list[str], cwd: Path | None = None, timeout: float = 30) -> su
         ["git", *args],
         cwd=cwd,
         env=env,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",

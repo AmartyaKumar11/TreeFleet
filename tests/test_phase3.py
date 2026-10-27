@@ -28,12 +28,13 @@ from a2a.types import (
 )
 from pydantic import ValidationError
 
-from treefleet.contracts import CursorRunResult, CursorUsage, OutputLine, WorkerDraft, WorkerResult
+from treefleet.contracts import CursorRunResult, CursorUsage, FileChange, OutputLine, WorkerDraft, WorkerResult
 from treefleet.cursor_run import command_for, redact_line, run_cursor
 from treefleet.events import EventSink
 from treefleet.git.worktrees import create_worktree, kill_tree, prepare_repo, remove_worktree
-from treefleet.mcp_servers.worktree_fs_server import PathGuardError, execute_check, resolve_inside
+from treefleet.mcp_servers.worktree_fs_server import PathGuardError, execute_check, mcp_stdio, resolve_inside
 from treefleet.worker.draft import draft_with_retry
+from treefleet.worker.facts import summary_from_files
 
 pytestmark = pytest.mark.phase3
 
@@ -115,9 +116,34 @@ def test_run_check_refuses_unknown_names_and_shell(tmp_path: Path, monkeypatch: 
     assert calls == [False]
 
 
+def test_fs_mcp_tool_name_keeps_git_diff() -> None:
+    """CrewAI hashes tool names past 64 characters and drops the real name."""
+    command, args = mcp_stdio()
+    for tool in ("git_diff", "git_status", "run_check", "read_file"):
+        raw = f"{command}_{'_'.join(args)}_{tool}"
+        cleaned = "".join(char.lower() if char.isalnum() else "_" for char in raw)
+        while "__" in cleaned:
+            cleaned = cleaned.replace("__", "_")
+        cleaned = cleaned.strip("_")
+        assert len(cleaned) <= 64, cleaned
+        assert cleaned.endswith(tool)
+
+
+def test_summary_is_git_facts_and_notes_hold_agent_text() -> None:
+    text = summary_from_files([FileChange(path="README.md", additions=1, deletions=0)])
+    assert text == "README.md +1 -0"
+    assert summary_from_files([]) == "No files changed."
+    with pytest.raises(ValidationError):
+        WorkerDraft(notes="")
+    draft = WorkerDraft(notes="The sentence is on line 2.")
+    assert "line 2" not in text
+    assert draft.notes != text
+
+
 def test_cursor_timeout_kills_the_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TREEFLEET_FAKE_SLEEP", "30")
     monkeypatch.delenv("TREEFLEET_FAKE_EDIT", raising=False)
+    sink = EventSink(tmp_path / "runs")
     result = run_cursor(
         cli=FAKE,
         worktree=tmp_path,
@@ -126,6 +152,8 @@ def test_cursor_timeout_kills_the_process(tmp_path: Path, monkeypatch: pytest.Mo
         denied=[],
         model=None,
         timeout_s=1,
+        sink=sink,
+        run_id="ab12cd",
     )
     assert result.timed_out is True
     assert isinstance(result, CursorRunResult)
@@ -135,6 +163,16 @@ def test_cursor_timeout_kills_the_process(tmp_path: Path, monkeypatch: pytest.Mo
         if proc.info["cmdline"] and "s9_fakes.py" in " ".join(proc.info["cmdline"])
     ]
     assert leftovers == []
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "runs" / "ab12cd" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    cursor_steps = [
+        event for event in events if event["type"] == "worker.step" and event["payload"]["step"] == "cursor"
+    ]
+    assert len(cursor_steps) == 1
+    assert cursor_steps[0]["payload"]["timed_out"] is True
+    assert cursor_steps[0]["payload"]["duration_s"] >= 0
 
 
 def test_cursor_reverts_out_of_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,9 +224,12 @@ def test_cursor_omits_model_flag_and_emits_output_line(tmp_path: Path, monkeypat
     )
     lines = (tmp_path / "runs" / "ab12cd" / "events.jsonl").read_text(encoding="utf-8").splitlines()
     events = [json.loads(line) for line in lines if line.strip()]
-    assert events
-    assert all(event["type"] == "output_line" and event["source"] == "worker" for event in events)
-    assert all(len(event["payload"]["line"]) <= 200 for event in events)
+    output = [event for event in events if event["type"] == "output_line"]
+    assert output
+    assert all(event["source"] == "worker" and len(event["payload"]["line"]) <= 200 for event in output)
+    cursor = [event for event in events if event["type"] == "worker.step" and event["payload"]["step"] == "cursor"]
+    assert len(cursor) == 1
+    assert cursor[0]["payload"]["timed_out"] is False
 
 
 def test_windows_cursor_cmd_resolves_to_node(tmp_path: Path) -> None:
@@ -217,7 +258,9 @@ def test_malformed_draft_retries_once() -> None:
     assert seen[0] is None
     assert seen[1] and "WorkerDraft" in seen[1]
     assert len(seen) == 2
-    assert draft_with_retry(lambda error: '{"summary": "ok"}' if error or True else "") == WorkerDraft(summary="ok")
+    assert draft_with_retry(lambda error: '{"notes": "ok"}' if error or True else "") == WorkerDraft(notes="ok")
+    with pytest.raises(ValidationError):
+        WorkerDraft.model_validate({"summary": "old field"})
 
 
 def _worker(env: dict[str, str], envelope: dict, worktree: Path) -> dict:
@@ -309,9 +352,27 @@ def test_worker_fake_cursor_commits_readme(tmp_path: Path) -> None:
     root = Path(r"C:\tf") if sys.platform == "win32" else Path("/tmp/tf")
     worktree = create_worktree(repo, run_id, "alpha", root)
     try:
-        payload = _worker({"TREEFLEET_MOCK_LLM": "1", "TREEFLEET_FAKE_EDIT": "readme"}, _envelope(worktree), worktree)
+        runs = tmp_path / "runs"
+        payload = _worker(
+            {"TREEFLEET_MOCK_LLM": "1", "TREEFLEET_FAKE_EDIT": "readme", "TREEFLEET_RUNS": str(runs)},
+            _envelope(worktree),
+            worktree,
+        )
         assert payload["status"] == "done", payload.get("error")
         assert payload["head_sha"]
+        change = payload["files_changed"][0]
+        assert payload["summary"] == summary_from_files(
+            [FileChange(path=change["path"], additions=change["additions"], deletions=change["deletions"])]
+        )
+        assert payload["notes"] == "Updated README.md."
+        assert payload["notes"] not in payload["summary"]
+        steps = [
+            json.loads(line)["payload"]["step"]
+            for line in (runs / "ab12cd" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            if json.loads(line)["type"] == "worker.step"
+        ]
+        for name in ("start", "deepseek", "cursor", "check", "commit"):
+            assert name in steps
         assert (
             subprocess.run(
                 ["git", "cat-file", "-t", payload["head_sha"]], cwd=repo, capture_output=True, shell=False, check=False
@@ -369,6 +430,23 @@ def test_worker_outside_write_fails_through_the_guardrail(tmp_path: Path) -> Non
         assert not (worktree / "sneak.txt").exists()
         assert leaked.is_file()
         assert int(guards.read_text(encoding="utf-8")) >= 2
+    finally:
+        remove_worktree(repo, worktree)
+
+
+def test_worker_notes_without_git_diff_fail(tmp_path: Path) -> None:
+    repo, worktree, _run = _git_worktree(tmp_path)
+    calls = tmp_path / "calls.txt"
+    try:
+        payload = _worker(
+            {"TREEFLEET_MOCK_LLM": "nodiff", "TREEFLEET_MOCK_COUNT": str(calls)},
+            _envelope(worktree),
+            worktree,
+        )
+        assert payload["status"] == "failed"
+        assert payload["commit_made"] is False
+        assert "git_diff" in payload["error"]
+        assert calls.read_text(encoding="utf-8") == "2"
     finally:
         remove_worktree(repo, worktree)
 

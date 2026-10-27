@@ -276,10 +276,20 @@ class OutputLine(_Model):
     line: Annotated[str, StringConstraints(max_length=200)]
 
 
+class StepTiming(_Model):
+    """One timed worker step. Payload of a worker.step event."""
+
+    step: Literal["start", "deepseek", "cursor", "check", "commit"]
+    duration_s: float = Field(ge=0)
+    timed_out: bool = False
+    name: Annotated[str, StringConstraints(max_length=100)] = ""
+    output_tail: Annotated[str, StringConstraints(max_length=2000)] = ""
+
+
 class WorkerDraft(_Model):
     """JSON the worker model returns. Plain code parses it. It is not a WorkerResult."""
 
-    summary: Annotated[str, StringConstraints(min_length=1, max_length=3000)]
+    notes: Annotated[str, StringConstraints(min_length=1, max_length=3000)]
 
 
 class CostLine(_Model):
@@ -299,7 +309,7 @@ class Limits(_Model):
     max_steps: int = Field(default=40, ge=1, le=200)
     max_output_chars: int = Field(default=8000, ge=500, le=100_000)
     max_file_bytes: int = Field(default=200_000, ge=1_000, le=5_000_000)
-    timeout_s: int = Field(default=900, ge=30, le=7200)
+    timeout_s: int = Field(default=180, ge=30, le=7200)
 
 
 class TraceContext(_Model):
@@ -386,6 +396,7 @@ class WorkerResult(_Model):
     attempt: int = Field(ge=1)
     status: Literal["done", "failed", "needs_human"]
     summary: Annotated[str, StringConstraints(max_length=3000)] = ""
+    notes: Annotated[str, StringConstraints(max_length=3000)] = ""
     branch: str
     head_sha: Sha | None = None
     commit_made: bool = False

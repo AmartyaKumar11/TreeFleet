@@ -23,9 +23,15 @@ def make_cursor_tool(
     run_id: str | None = None,
     usages: list[CursorUsage] | None = None,
 ):
+    launched = 0
+
     @tool("cursor_code")
     def cursor_code(instruction: str) -> str:
         """Edit files inside the worktree by directing cursor-agent. Returns JSON."""
+        nonlocal launched
+        if launched >= 2:
+            return '{"ok": false, "error": "cursor_code already ran twice. Call git_diff and return notes."}'
+        launched += 1
         result = run_cursor(
             cli=cli,
             worktree=worktree,

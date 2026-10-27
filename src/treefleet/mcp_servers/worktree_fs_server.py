@@ -7,6 +7,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +109,7 @@ def execute_check(root: Path, checks: dict[str, str], name: str) -> dict[str, An
             argv,
             cwd=root,
             env=env,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -229,11 +231,27 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
     return server
 
 
+def mcp_stdio() -> tuple[str, list[str]]:
+    """Argv whose sanitized form still ends with git_diff. A bare python.exe drops the venv."""
+    return sys.executable, ["-m", "fs"]
+
+
+def mcp_env(root: Path, checks: object) -> dict[str, str]:
+    # CrewAI merges this onto the MCP default environment. Do not set
+    # PYTHONIOENCODING: it puts stdio in text mode and the handshake never finishes.
+    return {
+        "TREEFLEET_FS_ROOT": str(root),
+        "TREEFLEET_FS_CHECKS": json.dumps(checks),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", required=True)
-    parser.add_argument("--checks", default="{}")
+    parser.add_argument("--root", default=os.environ.get("TREEFLEET_FS_ROOT"))
+    parser.add_argument("--checks", default=os.environ.get("TREEFLEET_FS_CHECKS", "{}"))
     args = parser.parse_args()
+    if not args.root:
+        raise SystemExit("TREEFLEET_FS_ROOT is required")
     build_fs_server(Path(args.root), json.loads(args.checks)).run(transport="stdio")
 
 
