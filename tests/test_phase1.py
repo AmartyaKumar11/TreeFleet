@@ -112,6 +112,7 @@ def test_config_loads_measured_defaults(tmp_path: Path, monkeypatch: pytest.Monk
     assert settings.models.router.fallback() == "gpt-5"
     assert settings.models.router.model_for("trivial") == "gpt-5"
     assert settings.workers.port_start == 9101
+    assert settings.workers.mcp_startup_s == 15
     assert settings.cursor.model_flag == "--model"
     assert settings.cursor.sandbox == "disabled"
     assert "--print" in settings.cursor.flags

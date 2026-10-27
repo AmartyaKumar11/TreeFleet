@@ -142,6 +142,7 @@ def test_run_request_limits() -> None:
     with pytest.raises(ValidationError):
         RunRequest(goal="A sufficiently long goal", repo="x", max_workers=9)
     assert Limits().timeout_s == 180
+    assert Limits().mcp_startup_s == 15
 
 
 def test_final_report_markdown_and_metrics() -> None:

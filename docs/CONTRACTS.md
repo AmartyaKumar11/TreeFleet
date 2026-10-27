@@ -69,7 +69,7 @@ A plain Python wrapper around `cursor-agent`. It is the only path by which a fil
 | Field | Rule |
 |---|---|
 | Input | `instruction` (string, max 6,000 characters). The wrapper prepends a fixed header with the task id, `allowed_paths`, `denied_paths`, "do not run git commands", "do not touch files outside the listed paths" |
-| Process | `cursor-agent` 2026.10.22-27dcf5f, `cwd` = worktree, `shell=False`, minimal environment plus the Cursor credential, timeout from `Limits`. Flags: `--print`, `--output-format json`, `--workspace <worktree>`, `--trust`, and `--model <id>` when a Cursor id is resolved. On Windows pass `--sandbox disabled`. `--sandbox enabled` exits 1 and does not start (`Sandbox requires macOS or Linux`, S10b). `--force` does not make a permission file block writes (S10) |
+| Process | `cursor-agent` 2026.10.22-27dcf5f, `cwd` = worktree, `shell=False`, minimal environment plus the Cursor credential, timeout from `Limits`. Flags: `--print`, `--output-format json`, `--workspace <worktree>`, `--trust`, and `--model <id>` when a Cursor id is resolved. `--trust` is required: without it the headless CLI exits 1 on the Workspace Trust prompt and does not edit. On Windows pass `--sandbox disabled`. `--sandbox enabled` exits 1 and does not start (`Sandbox requires macOS or Linux`, S10b). `--force` does not make a permission file block writes (S10) |
 | After the run | Wrapper lists changed and untracked files, reverts any path outside scope, and returns a `CursorRunResult` |
 | Output | `CursorRunResult`: `exit_code`, `timed_out`, `duration_s`, `files_changed`, `reverted_paths`, `output_tail` (max 2,000 characters), and `usage` from the CLI JSON when present |
 
@@ -170,6 +170,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `guard.decision` (payload is a `GuardDecision`)
 - `orchestrator.agent_start`, `orchestrator.agent_end`, `orchestrator.model_call`, `orchestrator.tool_call`, `orchestrator.tool_result`, `orchestrator.state_delta`
 - `git.worktree_created`, `git.worktree_removed`, `git.commit`, `git.merge`, `git.proof`
+- `scope_violation` (payload: `path`, `reason`) when a worktree has a `.cursor/` directory or `.cursorrules` file that is not in the base commit. `git.cursor_warning` (payload: `path`, `text`) logs tracked Cursor config. That text is never executed.
 - `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, or `default`, and `complexity`)

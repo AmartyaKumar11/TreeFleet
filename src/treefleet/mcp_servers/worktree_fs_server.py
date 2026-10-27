@@ -8,6 +8,8 @@ import os
 import shlex
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +19,7 @@ except ImportError:  # mcp 1.x, the version CrewAI pins
     from mcp.server.fastmcp import FastMCP as MCPServer  # pyright: ignore[reportAttributeAccessIssue]
 
 from treefleet.contracts import CheckResult, Limits
-from treefleet.git.worktrees import run_git
+from treefleet.git.worktrees import kill_tree, run_git
 
 _CODES = (
     "PATH_ESCAPE",
@@ -232,17 +234,117 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
 
 
 def mcp_stdio() -> tuple[str, list[str]]:
-    """Argv whose sanitized form still ends with git_diff. A bare python.exe drops the venv."""
-    return sys.executable, ["-m", "fs"]
+    """The worker venv interpreter. A bare `python.exe` is the uv launcher and drops the venv."""
+    return sys.executable, ["-m", "treefleet.mcp_servers.worktree_fs_server"]
 
 
 def mcp_env(root: Path, checks: object) -> dict[str, str]:
-    # CrewAI merges this onto the MCP default environment. Do not set
-    # PYTHONIOENCODING: it puts stdio in text mode and the handshake never finishes.
-    return {
-        "TREEFLEET_FS_ROOT": str(root),
-        "TREEFLEET_FS_CHECKS": json.dumps(checks),
-    }
+    """Minimal child environment. Windows Python and asyncio hang without SystemRoot, TEMP and TMP."""
+    env: dict[str, str] = {"PYTHONUNBUFFERED": "1"}
+    for key in ("SystemRoot", "TEMP", "TMP", "PATH", "PATHEXT"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    if sys.platform == "win32":
+        if "SystemRoot" not in env:
+            fallback = os.environ.get("SYSTEMROOT")
+            if not fallback:
+                raise RuntimeError("MCP server environment is missing SystemRoot")
+            env["SystemRoot"] = fallback
+        for key in ("TEMP", "TMP"):
+            if key not in env:
+                raise RuntimeError(f"MCP server environment is missing {key}")
+    env["TREEFLEET_FS_ROOT"] = str(root)
+    env["TREEFLEET_FS_CHECKS"] = json.dumps(checks)
+    return env
+
+
+def handshake(root: Path, checks: object, timeout_s: float, python: Path | None = None) -> list[str]:
+    """Start the filesystem server and return its tool names. A stuck process raises TimeoutError."""
+    command = str(python) if python is not None else mcp_stdio()[0]
+    proc = subprocess.Popen(
+        [command, "-m", "treefleet.mcp_servers.worktree_fs_server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=mcp_env(root, checks),
+        cwd=root,
+        shell=False,
+    )
+    deadline = time.monotonic() + timeout_s
+    try:
+        _send(
+            proc,
+            _rpc(
+                "initialize",
+                1,
+                {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "treefleet", "version": "0.1.0"},
+                },
+            ),
+        )
+        started = _wait(proc, deadline, 1, timeout_s)
+        if "error" in started:
+            raise RuntimeError(f"MCP handshake failed: {started['error']}")
+        _send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+        _send(proc, _rpc("tools/list", 2, {}))
+        listed = _wait(proc, deadline, 2, timeout_s)
+        if "error" in listed:
+            raise RuntimeError(f"MCP handshake failed: {listed['error']}")
+        tools = listed.get("result", {}).get("tools", [])
+        return [str(item["name"]) for item in tools if isinstance(item, dict) and "name" in item]
+    except TimeoutError:
+        raise TimeoutError(f"MCP server did not complete the handshake within {timeout_s}s") from None
+    finally:
+        if proc.poll() is None:
+            kill_tree(proc.pid)
+
+
+def _rpc(method: str, call_id: int, params: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": call_id, "method": method, "params": params}
+
+
+def _send(proc: subprocess.Popen[bytes], message: dict[str, Any]) -> None:
+    if proc.stdin is None:
+        raise RuntimeError("MCP server stdin is closed")
+    proc.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
+    proc.stdin.flush()
+
+
+def _wait(proc: subprocess.Popen[bytes], deadline: float, call_id: int, timeout_s: float) -> dict[str, Any]:
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"MCP server did not complete the handshake within {timeout_s}s")
+        line = _readline(proc, remaining)
+        if not line.strip():
+            raise RuntimeError("MCP server closed stdout before the handshake finished")
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("MCP server wrote non-JSON to stdout") from exc
+        if not isinstance(message, dict):
+            raise RuntimeError("MCP server wrote non-JSON to stdout")
+        if message.get("id") == call_id:
+            return message
+
+
+def _readline(proc: subprocess.Popen[bytes], timeout_s: float) -> str:
+    if proc.stdout is None:
+        raise RuntimeError("MCP server stdout is closed")
+    found: list[bytes] = []
+
+    def read() -> None:
+        found.append(proc.stdout.readline() if proc.stdout is not None else b"")
+
+    thread = threading.Thread(target=read, daemon=True)
+    thread.start()
+    thread.join(timeout_s)
+    if thread.is_alive():
+        raise TimeoutError(f"MCP server did not complete the handshake within {timeout_s}s")
+    return found[0].decode("utf-8", errors="replace") if found else ""
 
 
 def main() -> None:

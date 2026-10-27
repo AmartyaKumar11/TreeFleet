@@ -32,7 +32,14 @@ from treefleet.contracts import CursorRunResult, CursorUsage, FileChange, Output
 from treefleet.cursor_run import command_for, redact_line, run_cursor
 from treefleet.events import EventSink
 from treefleet.git.worktrees import create_worktree, kill_tree, prepare_repo, remove_worktree
-from treefleet.mcp_servers.worktree_fs_server import PathGuardError, execute_check, mcp_stdio, resolve_inside
+from treefleet.mcp_servers.worktree_fs_server import (
+    PathGuardError,
+    execute_check,
+    handshake,
+    mcp_env,
+    mcp_stdio,
+    resolve_inside,
+)
 from treefleet.worker.draft import draft_with_retry
 from treefleet.worker.facts import summary_from_files
 
@@ -116,17 +123,19 @@ def test_run_check_refuses_unknown_names_and_shell(tmp_path: Path, monkeypatch: 
     assert calls == [False]
 
 
-def test_fs_mcp_tool_name_keeps_git_diff() -> None:
-    """CrewAI hashes tool names past 64 characters and drops the real name."""
+def test_mcp_handshake_finishes_with_the_minimal_env(tmp_path: Path) -> None:
+    env = mcp_env(tmp_path, {})
+    assert env["PYTHONUNBUFFERED"] == "1"
+    assert env["TREEFLEET_FS_ROOT"] == str(tmp_path)
+    if sys.platform == "win32":
+        assert env["SystemRoot"]
+        assert env["TEMP"]
+        assert env["TMP"]
     command, args = mcp_stdio()
-    for tool in ("git_diff", "git_status", "run_check", "read_file"):
-        raw = f"{command}_{'_'.join(args)}_{tool}"
-        cleaned = "".join(char.lower() if char.isalnum() else "_" for char in raw)
-        while "__" in cleaned:
-            cleaned = cleaned.replace("__", "_")
-        cleaned = cleaned.strip("_")
-        assert len(cleaned) <= 64, cleaned
-        assert cleaned.endswith(tool)
+    assert Path(command).name.lower() in {"python.exe", "python"}
+    assert "--root" not in args
+    names = handshake(tmp_path, {}, 15, python=WORKER)
+    assert "git_diff" in names
 
 
 def test_summary_is_git_facts_and_notes_hold_agent_text() -> None:
@@ -209,6 +218,7 @@ def test_cursor_omits_model_flag_and_emits_output_line(tmp_path: Path, monkeypat
     omitted = command_for(FAKE, tmp_path, None, "edit the readme")
     selected = command_for(FAKE, tmp_path, "composer-2.5-fast", "edit the readme")
     assert "--model" not in omitted
+    assert "--trust" in omitted
     assert selected[selected.index("--model") + 1] == "composer-2.5-fast"
     sink = EventSink(tmp_path / "runs")
     run_cursor(

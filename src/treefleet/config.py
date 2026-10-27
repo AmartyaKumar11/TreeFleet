@@ -69,6 +69,7 @@ class Thresholds(_Strict):
 
 class Workers(_Strict):
     port_start: int = Field(ge=1, le=65535)
+    mcp_startup_s: int = Field(default=15, ge=1, le=120)
 
 
 class Paths(_Strict):

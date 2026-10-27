@@ -310,6 +310,7 @@ class Limits(_Model):
     max_output_chars: int = Field(default=8000, ge=500, le=100_000)
     max_file_bytes: int = Field(default=200_000, ge=1_000, le=5_000_000)
     timeout_s: int = Field(default=180, ge=30, le=7200)
+    mcp_startup_s: int = Field(default=15, ge=1, le=120)
 
 
 class TraceContext(_Model):

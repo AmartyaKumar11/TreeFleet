@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shlex
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from crewai import Agent, Crew, Process, Task
 from crewai.llms.base_llm import BaseLLM
-from crewai.mcp import MCPServerStdio
+from crewai.mcp.client import MCPClient
+from crewai.mcp.transports.stdio import StdioTransport
+from crewai.tools import BaseTool
 from pydantic import ValidationError
 
 from treefleet.contracts import (
@@ -25,9 +29,10 @@ from treefleet.contracts import (
     WorkerTaskEnvelope,
 )
 from treefleet.events import EventSink
+from treefleet.git.cursor_scope import ScopeViolation, check_cursor_scope
 from treefleet.git.proofs import revert_out_of_scope, snapshot_main, verify_main
 from treefleet.git.worktrees import git_out, run_git
-from treefleet.mcp_servers.worktree_fs_server import mcp_env, mcp_stdio
+from treefleet.mcp_servers.worktree_fs_server import handshake, mcp_env, mcp_stdio
 from treefleet.timing import record_step, reset_steps
 from treefleet.worker.cursor_tool import make_cursor_tool
 from treefleet.worker.draft import parse_draft
@@ -118,6 +123,52 @@ def tool_names(agent: Agent) -> list[str]:
     return [name for name in names if name]
 
 
+class _FsTool(BaseTool):
+    """One filesystem tool under its real MCP name. The command line is not part of the name."""
+
+    def __init__(self, tool_name: str, factory: Callable[[], MCPClient]) -> None:
+        super().__init__(name=tool_name, description=tool_name)
+        self._factory = factory
+        self._tool_name = tool_name
+
+    def _run(self, **kwargs: Any) -> str:
+        client = self._factory()
+
+        async def once() -> str:
+            await client.connect()
+            try:
+                result = await client.call_tool(self._tool_name, kwargs)
+            finally:
+                await client.disconnect()
+            return result if isinstance(result, str) else str(result)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(once())
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(asyncio.run, once()).result()
+
+
+def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
+    command, args = mcp_stdio()
+    env = mcp_env(worktree, envelope.checks)
+    timeout_s = envelope.limits.mcp_startup_s
+    names = handshake(worktree, envelope.checks, timeout_s, python=Path(command))
+    if "git_diff" not in names:
+        raise RuntimeError("MCP server did not expose git_diff")
+
+    def factory() -> MCPClient:
+        return MCPClient(
+            StdioTransport(command=command, args=list(args), env=env),
+            connect_timeout=timeout_s,
+        )
+
+    return [_FsTool(name, factory) for name in names]
+
+
 def _timed(inner: Any, run_id: str) -> BaseLLM:
     class TimingLLM(BaseLLM):
         def supports_function_calling(self) -> bool:
@@ -188,13 +239,7 @@ def build_agent(
         run_id=envelope.run_id,
         usages=usages,
     )
-    command, mcp_args = mcp_stdio()
-    mcp = MCPServerStdio(
-        command=command,
-        args=mcp_args,
-        env=mcp_env(worktree, envelope.checks),
-        cache_tools_list=True,
-    )
+    fs_tools = _fs_tools(envelope, worktree)
     raw = MockLLM(model="mock") if os.environ.get("TREEFLEET_MOCK_LLM") else _deepseek()
     llm = _timed(raw, envelope.run_id)
     return Agent(
@@ -202,8 +247,7 @@ def build_agent(
         goal="Direct cursor-agent inside this worktree and do not edit files yourself.",
         backstory="You have no write tool. cursor_code is the only way a file changes.",
         llm=llm,
-        tools=[cursor],
-        mcps=[mcp],
+        tools=[cursor, *fs_tools],
         verbose=False,
         max_iter=4,
     )
@@ -288,7 +332,13 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     main = _main_repo(worktree)
     before = snapshot_main(main)
     cursor_usages.clear()
-    agent = build_agent(envelope, worktree, cursor_usages)
+    try:
+        check_cursor_scope(worktree, run_id=envelope.run_id, sink=_sink())
+        agent = build_agent(envelope, worktree, cursor_usages)
+    except ScopeViolation as exc:
+        return _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started)
+    except TimeoutError as exc:
+        return _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started)
     record_step("start", time.monotonic() - started, name="start", sink=_sink(), run_id=envelope.run_id)
     feedback = envelope.revision_feedback or ""
 
@@ -296,7 +346,7 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
         description = (
             f"{envelope.task.instructions}\nAllowed: {envelope.task.allowed_paths}. "
             f"Denied: {envelope.task.denied_paths}. Revision: {feedback}. "
-            "Call cursor_code at most once. Then call the tool whose name ends with git_diff. "
+            "Call cursor_code at most once. Then call git_diff. "
             'Then return JSON {"notes": "..."} only. Do not explore the repository.'
         )
         if error:

@@ -186,6 +186,8 @@ Offline tests use the fake LLMs on both sides. Mark them phase4.
 
 **Gate tests**
 
+Addendum: tool names exposed to the worker stay at 64 characters or fewer and `git_diff` stays callable when the worktree root path is 200 characters. Before spawn, an untracked `.cursor/` directory or `.cursorrules` file emits `scope_violation` and fails the task. Tracked `.cursor/` content is a `git.cursor_warning` and is not executed. `cursor-agent` is started with `--trust`.
+
 1. Three workers run concurrently (assert overlapping time windows from events), results land in state under the contract keys.
 2. `IsolationReport.ok` is true; three distinct toplevels and branches appear in the proof.
 3. Kill one worker mid-run: that task is `failed`, the other two finish, processes are gone afterward, run completes.
