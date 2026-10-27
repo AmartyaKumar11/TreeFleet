@@ -1,0 +1,41 @@
+# Example Cursor ids from the CLI help text seen in S10. S10 did not list models.
+# `trivial` in the contract maps to the simple tier. default_tier is used until Phase 5.
+
+[models]
+fast = "deepseek/deepseek-flash"
+strong = "deepseek/deepseek-v4-pro"
+default_worker = "router"
+default = ""
+
+[models.router]
+default_tier = "moderate"
+simple = "gpt-5"
+moderate = "gpt-5"
+complex = "sonnet-4-thinking"
+
+[cursor]
+cli = "cursor-agent"
+list_flag = "--list-models"
+model_flag = "--model"
+workspace_flag = "--workspace"
+sandbox = "disabled"
+flags = ["--print", "--output-format", "json", "--trust"]
+
+[thresholds]
+injection = 0.5
+abusive = 0.5
+on_topic = 0.3
+
+[workers]
+port_start = 9101
+
+[paths]
+worktree_windows = 'C:\wt'
+worktree_other = "/tmp/tf-wt"
+orchestrator_venv = ".venv-orch"
+worker_venv = ".venv-worker"
+
+[pricing]
+litellm_url = "https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
+jev_usd_per_million_input = 0.042
+jev_source_url = "https://api.typesafe.ai/v1/systemone"

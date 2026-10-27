@@ -37,6 +37,9 @@ worker = [
 ]
 dev = ["pytest>=8", "pytest-asyncio", "ruff", "pyright", "respx"]
 
+[project.scripts]
+treefleet = "treefleet.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

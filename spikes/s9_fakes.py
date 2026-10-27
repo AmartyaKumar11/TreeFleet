@@ -90,7 +90,15 @@ async def adk() -> bool:
     return CALLED == [(2, 3)]
 
 
+def list_models() -> None:
+    print("gpt-5")
+    print("sonnet-4-thinking")
+
+
 def main() -> None:
+    if "--list-models" in sys.argv:
+        list_models()
+        return
     if "--shim" in sys.argv:
         shim()
         return

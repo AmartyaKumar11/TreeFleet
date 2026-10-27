@@ -1,11 +1,11 @@
 # Status
 
-Spec complete. No product code beyond `contracts.py` exists yet.
+Spec complete. Phase 1 adds config, the event sink, Cursor model discovery, and the folder-first CLI. `contracts.py` is unchanged in Phase 1.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
 | 0 | Spikes | done | `docs/spikes/summary.md` |
-| 1 | Skeleton, config, events, gate | contracts done and tested | `tests/test_contracts.py` |
+| 1 | Skeleton, config, events, gate | done | `evidence/phase-1/gate.txt` |
 | 2 | Git layer and isolation proofs | not started | |
 | 3 | Worker (CrewAI, MCP, A2A server) | not started | |
 | 4 | Orchestrator core (ADK) | not started | |
@@ -16,6 +16,14 @@ Spec complete. No product code beyond `contracts.py` exists yet.
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 1
+
+`treefleet.toml` and `config.py` load frozen settings and reject unknown keys. Required secrets are `DEEPSEEK_API_KEY` and `TYPESAFE_API_KEY` from the environment only. A missing one fails with the variable name and no value. `CURSOR_API_KEY` is optional. Reasoning models are `deepseek/deepseek-flash` and `deepseek/deepseek-v4-pro`. `default_worker` is `router`. The router table uses `simple`, `moderate`, and `complex`. Contract complexity `trivial` maps to `simple`. `default_tier` is `moderate`, and that tier's model is used when Jev or routing is unavailable. The example Cursor ids `gpt-5` and `sonnet-4-thinking` come from the CLI help text and the mock. S10 did not run a model listing, so they are not a measured catalog.
+
+S10 named `--list-models` in the CLI help and did not execute it. Discovery calls that flag, caches the result for the process, and tests use the S9 fake. `router` is not looked up. An unknown id names the id and says to run `treefleet models`. Cursor flags are `--print`, `--output-format json`, `--trust`, `--model`, and `--workspace`. `sandbox` stays `disabled` on Windows (S10b). Thresholds are injection 0.5, abusive 0.5, and on-topic 0.3. Worker ports start at 9101. The worktree root is `C:\wt` on Windows and `/tmp/tf-wt` elsewhere. Jev is billed at $0.042 per million input tokens. No pricing page was measured, so `jev_source_url` is the API `https://api.typesafe.ai/v1/systemone`.
+
+The event sink assigns a gapless `seq` per run, appends `runs/<run_id>/events.jsonl`, and replays events after `Last-Event-ID`. `emit_sync` is the thread-safe wrapper for CrewAI. The CLI is folder-first. `treefleet "goal"` uses the current directory. `--model auto` stores `worker_model` `router`. `--no-approval` is accepted and ignored until `plan_approval` exists. `run` validates input, builds a `RunRequest`, and prints it. The run itself is Phase 4. No contract change.
 
 ## 2026-10-27 — Phase 0 gate
 
