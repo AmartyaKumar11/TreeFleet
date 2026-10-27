@@ -23,7 +23,7 @@ from treefleet.contracts import (
     WorkerResult,
 )
 from treefleet.evals.harness import harness_status, score
-from treefleet.evals.report import estimates, render_markdown
+from treefleet.evals.report import estimates, explain_variance, merge_rows, render_markdown
 from treefleet.evals.scenarios import load_scenarios
 
 pytestmark = pytest.mark.phase9
@@ -109,6 +109,49 @@ def test_offline_report_is_schema_valid_and_cost_matches_the_rows() -> None:
     text = render_markdown([row], cap=3)
     assert "E1" in text
     assert "extrapolation" in "\n".join(estimates([row], 3)).lower()
+
+
+def test_e5_forces_the_parent_plan_the_guard_rejects() -> None:
+    import asyncio
+
+    from treefleet.orchestrator.agents import PlanRejected, plan_goal, scripted_llm
+
+    e5 = next(item for item in load_scenarios(ROOT / "eval" / "scenarios.toml") if item.id == "E5")
+    assert "../x" in e5.force_plan
+
+    async def _reject() -> None:
+        with pytest.raises(PlanRejected, match=r"parent|\.\./x"):
+            await plan_goal(scripted_llm(e5.force_plan), e5.goal, "README.md", model_name="forced")
+
+    asyncio.run(_reject())
+
+
+def test_planner_default_is_flash_with_pro_escalation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from treefleet.config import load_settings
+    from treefleet.orchestrator.agents import planner_choice
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
+    fast, pro = planner_choice(load_settings(ROOT / "treefleet.toml"))
+    assert fast == "deepseek/deepseek-flash"
+    assert pro == "deepseek/deepseek-v4-pro"
+
+
+def test_e2_variance_names_the_revise_gap() -> None:
+    text = explain_variance(
+        {"revise": 0, "fleet": 192.6, "review": 55.6},
+        {"revise": 185.8, "fleet": 212.6, "review": 99.0},
+        detail="add-admin-tests",
+    )
+    assert "revise" in text
+    assert "add-admin-tests" in text
+    assert "185" in text or "186" in text
+
+
+def test_rerun_replaces_only_the_named_scenario() -> None:
+    old = [{"scenario": "E1", "label": "old"}, {"scenario": "E5", "label": "old"}, {"scenario": "E2", "label": "keep"}]
+    new = [{"scenario": "E5", "label": "new"}]
+    assert [item["label"] for item in merge_rows(old, new)] == ["old", "new", "keep"]
 
 
 def test_isolation_violation_makes_the_harness_fail() -> None:

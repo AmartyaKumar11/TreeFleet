@@ -123,6 +123,7 @@ def score(scenario: Scenario, report: FinalReport | None, message: str) -> dict[
         "isolation_violation": violation,
         "statuses": statuses,
         "verdicts": verdicts,
+        "planner_model": _planner_model(report),
         "tokens": _tokens(report),
         "unreported": [item.component for item in metrics.costs if item.label == "usage not reported"]
         if metrics is not None
@@ -130,6 +131,15 @@ def score(scenario: Scenario, report: FinalReport | None, message: str) -> dict[
         "jev_calls": metrics.jev_calls if metrics is not None else 0,
         "message": message[:300],
     }
+
+
+def _planner_model(report: FinalReport | None) -> str:
+    if report is None:
+        return ""
+    for item in report.metrics.costs:
+        if item.component == "planner":
+            return item.model
+    return ""
 
 
 def _tokens(report: FinalReport | None) -> dict[str, int]:
@@ -216,10 +226,15 @@ def run_live(
     for scenario in chosen:
         for index, (label, flags) in enumerate(scenario.runs(), start=1):
             print(f"eval {label}", flush=True)
+            if scenario.force_plan:
+                os.environ["TREEFLEET_FORCE_PLAN"] = scenario.force_plan
+            else:
+                os.environ.pop("TREEFLEET_FORCE_PLAN", None)
             try:
                 reset_demo(repo)
             except RuntimeError as exc:
                 rows.append(_failed_row(scenario, label, index, str(exc)))
+                os.environ.pop("TREEFLEET_FORCE_PLAN", None)
                 continue
             known = {path.name for path in runs.iterdir() if path.is_dir()} if runs.is_dir() else set()
             code = 1
@@ -235,6 +250,8 @@ def run_live(
             report, text = read_report(newest) if newest is not None else (None, "")
             message = text or note or (f"exit {code}" if code else "")
             row = score(scenario, report, message)
+            if scenario.force_plan:
+                row["planner_model"] = "forced"
             if report is None and newest is not None:
                 row["jev_calls"] = _jev_calls(newest)
             counts[label] = counts.get(label, 0) + 1
@@ -245,6 +262,7 @@ def run_live(
                 cleanup_run(repo, newest.name)
                 row["checkout"] = porcelain(repo)
             rows.append(row)
+            os.environ.pop("TREEFLEET_FORCE_PLAN", None)
             print(f"eval {row['label']} {row['expectation']}", flush=True)
             if on_row is not None:
                 on_row(rows)

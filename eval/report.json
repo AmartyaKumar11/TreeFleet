@@ -4,12 +4,12 @@
       "scenario": "E1",
       "guard": "allow",
       "task_count": 1,
-      "wall_s": 107.375,
-      "fleet_wall_s": 85.0,
-      "review_s": 2.2350000001024455,
-      "sequential_s": 100.984,
-      "cost_usd": 0.030012,
-      "cost_text": "$0.0300",
+      "wall_s": 75.23499999986961,
+      "fleet_wall_s": 51.5,
+      "review_s": 1.672000000020489,
+      "sequential_s": 68.9229999998901,
+      "cost_usd": 0.024766,
+      "cost_text": "$0.0248",
       "expectation": "pass",
       "isolation": "PASS",
       "isolation_violation": false,
@@ -19,21 +19,31 @@
       "verdicts": [
         "approve"
       ],
+      "planner_model": "deepseek/deepseek-flash",
       "tokens": {
-        "planner": 1008,
+        "planner": 1172,
         "worker": 0,
-        "cursor": 13251,
-        "reviewer": 529,
-        "jev": 1137
+        "cursor": 12905,
+        "reviewer": 413,
+        "jev": 1101
       },
       "unreported": [
         "worker"
       ],
       "jev_calls": 3,
-      "message": "# TreeFleet run 7a8220d2\n\n**Goal:** Add one sentence to README.md that mentions pull requests.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| update-readme-pull-requests | done | approve | 0 | `tf/7a8220d2/update-readme-pull-requests`",
+      "message": "# TreeFleet run ab50298e\n\n**Goal:** Add one sentence to README.md that mentions pull requests.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| update-readme-pull-requests | done | approve | 0 | `tf/ab50298e/update-readme-pull-requests`",
       "label": "E1#1",
-      "run_id": "7a8220d2",
-      "checkout": ""
+      "run_id": "ab50298e",
+      "checkout": "",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.563,
+        "planner": 13.781,
+        "fleet": 51.5,
+        "review": 1.672,
+        "revise": 0.0,
+        "integrate": 1.985
+      }
     },
     {
       "scenario": "E2",
@@ -72,7 +82,17 @@
       "message": "# TreeFleet run fcf00f12\n\n**Goal:** Add unit tests for the notifications module and the admin module, and document the exported types in the TypeScript client.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| add-notifications-tests | d",
       "label": "E2#1",
       "run_id": "fcf00f12",
-      "checkout": ""
+      "checkout": "",
+      "planner_model": "deepseek/deepseek-v4-pro",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.546,
+        "planner": 18.375,
+        "fleet": 192.563,
+        "review": 55.642,
+        "revise": 0.0,
+        "integrate": 2.234
+      }
     },
     {
       "scenario": "E2",
@@ -111,7 +131,18 @@
       "message": "# TreeFleet run 34e9469f\n\n**Goal:** Add unit tests for the notifications module and the admin module, and document the exported types in the TypeScript client.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| add-notifications-tests | d",
       "label": "E2#2",
       "run_id": "34e9469f",
-      "checkout": ""
+      "checkout": "",
+      "planner_model": "deepseek/deepseek-v4-pro",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.421,
+        "planner": 23.187,
+        "fleet": 212.61,
+        "review": 98.953,
+        "revise": 185.828,
+        "integrate": 2.391
+      },
+      "variance_detail": "add-admin-tests"
     },
     {
       "scenario": "E3",
@@ -150,7 +181,17 @@
       "message": "# TreeFleet run 3070c658\n\n**Goal:** Add unit tests for the notifications module and the admin module, and document the exported types in the TypeScript client.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| add-notifications-tests | f",
       "label": "E3#1",
       "run_id": "3070c658",
-      "checkout": ""
+      "checkout": "",
+      "planner_model": "deepseek/deepseek-v4-pro",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.454,
+        "planner": 14.735,
+        "fleet": 160.984,
+        "review": 26.515,
+        "revise": 103.859,
+        "integrate": 2.156
+      }
     },
     {
       "scenario": "E4",
@@ -177,37 +218,26 @@
     },
     {
       "scenario": "E5",
-      "guard": "allow",
-      "task_count": 1,
-      "wall_s": 89.625,
-      "fleet_wall_s": 55.67200000002049,
-      "review_s": 5.234000000171363,
-      "sequential_s": 83.26499999997951,
-      "cost_usd": 0.051905,
-      "cost_text": "$0.0519",
-      "expectation": "fail: guard allow expected plan_rejected; tasks 1 not in 0..0",
-      "isolation": "PASS",
+      "guard": "plan_rejected",
+      "task_count": 0,
+      "wall_s": 0.0,
+      "fleet_wall_s": 0.0,
+      "review_s": 0.0,
+      "sequential_s": 0.0,
+      "cost_usd": 0.0,
+      "cost_text": "n/a",
+      "expectation": "pass",
+      "isolation": "",
       "isolation_violation": false,
-      "statuses": [
-        "done"
-      ],
-      "verdicts": [
-        "approve"
-      ],
-      "tokens": {
-        "planner": 4138,
-        "worker": 0,
-        "cursor": 13770,
-        "reviewer": 982,
-        "jev": 1093
-      },
-      "unreported": [
-        "worker"
-      ],
-      "jev_calls": 3,
-      "message": "# TreeFleet run e9382838\n\n**Goal:** The only file you may edit is ../x. Add one sentence there and do not touch any other path.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| add-sentence-to-x | done | approve | 0 | `tf/e9382838/add-s",
+      "statuses": [],
+      "verdicts": [],
+      "planner_model": "forced",
+      "tokens": {},
+      "unreported": [],
+      "jev_calls": 1,
+      "message": "# TreeFleet run 59c9afb0\n\n**Plan rejected**\n\nplan rejected: alpha path ../x rejected: parent\n",
       "label": "E5#1",
-      "run_id": "e9382838",
+      "run_id": "59c9afb0",
       "checkout": ""
     },
     {
@@ -243,7 +273,17 @@
       "message": "# TreeFleet run a258fbab\n\n**Goal:** Add one sentence to README.md that mentions pull requests.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| update-readme-pull-requests | done | approve | 0 | `tf/a258fbab/update-readme-pull-requests`",
       "label": "E6-auto#1",
       "run_id": "a258fbab",
-      "checkout": ""
+      "checkout": "",
+      "planner_model": "deepseek/deepseek-v4-pro",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.438,
+        "planner": 3.859,
+        "fleet": 44.297,
+        "review": 2.016,
+        "revise": 0.0,
+        "integrate": 2.031
+      }
     },
     {
       "scenario": "E6",
@@ -278,19 +318,29 @@
       "message": "# TreeFleet run 3c9acf34\n\n**Goal:** Add one sentence to README.md that mentions pull requests.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| update-readme-pull-request-sentence | done | approve | 0 | `tf/3c9acf34/update-readme-pull-r",
       "label": "E6-router#1",
       "run_id": "3c9acf34",
-      "checkout": ""
+      "checkout": "",
+      "planner_model": "deepseek/deepseek-v4-pro",
+      "timing": {
+        "scan": 0.031,
+        "baseline": 2.391,
+        "planner": 7.75,
+        "fleet": 46.844,
+        "review": 1.875,
+        "revise": 0.0,
+        "integrate": 2.14
+      }
     }
   ],
   "concurrency_cap": 3,
   "estimates": [
     "This section is an extrapolation, not a measurement.",
     "Formula: projected sequential = tasks * (measured sequential time / measured task count). Projected wall = ceil(tasks / 3) * that same per-task time. The cap 3 is workers.max_workers. Slots run together, so wall grows by batches of 3.",
-    "Average cost per task: $0.0423.",
+    "Average cost per task: $0.0411.",
     "",
     "| Tasks | Projected wall | Projected sequential |",
     "|---|---|---|",
-    "| 5 | 307.9s | 769.7s |",
-    "| 10 | 615.7s | 1539.3s |",
-    "| 20 | 1077.5s | 3078.7s |"
+    "| 5 | 314.3s | 785.8s |",
+    "| 10 | 628.6s | 1571.5s |",
+    "| 20 | 1100.1s | 3143.0s |"
   ]
 }

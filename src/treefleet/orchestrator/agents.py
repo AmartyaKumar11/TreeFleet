@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
@@ -118,6 +119,7 @@ class RunBundle:
         self.phases: dict[str, float] = {}
         self.notes: list[str] = []
         self.planner_usage = TokenUsage()
+        self.planner_model = ""
         self.jev: Any = None
         self.jev_calls = 0
         self.jev_tokens = 0
@@ -407,6 +409,25 @@ async def _plan_once(
     return assign_checks(plan, available)
 
 
+def planner_choice(settings: Settings) -> tuple[str, str]:
+    """Flash plans. v4-pro is only the escalation after a rejected repair."""
+    return settings.models.fast, settings.models.strong
+
+
+def scripted_llm(text: str) -> Any:
+    """The Phase 5 plan-guard hook: every completion returns the same plan JSON."""
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    class Scripted(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):  # noqa: ANN001
+            del llm_request, stream
+            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]))
+
+    return Scripted(model="forced")
+
+
 async def plan_goal(
     llm: Any,
     goal: str,
@@ -415,6 +436,8 @@ async def plan_goal(
     *,
     model_name: str = "",
     escalate: Any = None,
+    escalate_name: str = "",
+    used: list[str] | None = None,
     max_tasks: int = 6,
     sink: EventSink | None = None,
     run_id: str = "",
@@ -424,12 +447,16 @@ async def plan_goal(
     kwargs = {"max_tasks": max_tasks, "sink": sink, "run_id": run_id, "usage": usage}
     try:
         plan = await _plan_once(llm, goal, tree, checks, **kwargs)
+        if used is not None:
+            used.append(model_name)
     except PlanRejected as first:
         _emit_plan(sink, run_id, False, str(first))
         if escalate is None or "flash" not in model_name.lower():
             raise
         try:
             plan = await _plan_once(escalate, goal, tree, checks, **kwargs)
+            if used is not None:
+                used.append(escalate_name or "deepseek/deepseek-v4-pro")
         except PlanRejected as second:
             _emit_plan(sink, run_id, False, str(second))
             raise second from None
@@ -574,7 +601,7 @@ def build_report(
         bundle.settings,
         results,
         planner=bundle.planner_usage,
-        planner_model=bundle.settings.models.strong,
+        planner_model=bundle.planner_model or bundle.settings.models.fast,
         jev_calls=calls,
         jev_tokens=tokens,
         reviewer=list(bundle.reviewer_usages),
@@ -641,11 +668,14 @@ def _adk_event(ctx: Any, author: str, delta: dict[str, Any]) -> Any:
 
 
 def planner_llm(bundle: RunBundle) -> Any:
+    forced = os.environ.get("TREEFLEET_FORCE_PLAN")
+    if forced and bundle.fakes is None:
+        return scripted_llm(forced)
     if bundle.fakes is not None and bundle.fakes.planner is not None:
         return bundle.fakes.planner
     from google.adk.models.lite_llm import LiteLlm
 
-    return LiteLlm(model=bundle.settings.models.strong)
+    return LiteLlm(model=planner_choice(bundle.settings)[0])
 
 
 def _base_agent():
@@ -682,25 +712,31 @@ class PlannerAgent(BaseAgent):
 
         started = time.monotonic()
         tree = str(ctx.session.state.get(StateKey.REPO_MAP, ""))
-        strong = self.bundle.settings.models.strong
+        fast, pro = planner_choice(self.bundle.settings)
+        forced = bool(os.environ.get("TREEFLEET_FORCE_PLAN")) and self.bundle.fakes is None
+        model_name = "forced" if forced else fast
         escalate = None
-        if "flash" in strong.lower() and self.bundle.fakes is None:
+        if not forced and "flash" in model_name.lower() and self.bundle.fakes is None:
             from google.adk.models.lite_llm import LiteLlm
 
-            escalate = LiteLlm(model="deepseek/deepseek-v4-pro")
+            escalate = LiteLlm(model=pro)
         box = UsageBox()
+        used: list[str] = []
         plan = await plan_goal(
             planner_llm(self.bundle),
             self.bundle.request.goal,
             tree,
             dict(self.bundle.request.checks),
-            model_name=strong,
+            model_name=model_name,
             escalate=escalate,
+            escalate_name=pro,
+            used=used,
             max_tasks=self.bundle.settings.guards.max_tasks,
             sink=self.bundle.sink,
             run_id=self.bundle.run_id,
             usage=box,
         )
+        self.bundle.planner_model = used[-1] if used else model_name
         self.bundle.planner_usage = box.usage
         approved = True
         if self.bundle.request.plan_approval:

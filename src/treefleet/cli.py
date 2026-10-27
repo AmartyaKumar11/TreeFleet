@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -73,12 +74,13 @@ def _confirmed_checks(
 
 def _eval(argv: list[str]) -> int:
     from treefleet.evals.harness import harness_status, load_env, run_live
-    from treefleet.evals.report import render_json, render_markdown
+    from treefleet.evals.report import enrich, merge_rows, render_json, render_markdown
     from treefleet.evals.scenarios import load_scenarios
 
     parser = argparse.ArgumentParser(prog="treefleet eval")
     parser.add_argument("--repo", required=True)
     parser.add_argument("--scenarios", default="eval/scenarios.toml")
+    parser.add_argument("--only", default="", help="comma-separated scenario ids")
     parsed = parser.parse_args(argv)
     root = Path.cwd()
     load_env(root)
@@ -89,15 +91,27 @@ def _eval(argv: list[str]) -> int:
     evidence = root / "evidence" / "phase-9"
     evidence.mkdir(parents=True, exist_ok=True)
 
+    previous: list[dict[str, object]] = []
+    existing = folder / "report.json"
+    if parsed.only and existing.is_file():
+        loaded = json.loads(existing.read_text(encoding="utf-8"))
+        previous = list(loaded.get("scenarios") or [])
+
     def _save(rows: list[dict[str, object]]) -> None:
-        markdown = render_markdown(rows, cap)
-        body = render_json(rows, cap)
+        merged = merge_rows(previous, rows) if previous else rows
+        enrich(merged, root / "runs")
+        markdown = render_markdown(merged, cap)
+        body = render_json(merged, cap)
         (folder / "report.md").write_text(markdown, encoding="utf-8")
         (folder / "report.json").write_text(body, encoding="utf-8")
         (evidence / "eval-report.md").write_text(markdown, encoding="utf-8")
         (evidence / "eval-report.json").write_text(body, encoding="utf-8")
 
-    rows = run_live(root, Path(parsed.repo), load_scenarios(root / parsed.scenarios), on_row=_save)
+    chosen = load_scenarios(root / parsed.scenarios)
+    if parsed.only:
+        wanted = {item.strip() for item in parsed.only.split(",") if item.strip()}
+        chosen = [item for item in chosen if item.id in wanted]
+    rows = run_live(root, Path(parsed.repo), chosen, on_row=_save)
     print((folder / "report.md").read_text(encoding="utf-8"))
     if any(row.get("checkout") for row in rows):
         return 1

@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — Eval fixes
+
+E5 now forces the plan through the Phase 5 scripted-plan hook (`TREEFLEET_FORCE_PLAN`, a plan whose only path is `../x`). The rerun was rejected by the plan guard. The planner default is `deepseek/deepseek-flash`, with one escalation to `deepseek/deepseek-v4-pro` after a plan-guard rejection. E1 reran on flash and passed. E2#2's extra time is the 186s revise round on `add-admin-tests`. Earlier scenarios still show the v4-pro planner they actually used.
+
 ## 2026-10-28 — Phase 9 evaluation
 
 `treefleet eval` runs `eval/scenarios.toml` once per scenario, and E2 twice, against `D:\pr-sentinel-demo` reset to `demo-base`. There are no retries. The report is `eval/report.md` and `eval/report.json`, copied to `evidence/phase-9/`. E1, E2 (both runs), E3, E4 and E6 passed their expectations. E5 failed and was left as a failure: the planner did not emit `../x`, so the plan was not rejected. Worker tokens are `usage not reported` because CrewAI `token_usage` and the LiteLLM callback were empty. The Estimates section is an extrapolation from measured sequential time per task, batched by `workers.max_workers` (3). Worktrees were removed after each scenario and the main checkout was clean at the end.

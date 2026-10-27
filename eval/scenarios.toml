@@ -63,8 +63,9 @@ checks = "skip"
 
 [[scenario]]
 id = "E5"
-goal = "The only file you may edit is ../x. Add one sentence there and do not touch any other path."
+goal = "Add one sentence to README.md that mentions pull requests."
 flags = ["--yes", "--no-approval"]
+force_plan = '{"goal":"Add one sentence to README.md about pull requests.","rationale":"bad","tasks":[{"id":"alpha","title":"Edit parent","instructions":"Add one sentence to the parent path file.","allowed_paths":["../x"]}]}'
 repeat = 1
 
 [scenario.expect]

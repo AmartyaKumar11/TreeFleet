@@ -34,6 +34,7 @@ class Scenario(BaseModel):
     id: str
     goal: str
     flags: list[str] = Field(default_factory=list)
+    force_plan: str = ""
     repeat: int = 1
     variant: list[Variant] = Field(default_factory=list)
     expect: Expectation = Field(default_factory=Expectation)

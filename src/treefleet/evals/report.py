@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 
@@ -32,6 +33,99 @@ def estimates(rows: list[dict[str, Any]], cap: int) -> list[str]:
     return lines
 
 
+_STAGES = ("scan", "baseline", "planner", "fleet", "review", "revise", "integrate")
+
+
+def parse_timing(text: str) -> dict[str, float]:
+    found: dict[str, float] = {}
+    for line in text.splitlines():
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        name, _, rest = line[2:].partition(":")
+        found[name.strip()] = float(rest.strip().rstrip("s"))
+    return found
+
+
+def explain_variance(
+    left: dict[str, float],
+    right: dict[str, float],
+    *,
+    detail: str = "",
+) -> str:
+    """Say which stage accounts for the gap. An unexplained gap says so."""
+    deltas = {name: float(right.get(name, 0)) - float(left.get(name, 0)) for name in _STAGES}
+    biggest = max(deltas, key=lambda name: deltas[name])
+    if deltas[biggest] < 30:
+        return "The cause of the wall-time gap is not explained by these stages."
+    where = f"The largest stage gap is {biggest}: {deltas[biggest]:.0f}s."
+    if biggest == "revise":
+        task = f" on {detail}" if detail else ""
+        return (
+            f"{where} E2#2 spent {float(right.get('revise', 0)):.0f}s in a revise round{task}. "
+            f"E2#1 spent {float(left.get('revise', 0)):.0f}s there. That revise round is the extra time."
+        )
+    return f"{where} That stage is where the extra time went."
+
+
+def variance_lines(left: dict[str, float], right: dict[str, float], *, detail: str = "") -> list[str]:
+    lines = ["## Variance", "", "| Stage | E2#1 | E2#2 |", "|---|---|---|"]
+    for name in _STAGES:
+        lines.append(f"| {name} | {float(left.get(name, 0)):.1f}s | {float(right.get(name, 0)):.1f}s |")
+    lines += ["", explain_variance(left, right, detail=detail)]
+    return lines
+
+
+def merge_rows(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace scenarios that were rerun and keep the others in their original order."""
+    ids = {str(row.get("scenario")) for row in new}
+    out: list[dict[str, Any]] = []
+    done: set[str] = set()
+    for row in old:
+        sid = str(row.get("scenario"))
+        if sid in ids:
+            if sid not in done:
+                out.extend(item for item in new if str(item.get("scenario")) == sid)
+                done.add(sid)
+            continue
+        out.append(row)
+    seen = {str(row.get("scenario")) for row in out}
+    out.extend(item for item in new if str(item.get("scenario")) not in seen)
+    return out
+
+
+def enrich(rows: list[dict[str, Any]], runs: Path) -> list[dict[str, Any]]:
+    """Fill planner model and timing from the run folder. Does not call a model."""
+    for row in rows:
+        folder = runs / str(row.get("run_id") or "")
+        if not row.get("planner_model"):
+            path = folder / "report.json"
+            if path.is_file():
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    data = {}
+                costs = data.get("metrics", {}).get("costs", []) if isinstance(data, dict) else []
+                for cost in costs:
+                    if isinstance(cost, dict) and cost.get("component") == "planner":
+                        row["planner_model"] = str(cost.get("model") or "")
+        timing = folder / "timing.md"
+        if timing.is_file():
+            row["timing"] = parse_timing(timing.read_text(encoding="utf-8"))
+        events = folder / "events.jsonl"
+        if events.is_file() and row.get("scenario") == "E2":
+            for line in events.read_text(encoding="utf-8").splitlines():
+                if "revise_started" not in line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                task = payload.get("task_id")
+                if task:
+                    row["variance_detail"] = str(task)
+    return rows
+
+
 def render_markdown(rows: list[dict[str, Any]], cap: int) -> str:
     lines = ["# TreeFleet evaluation", ""]
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -42,16 +136,20 @@ def render_markdown(rows: list[dict[str, Any]], cap: int) -> str:
         lines.append(f"E2 wall time min {min(walls):.1f}s, max {max(walls):.1f}s.")
         lines.append("")
     lines += [
-        "| Scenario | Run | Guard | Tasks | Wall | Fleet wall | Review | Cost | Expectation | Isolation |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Scenario | Run | Guard | Tasks | Wall | Fleet wall | Review | Cost | Planner | Expectation | Isolation |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"| {row['scenario']} | {row.get('label', '')} | {row.get('guard', '')} | "
             f"{row.get('task_count', 0)} | {float(row.get('wall_s') or 0):.1f}s | "
             f"{float(row.get('fleet_wall_s') or 0):.1f}s | {float(row.get('review_s') or 0):.1f}s | "
-            f"{row.get('cost_text', '')} | {row.get('expectation', '')} | {row.get('isolation', '')} |"
+            f"{row.get('cost_text', '')} | {row.get('planner_model', '')} | "
+            f"{row.get('expectation', '')} | {row.get('isolation', '')} |"
         )
+    e2 = [row for row in rows if row.get("scenario") == "E2" and isinstance(row.get("timing"), dict)]
+    if len(e2) >= 2:
+        lines += ["", *variance_lines(e2[0]["timing"], e2[1]["timing"], detail=str(e2[1].get("variance_detail") or ""))]
     failed = [row for row in rows if str(row.get("expectation", "")).startswith("fail")]
     if failed:
         lines += ["", "Failures were not retried."]
