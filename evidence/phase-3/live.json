@@ -1,0 +1,51 @@
+{
+  "result": {
+    "schema_id": "treefleet.worker_result.v1",
+    "run_id": "live3run02",
+    "task_id": "alpha",
+    "attempt": 1,
+    "status": "done",
+    "summary": "Task: Add one sentence to README.md \u2014 'The tree is planted.' I delegated all file work to cursor-agent (no direct edits by me; allowed path was limited to README.md). cursor-agent read README.md and determined the file already ends with the required sentence, so no change was needed: README.md currently contains exactly two lines \u2014 'base' followed by 'The tree is planted.' The agent's own summary was: 'The line \"The tree is planted.\" is already present (line 2). No edits were made.' Note for the record: the tool harness reported README.md in its files_changed list, while the agent reported making no edits; I did not visually re-verify the file after that call (git status/diff calls timed out earlier). Satisfied criterion: README.md contains the sentence 'The tree is planted.', with all pre-existing content preserved and no other files touched.",
+    "branch": "tf/live3run02/alpha",
+    "head_sha": "a01abe3b5593a5fd6929ef48e636e83ba7403ef2",
+    "commit_made": true,
+    "files_changed": [
+      {
+        "path": "README.md",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "checks": [],
+    "steps_used": 0,
+    "duration_s": 725.812,
+    "usage": {
+      "input_tokens": 37278,
+      "output_tokens": 667,
+      "cached_input_tokens": 45120
+    },
+    "model": "deepseek/deepseek-flash",
+    "isolation": {
+      "pid": 45400,
+      "cwd": "C:\\tf\\live3run02\\alpha",
+      "toplevel": "C:/tf/live3run02/alpha",
+      "branch": "tf/live3run02/alpha",
+      "mcp_root": "C:\\tf\\live3run02\\alpha"
+    },
+    "error": null
+  },
+  "usage": [
+    {
+      "inputTokens": 12437,
+      "outputTokens": 347,
+      "cacheReadTokens": 37088,
+      "cacheWriteTokens": 0
+    },
+    {
+      "inputTokens": 24841,
+      "outputTokens": 320,
+      "cacheReadTokens": 8032,
+      "cacheWriteTokens": 0
+    }
+  ]
+}

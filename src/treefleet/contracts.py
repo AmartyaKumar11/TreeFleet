@@ -247,6 +247,41 @@ class TokenUsage(_Model):
         )
 
 
+class CursorUsage(BaseModel):
+    """Token counts from cursor-agent JSON. Names match the CLI."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, populate_by_name=True)
+
+    input_tokens: int = Field(default=0, ge=0, alias="inputTokens")
+    output_tokens: int = Field(default=0, ge=0, alias="outputTokens")
+    cache_read_tokens: int = Field(default=0, ge=0, alias="cacheReadTokens")
+    cache_write_tokens: int = Field(default=0, ge=0, alias="cacheWriteTokens")
+
+
+class CursorRunResult(_Model):
+    """What one headless cursor-agent invocation did. Built from the process, not from the model."""
+
+    exit_code: int
+    timed_out: bool
+    duration_s: float = Field(ge=0)
+    files_changed: list[str] = Field(default_factory=list)
+    reverted_paths: list[str] = Field(default_factory=list)
+    output_tail: Annotated[str, StringConstraints(max_length=2000)] = ""
+    usage: CursorUsage | None = None
+
+
+class OutputLine(_Model):
+    """One redacted Cursor output line. Local only. Never a file body and never a secret."""
+
+    line: Annotated[str, StringConstraints(max_length=200)]
+
+
+class WorkerDraft(_Model):
+    """JSON the worker model returns. Plain code parses it. It is not a WorkerResult."""
+
+    summary: Annotated[str, StringConstraints(min_length=1, max_length=3000)]
+
+
 class CostLine(_Model):
     component: Literal["guard", "router", "planner", "worker", "reviewer", "reporter", "jev"]
     model: str

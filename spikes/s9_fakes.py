@@ -20,7 +20,27 @@ def add(a: int, b: int) -> int:
 
 
 def shim() -> None:
+    import json
+    import time
+
+    delay = os.environ.get("TREEFLEET_FAKE_SLEEP")
+    if delay:
+        time.sleep(float(delay))
     Path("marker.txt").write_text("shim\n", encoding="utf-8")
+    edit = os.environ.get("TREEFLEET_FAKE_EDIT", "")
+    if edit == "readme":
+        note = os.environ.get("TREEFLEET_FAKE_NOTE", "")
+        Path("README.md").write_text(f"shim readme\n{note}", encoding="utf-8")
+    if edit == "outside":
+        Path("sneak.txt").write_text("nope\n", encoding="utf-8")
+        outside = os.environ.get("TREEFLEET_FAKE_OUTSIDE")
+        if outside:
+            Path(outside).write_text("escaped\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {"usage": {"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 1, "cacheWriteTokens": 0}}
+        )
+    )
 
 
 def crew() -> None:

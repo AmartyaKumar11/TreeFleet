@@ -1,13 +1,13 @@
 # Status
 
-Spec complete. Phases 1 and 2 are in the tree. `contracts.py` is unchanged.
+Spec complete. Phases 1, 2, and 3 are in the tree.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
 | 0 | Spikes | done | `docs/spikes/summary.md` |
 | 1 | Skeleton, config, events, gate | done | `evidence/phase-1/gate.txt` |
 | 2 | Git layer and isolation proofs | done | `evidence/phase-2/gate.txt` |
-| 3 | Worker (CrewAI, MCP, A2A server) | not started | |
+| 3 | Worker (CrewAI, MCP, A2A server) | done | `evidence/phase-3/gate.txt` |
 | 4 | Orchestrator core (ADK) | not started | |
 | 5 | Guardrails, Jev, callbacks, routing | not started | |
 | 6 | Review loop and integration | not started | |
@@ -16,6 +16,18 @@ Spec complete. Phases 1 and 2 are in the tree. `contracts.py` is unchanged.
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 3
+
+The worker is an A2A SDK app (`a2a-sdk==0.3.26`). `AgentExecutor` runs the CrewAI crew. uvicorn binds `127.0.0.1`. `capabilities.streaming` is true. Each run requires its bearer token. A second task while one is active is rejected. `A2AServerConfig` is not used.
+
+The CrewAI agent calls `deepseek/deepseek-flash` through LiteLLM and reaches `worktree-fs-mcp` through `MCPServerStdio`. `output_schema`, `response_format`, and `output_pydantic` are not used. The agent returns JSON. Plain code parses `WorkerDraft` and retries once with the validation error. The filesystem server is read-only plus `run_check` by name. The agent has no write tool.
+
+`cursor_code` runs `cursor-agent` with `--print`, `--output-format json`, `--workspace`, and `--model` when `WorkerTaskEnvelope.cursor_model` is set. `None` omits the flag. cwd and `--workspace` are the worktree. `shell=False`. On Windows the `.cmd` launcher is resolved to that version's `node.exe` and `index.js`, because `CreateProcess` cannot run a cmd. The child gets a minimal environment plus `CURSOR_API_KEY` when it is set. The timeout comes from `Limits`. A timeout kills the process tree. There is no sandbox on Windows (`--sandbox disabled`). After every run, `revert_out_of_scope` runs. The wrapper returns a `CursorRunResult`, including CLI usage (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`). Streaming stdout is emitted as `output_line` events: one redacted line, max 200 characters, local only.
+
+A second envelope with `attempt + 1` and `revision_feedback` reuses the worktree and branch and commits on top of the current head. After the crew, plain code reverts out-of-scope paths, runs the named checks, commits on `tf/<run>/<task>`, and builds `WorkerResult` from git. The model never runs git and never writes a file.
+
+Offline tests use `spikes/s9_fakes.py` and a scripted `BaseLLM`. No offline test calls a real API. One live task ran on a throwaway repo (not PR Sentinel) with `composer-2.5-fast`. `WorkerResult` and Cursor usage are in `evidence/phase-3/live.json`. The phase 3 gate passed: 57 tests.
 
 ## 2026-10-27 — Model list and semantics
 
@@ -45,14 +57,15 @@ Spikes S1 through S5 and S7 through S11 are recorded in `docs/spikes/`. S6 is de
 
 ## Contract changes
 
+- 2026-10-27. Phase 3. `CursorRunResult` and `CursorUsage` record one headless `cursor-agent` invocation, including the CLI token fields. `WorkerDraft` is the JSON the reasoning model returns. `OutputLine` and the `output_line` event carry one redacted local line, max 200 characters. `plan_approval` stays scheduled for Phase 8.
 - 2026-10-27. Worker model selection. `ModelChoice` matches `^[A-Za-z0-9._:/\-]{1,100}$`. `RunRequest.worker_model` defaults to `router` (UI and CLI label Auto). `TaskSpec.model_override` and `WorkerTaskEnvelope.cursor_model` are optional Cursor model ids. The envelope `model` field stays the DeepSeek reasoning model. `RouteDecision` gains `cursor_model`. Its `source` also accepts `override`, `run`, `router`, and `default`. Older values `jev` and `heuristic` still validate. `model_selected` is in the event vocabulary. `CursorRunResult`, `plan_approval`, and `output_line` stay scheduled for Phases 3 and 8. S10 measured `--model` and a token `usage` object. It did not list models, record a CLI auto id, or a usage pool. Until Phase 5, a `router` run uses `models.router.default_tier`.
 
 ## Architecture change: Cursor CLI as the coding engine
 - Workers are CrewAI agents on DeepSeek that direct a headless `cursor-agent` in each worktree. Cursor writes all code. DeepSeek never edits files. Jev classifies.
 - New spikes S10 (headless Cursor in a worktree) and S11 (non-interactive auth, container). Phase 0 gate now covers S1 to S11.
-- `WorkerTaskEnvelope.cursor_model` is on the contract (2026-10-27). Still pending in Phase 3: `CursorRunResult`. `worktree-fs-mcp` is read-only.
+- `WorkerTaskEnvelope.cursor_model` is on the contract (2026-10-27). `CursorRunResult` and `output_line` landed in Phase 3. `worktree-fs-mcp` is read-only.
 
 ## Design locked
 - Dark, AO-style board with Cursor-like surfaces. Details in `docs/design-direction.md`, static mock in `docs/mockup/index.html`.
 - Folder-first CLI and UI, auto-detected checks with confirmation, plan approval on by default with an auto-run switch, read-only live output.
-- Pending contract changes: `RunRequest.plan_approval`, `output_line` event kind (Phase 3 and 8).
+- Pending contract change: `RunRequest.plan_approval` (Phase 8).
