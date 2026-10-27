@@ -153,6 +153,7 @@ class RunRequest(_Model):
     scenario: Scenario = "custom"
     use_jev: bool = True
     worker_model: ModelChoice = "router"
+    plan_approval: bool = True
 
 
 class TaskSpec(_Model):
@@ -565,6 +566,7 @@ class FinalReport(_Model):
     verdicts: list[ReviewVerdict]
     isolation: IsolationReport
     integration: IntegrationReport | None = None
+    routing: list[RouteDecision] = Field(default_factory=list)
     metrics: RunMetrics
     guard_decisions: list[GuardDecision] = Field(default_factory=list)
 
@@ -578,6 +580,10 @@ class FinalReport(_Model):
             checks = ", ".join(f"{c.name}:{'pass' if c.passed else 'fail'}" for c in r.checks) or "none"
             verdict = v.verdict if v else "n/a"
             lines.append(f"| {r.task_id} | {r.status} | {verdict} | `{r.branch}` | {len(r.files_changed)} | {checks} |")
+        if self.routing:
+            lines += ["", "## Models", ""]
+            for route in self.routing:
+                lines.append(f"- {route.task_id}: {route.cursor_model} ({route.source})")
         lines += ["", "## Isolation proof", "", f"**Overall:** {'PASS' if self.isolation.ok else 'FAIL'}", ""]
         lines += [
             "| Task | Process cwd | Toplevel | Registered | Canary absent | Within scope |",

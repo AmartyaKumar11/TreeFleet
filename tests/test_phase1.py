@@ -204,9 +204,17 @@ def test_cli_default_is_router(
     _secrets(monkeypatch)
     _write(tmp_path, _toml(FAKE_CLI))
     monkeypatch.chdir(tmp_path)
+
+    def _stop(*_args, **_kwargs):
+        from treefleet.orchestrator.pipeline import RunOutcome
+
+        return RunOutcome(0, None, {}, "")
+
+    monkeypatch.setattr("treefleet.cli.run_blocking", _stop)
     assert main([GOAL, "--repo", str(tmp_path)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["worker_model"] == "router"
+    assert payload["plan_approval"] is True
     assert payload["repo"] == str(tmp_path)
 
 
@@ -217,6 +225,13 @@ def test_cli_auto_is_a_cursor_model(
     cli = _printer(tmp_path)
     _write(tmp_path, _tier_toml(cli))
     monkeypatch.chdir(tmp_path)
+
+    def _stop(*_args, **_kwargs):
+        from treefleet.orchestrator.pipeline import RunOutcome
+
+        return RunOutcome(0, None, {}, "")
+
+    monkeypatch.setattr("treefleet.cli.run_blocking", _stop)
     assert main([GOAL, "--model", "auto", "--repo", str(tmp_path)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["worker_model"] == "auto"

@@ -120,6 +120,7 @@ def test_worker_model_default_and_rejects_bad_ids() -> None:
     goal = "A sufficiently long goal"
     request = RunRequest(goal=goal, repo="x")
     assert request.worker_model == "router"
+    assert request.plan_approval is True
     for bad in ("a b", "x;rm -rf", "a" * 101):
         with pytest.raises(ValidationError):
             RunRequest(goal=goal, repo="x", worker_model=bad)

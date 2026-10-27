@@ -1,6 +1,6 @@
 # Status
 
-Spec complete. Phases 1, 2, and 3 are in the tree.
+Spec complete. Phases 1, 2, 3, and 4 are in the tree.
 
 | Phase | Name | State | Evidence |
 |---|---|---|---|
@@ -8,7 +8,7 @@ Spec complete. Phases 1, 2, and 3 are in the tree.
 | 1 | Skeleton, config, events, gate | done | `evidence/phase-1/gate.txt` |
 | 2 | Git layer and isolation proofs | done | `evidence/phase-2/gate.txt` |
 | 3 | Worker (CrewAI, MCP, A2A server) | done | `evidence/phase-3/gate.txt` |
-| 4 | Orchestrator core (ADK) | not started | |
+| 4 | Orchestrator core (ADK) | done | `evidence/phase-4/gate.txt` |
 | 5 | Guardrails, Jev, callbacks, routing | not started | |
 | 6 | Review loop and integration | not started | |
 | 7 | Observability | not started | |
@@ -16,6 +16,14 @@ Spec complete. Phases 1, 2, and 3 are in the tree.
 | 9 | Evaluation, cost, time | not started | |
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
+
+## 2026-10-27 — Phase 4
+
+The orchestrator is an ADK pipeline: RepoScan, Planner, Router, FleetAgent, Verifier, Reporter. The planner is an `LlmAgent` on `models.strong` (`deepseek/deepseek-v4-pro`). `output_schema` is unset. Plan JSON is parsed with Pydantic and one repair retry, then stored at state `plan`. Until Phase 5, `router` selects `models.router.default_tier` and emits `model_selected`. FleetAgent creates worktrees, starts each worker with the worker venv interpreter, a minimal environment plus the per-run token, and a free port, then waits for the agent card. The tracked pid is the interpreter child. `RemoteA2aAgent` sends the envelope. A failure there falls back to the A2A SDK client and the exit event records that. Processes are killed in a `finally` block. The verifier calls the Phase 2 proofs. The reporter writes `FinalReport`, `report.json`, and `report.md`. `cursor_model` is in the report. A dirty checkout is refused before any worktree. A declined plan exits 0 with no worktrees. `treefleet cleanup <run_id>` removes worktrees and keeps branches. A bare `cursor-agent` on Windows is resolved to that version's `node.exe` and `index.js`.
+
+Offline tests pass fakes only through `OfflineFakes`: a scripted ADK `BaseLlm`, `spikes/s9_fakes.py`, and `TREEFLEET_MOCK_LLM`. They spawn real worker processes. The phase 4 gate passed: 71 tests.
+
+One live run on `D:\pr-sentinel-demo`, goal about notifications tests, admin tests, and TypeScript client types, `--no-approval`, router tier `composer-2.5`. Run `71e5f9b6`, wall 344.4s. The plan had six tasks. `document-client-exported-types` finished. Three tasks failed without a registered worktree, so `IsolationReport.ok` is false. The main checkout was unchanged and the canary was still present. Report, events, and timings are in `evidence/phase-4/`.
 
 ## 2026-10-27 — Phase 3
 
@@ -57,6 +65,7 @@ Spikes S1 through S5 and S7 through S11 are recorded in `docs/spikes/`. S6 is de
 
 ## Contract changes
 
+- 2026-10-27. Plan approval. `RunRequest.plan_approval` defaults to true. `awaiting_approval` records the decision. `--no-approval` skips the prompt. `FinalReport.routing` lists each task's `cursor_model`. The HTTP approval endpoint stays in Phase 8.
 - 2026-10-27. MCP startup and cursor scope. `Limits.mcp_startup_s` defaults to 15 and is also `[workers].mcp_startup_s` in `treefleet.toml`. The filesystem server is the worker venv interpreter with `PYTHONUNBUFFERED=1` and a minimal environment that keeps `SystemRoot`, `TEMP` and `TMP`. A stuck handshake raises `TimeoutError`. `scope_violation` and `git.cursor_warning` are events. Untracked `.cursor/` or `.cursorrules` fails the task before spawn. Tracked Cursor files are logged and not executed.
 - 2026-10-27. Timing and summary. `StepTiming` is the payload of `worker.step`: `start`, `deepseek`, `cursor` (`timed_out`), `check`, and `commit`. `WorkerResult.summary` is built from git facts (path, insertions, deletions). The agent's text moves to `notes`. `WorkerDraft.notes` replaces `WorkerDraft.summary`. The worker accepts notes only after a `git_diff` tool call. `Limits.timeout_s` default is 180. The slowest measured cursor step was 41s and a direct cursor-agent call was 76s; 900 was long enough for a model to launch cursor over and over. `plan_approval` stays scheduled for Phase 8.
 - 2026-10-27. Phase 3. `CursorRunResult` and `CursorUsage` record one headless `cursor-agent` invocation, including the CLI token fields. `WorkerDraft` is the JSON the reasoning model returns. `OutputLine` and the `output_line` event carry one redacted local line, max 200 characters. `plan_approval` stays scheduled for Phase 8.
@@ -70,4 +79,4 @@ Spikes S1 through S5 and S7 through S11 are recorded in `docs/spikes/`. S6 is de
 ## Design locked
 - Dark, AO-style board with Cursor-like surfaces. Details in `docs/design-direction.md`, static mock in `docs/mockup/index.html`.
 - Folder-first CLI and UI, auto-detected checks with confirmation, plan approval on by default with an auto-run switch, read-only live output.
-- Pending contract change: `RunRequest.plan_approval` (Phase 8).
+- Pending: the HTTP approval endpoint (Phase 8). `RunRequest.plan_approval` landed in Phase 4.

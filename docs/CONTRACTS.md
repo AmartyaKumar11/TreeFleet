@@ -174,6 +174,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, or `default`, and `complexity`)
+- `awaiting_approval` (payload: `approved`) when `RunRequest.plan_approval` is true. The CLI prints the plan and asks `Approve plan? [y/N]` unless `--no-approval`. A decline exits without creating worktrees. The HTTP approval endpoint is Phase 8.
 - `mcp.call` (payload: server, tool, ok, error code)
 - `protocol_error`
 - `output_line` (payload is `OutputLine`: one redacted line, max 200 characters, local only)
@@ -196,7 +197,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 
 All `/api` routes require a bearer token from the environment.
 
-The CLI accepts `treefleet "goal" --model router|<id>`. The default is `router`. An `<id>` must be a discovered Cursor model id, and `auto` is one of those ids. `treefleet models` prints the discovered ids and labels. The Worker model dropdown lists Smart routing, then Cursor Auto, then the other discovered models.
+The CLI accepts `treefleet "goal" --model router|<id>`. The default is `router`. An `<id>` must be a discovered Cursor model id, and `auto` is one of those ids. `treefleet models` prints the discovered ids and labels. The Worker model dropdown lists Smart routing, then Cursor Auto, then the other discovered models. `RunRequest.plan_approval` defaults to true. After the plan is printed the CLI asks `Approve plan? [y/N]` unless `--no-approval`, which sets `plan_approval` false. `treefleet cleanup <run_id>` removes that run's worktrees and leaves the branches.
 
 ## 7. Naming and paths
 

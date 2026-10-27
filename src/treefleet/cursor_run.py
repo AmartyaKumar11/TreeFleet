@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -39,14 +40,24 @@ def command_for(cli: Path, worktree: Path, model: str | None, instruction: str) 
     return args
 
 
+def launch_command(cli: Path) -> list[str]:
+    """Executable prefix. A bare `cursor-agent` on Windows is a cmd, which CreateProcess cannot start."""
+    target = cli
+    if cli.suffix.lower() != ".py" and not cli.is_file():
+        found = shutil.which(str(cli))
+        if found:
+            target = Path(found)
+    if target.suffix.lower() == ".py":
+        return [sys.executable, str(target)]
+    node = _cursor_node(target)
+    return node if node else [str(target)]
+
+
 def _executable(cli: Path) -> list[str]:
-    if cli.suffix.lower() == ".py":
-        prefix = [sys.executable, str(cli)]
-        if cli.name == "s9_fakes.py":
-            prefix.append("--shim")
-        return prefix
-    node = _cursor_node(cli)
-    return node if node else [str(cli)]
+    prefix = launch_command(cli)
+    if cli.name == "s9_fakes.py":
+        prefix.append("--shim")
+    return prefix
 
 
 def _cursor_node(cli: Path) -> list[str] | None:

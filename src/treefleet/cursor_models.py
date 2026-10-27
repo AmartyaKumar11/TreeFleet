@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from treefleet.contracts import ModelChoice
+from treefleet.cursor_run import launch_command
 
 _CACHE: dict[str, tuple[CursorModel, ...]] = {}
 _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"), None)
@@ -48,7 +48,7 @@ def discover(cli: Path, list_flag: str = "--list-models") -> tuple[CursorModel, 
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    command = [sys.executable, str(cli), list_flag] if cli.suffix.lower() == ".py" else [str(cli), list_flag]
+    command = [*launch_command(cli), list_flag]
     proc = subprocess.run(
         command,
         capture_output=True,

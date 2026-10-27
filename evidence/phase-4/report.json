@@ -1,0 +1,538 @@
+{
+  "schema_id": "treefleet.final_report.v1",
+  "run_id": "71e5f9b6",
+  "goal": "Add unit tests for the notifications module and the admin module, and document the exported types in the TypeScript client.",
+  "plan": {
+    "goal": "Add unit tests for the notifications and admin Python modules, and document exported types in the TypeScript client.",
+    "rationale": "The repository has existing tests for auth, orders, and users, but lacks coverage for notifications and admin. The TypeScript client exports types that are currently undocumented, making the public API harder to understand. Adding focused tests and JSDoc documentation improves code quality and maintainability.",
+    "tasks": [
+      {
+        "id": "review-existing-test-patterns",
+        "title": "Review existing test patterns and source modules",
+        "instructions": "Read tests/test_auth.py, tests/test_orders.py, and tests/test_users.py to understand the testing style (e.g., pytest fixtures, mocking, assertions). Inspect src/notifications.py and src/admin.py to identify all public functions/classes and edge cases that should be tested.",
+        "allowed_paths": [
+          "tests/",
+          "src/notifications.py",
+          "src/admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [],
+        "complexity": "trivial",
+        "model_override": null
+      },
+      {
+        "id": "add-notifications-tests",
+        "title": "Add unit tests for notifications module",
+        "instructions": "Create tests/test_notifications.py and implement comprehensive pytest unit tests for every public function/class in src/notifications.py. Follow the patterns observed in the existing tests, including setup/teardown and mocking external dependencies. Assert expected behavior for success, failure, and edge cases.",
+        "allowed_paths": [
+          "tests/test_notifications.py",
+          "src/notifications.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [
+          "review-existing-test-patterns"
+        ],
+        "check_ids": [],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "add-admin-tests",
+        "title": "Add unit tests for admin module",
+        "instructions": "Create tests/test_admin.py and implement comprehensive pytest unit tests for every public function/class in src/admin.py. Follow the patterns observed in the existing tests, including setup/teardown and mocking external dependencies. Assert expected behavior for success, failure, and edge cases.",
+        "allowed_paths": [
+          "tests/test_admin.py",
+          "src/admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [
+          "review-existing-test-patterns"
+        ],
+        "check_ids": [],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "document-client-exported-types",
+        "title": "Document exported types in TypeScript client",
+        "instructions": "Add JSDoc comments to all exported types and interfaces in src/client/types.ts. Also review src/client/index.ts and ensure re-exported types have clear documentation or reference the definitions. Document properties, purpose, and any usage notes where non-obvious.",
+        "allowed_paths": [
+          "src/client/types.ts",
+          "src/client/index.ts"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "run-python-tests",
+        "title": "Run Python unit tests",
+        "instructions": "Run the complete Python test suite (e.g., `pytest tests/`) and confirm that the new tests for notifications and admin pass along with existing tests. Fix any failures or flakiness introduced by the new tests.",
+        "allowed_paths": [
+          "tests/",
+          "src/notifications.py",
+          "src/admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [
+          "add-notifications-tests",
+          "add-admin-tests"
+        ],
+        "check_ids": [],
+        "complexity": "trivial",
+        "model_override": null
+      },
+      {
+        "id": "run-client-tests-and-check",
+        "title": "Run TypeScript client tests and type checks",
+        "instructions": "Run the TypeScript client tests or build/type check (e.g., `npm test` or `tsc --noEmit`) to ensure the documentation changes in client types do not break compilation or tests. Fix any issues found.",
+        "allowed_paths": [
+          "src/client/",
+          "tests/client.test.ts",
+          "tsconfig.json",
+          "package.json"
+        ],
+        "denied_paths": [],
+        "depends_on": [
+          "document-client-exported-types"
+        ],
+        "check_ids": [],
+        "complexity": "trivial",
+        "model_override": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "review-existing-test-patterns",
+      "attempt": 1,
+      "status": "failed",
+      "summary": "No files changed.",
+      "notes": "TESTING STYLE (tests/test_auth.py, test_orders.py, test_users.py): plain pytest functions (no classes), imports straight from src.* modules; module-level helpers such as `_make_valid_token()` that build real tokens end-to-end through src.auth; `unittest.mock.patch` used inline as decorator/context manager to force success or failure (patch validate_token/check_permissions); assertions on exact return shapes/keys and on mock call args (assert_called_once_with) plus negative 'must not be called' assertions; pytest.raises(ValueError) for invalid token/permission paths; mix of unit (mocked) and integration (real token) styles, no external I/O.\n\nsrc/notifications.py public API: send_email(recipient/subject/body...) and send_sms(...). Existing coverage is only indirect (send_email mocked in test_auth.py). Cases to add: returns/handles valid args, correct passthrough of all arguments, invalid/empty recipient, empty subject/body, missing/None optional fields, multiple sequential calls (no state leakage), exception/timeout from underlying transport/lookup propagated (or swallowed) — patch the module-level dependency, assert log/return. Explicit 'must not call' assertions for blocked/invalid input. Also assert return value contract (None vs bool/dict) since sources show no validation of empty strings — document echo-through behavior.\n\nsrc/admin.py public API: (1) dashboard(token) — calls validate_token(token) then check_permissions with fixed constants \"admin\" and \"dashboard:read\" (resource/action NOT derived from token); returns a dashboard payload dict. Cases: valid token + admin perms -> expected shape; invalid token -> ValueError from validate_token propagates; permission denied -> ValueError/exception propagates, no partial payload; assert check_permissions called once with exactly (\"admin\", \"dashboard:read\"); bad resource-string validation already covered in test_auth.py. (2) audit_log(token, action, details) — validates token only, does NOT call check_permissions; returns action, details and a fixed timestamp. Cases: valid token -> dict with action/details/fixed timestamp; invalid token -> ValueError and no dict; empty action/details echoed unchanged (no validation in source); explicit test that a valid non-admin token still gets a log entry (behavior gap / asymmetry vs dashboard).\n\nGAPS: send_sms and direct notification-module behavior untested; admin.py has zero coverage in the reviewed files. PROPOSED new files: tests/test_notifications.py and tests/test_admin.py following test_auth.py conventions (src.* imports, token helper where needed, inline patch, pytest.raises). No files modified; git diff is empty.",
+      "branch": "tf/71e5f9b6/review-existing-test-patterns",
+      "head_sha": null,
+      "commit_made": false,
+      "files_changed": [],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 91.704,
+      "usage": {
+        "input_tokens": 16154,
+        "output_tokens": 2444,
+        "cached_input_tokens": 20413
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 37276,
+        "cwd": "C:\\wt\\71e5f9b6\\review-existing-test-patterns",
+        "toplevel": "C:/wt/71e5f9b6/review-existing-test-patterns",
+        "branch": "tf/71e5f9b6/review-existing-test-patterns",
+        "mcp_root": "C:\\wt\\71e5f9b6\\review-existing-test-patterns"
+      },
+      "error": "no commit was made"
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "document-client-exported-types",
+      "attempt": 1,
+      "status": "done",
+      "summary": ".github/workflows/ci.yml +20 -0, package.json +8 -0, src/__pycache__/__init__.cpython-312.pyc +0 -0, src/__pycache__/auth.cpython-312.pyc +0 -0, src/__pycache__/notifications.cpython-312.pyc +0 -0, src/__pycache__/orders.cpython-312.pyc +0 -0, src/__pycache__/users.cpython-312.pyc +0 -0, src/auth.py +32 -2, src/client/apiClient.ts +43 -0, src/client/index.ts +30 -0, src/client/types.ts +92 -0, tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc +0 -0, tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc +0 -0, tests/client.test.ts +43 -0, tests/test_auth.py +131 -1, tests/test_orders.py +15 -3, tests/test_users.py +29 -2, tsconfig.json +11 -0",
+      "notes": "Documentation-only changes applied by cursor-agent to the two allowed files (comments only, no functional or type changes).\n\nsrc/client/types.ts: Added full JSDoc to all six exported interfaces (CreateOrderRequest, Order, ChargeRequest, ChargeResult, LoginRequest, Session). Each has a one-line summary, a longer descriptive paragraph, and per-property /** */ comments covering every field: userId, token, items, quantity, id, status, amount, currency (including that currency?: string is optional and omitted when the account default applies), email, password. Non-obvious semantics were documented (status enumerated examples such as pending/fulfilled/cancelled and succeeded/failed/pending; amount unit convention; token used as auth/payment/bearer token; ISO currency codes; unique identifiers).\n\nsrc/client/index.ts: Added a file-level module JSDoc block describing the public entry point (API operations plus request/response types), documented each runtime re-export (charge, createOrder, login) with {@link} references to their request/result types, and added a per-name JSDoc comment inside the `export type { ... }` block for CreateOrderRequest, Order, ChargeRequest, ChargeResult, LoginRequest, and Session, each pointing at its related operation via {@link}. Re-exports were regrouped so each value can carry its own documentation; no exports were added or removed and no exported names changed.\n\nNo code semantics were altered; the diff consists solely of added comment lines plus reordering/reformatting of the export statements in index.ts to attach documentation.",
+      "branch": "tf/71e5f9b6/document-client-exported-types",
+      "head_sha": "0899ea6bed3ba1f5a3a9f1d3461a2125030d52a9",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "additions": 20,
+          "deletions": 0
+        },
+        {
+          "path": "package.json",
+          "additions": 8,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/__init__.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/auth.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/notifications.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/orders.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/__pycache__/users.cpython-312.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "src/auth.py",
+          "additions": 32,
+          "deletions": 2
+        },
+        {
+          "path": "src/client/apiClient.ts",
+          "additions": 43,
+          "deletions": 0
+        },
+        {
+          "path": "src/client/index.ts",
+          "additions": 30,
+          "deletions": 0
+        },
+        {
+          "path": "src/client/types.ts",
+          "additions": 92,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_auth.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_orders.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/__pycache__/test_users.cpython-312-pytest-9.1.1.pyc",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "tests/client.test.ts",
+          "additions": 43,
+          "deletions": 0
+        },
+        {
+          "path": "tests/test_auth.py",
+          "additions": 131,
+          "deletions": 1
+        },
+        {
+          "path": "tests/test_orders.py",
+          "additions": 15,
+          "deletions": 3
+        },
+        {
+          "path": "tests/test_users.py",
+          "additions": 29,
+          "deletions": 2
+        },
+        {
+          "path": "tsconfig.json",
+          "additions": 11,
+          "deletions": 0
+        }
+      ],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 82.14,
+      "usage": {
+        "input_tokens": 14623,
+        "output_tokens": 2230,
+        "cached_input_tokens": 55748
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 59332,
+        "cwd": "C:\\wt\\71e5f9b6\\document-client-exported-types",
+        "toplevel": "C:/wt/71e5f9b6/document-client-exported-types",
+        "branch": "tf/71e5f9b6/document-client-exported-types",
+        "mcp_root": "C:\\wt\\71e5f9b6\\document-client-exported-types"
+      },
+      "error": null
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "add-notifications-tests",
+      "attempt": 1,
+      "status": "failed",
+      "summary": "",
+      "notes": "",
+      "branch": "tf/71e5f9b6/add-notifications-tests",
+      "head_sha": null,
+      "commit_made": false,
+      "files_changed": [],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 1,
+        "cwd": "D:\\pr-sentinel-demo",
+        "toplevel": "D:\\pr-sentinel-demo",
+        "branch": "tf/71e5f9b6/add-notifications-tests",
+        "mcp_root": "D:\\pr-sentinel-demo"
+      },
+      "error": "upstream review-existing-test-patterns did not finish"
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "add-admin-tests",
+      "attempt": 1,
+      "status": "failed",
+      "summary": "",
+      "notes": "",
+      "branch": "tf/71e5f9b6/add-admin-tests",
+      "head_sha": null,
+      "commit_made": false,
+      "files_changed": [],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 1,
+        "cwd": "D:\\pr-sentinel-demo",
+        "toplevel": "D:\\pr-sentinel-demo",
+        "branch": "tf/71e5f9b6/add-admin-tests",
+        "mcp_root": "D:\\pr-sentinel-demo"
+      },
+      "error": "upstream review-existing-test-patterns did not finish"
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "run-client-tests-and-check",
+      "attempt": 1,
+      "status": "failed",
+      "summary": "No files changed.",
+      "notes": "Verification attempt summary:\n\n- Inspected package.json: only one script exists — `test`: `node --experimental-strip-types --test tests/client.test.ts`. There is no `build` or `typecheck` script. `tsconfig.json` already has `\"noEmit\": true`, so `npx tsc --noEmit` is the type-check fallback.\n- Attempted `npm test` (directly, via PowerShell, and via a subagent); shell execution was rejected in this environment, so no exit code or test log was obtainable. Could not execute the tests or type check from inside this session.\n- Ran static verification available without a shell: IDE diagnostics on `src/client/` and `tests/client.test.ts` reported no issues, and a consistency review confirmed the exported helpers (`createOrder`, `charge`, `login`) match what `tests/client.test.ts` imports and asserts (request URLs, default `USD` currency on `charge`, login request body shape).\n- No fixes were required based on static analysis; the documentation/comment changes in the client types are comment-only and introduce no type or runtime dependency changes.\n- Final git_diff is empty: no files were modified. Running `npm test` (and optionally `npx tsc --noEmit`) locally is still recommended as final confirmation; if it fails, the failure output can be addressed within the allowed paths (`src/client/`, `tests/client.test.ts`, `tsconfig.json`, `package.json`).",
+      "branch": "tf/71e5f9b6/run-client-tests-and-check",
+      "head_sha": null,
+      "commit_made": false,
+      "files_changed": [],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 133.156,
+      "usage": {
+        "input_tokens": 16328,
+        "output_tokens": 2564,
+        "cached_input_tokens": 241174
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 4856,
+        "cwd": "C:\\wt\\71e5f9b6\\run-client-tests-and-check",
+        "toplevel": "C:/wt/71e5f9b6/run-client-tests-and-check",
+        "branch": "tf/71e5f9b6/run-client-tests-and-check",
+        "mcp_root": "C:\\wt\\71e5f9b6\\run-client-tests-and-check"
+      },
+      "error": "no commit was made"
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "71e5f9b6",
+      "task_id": "run-python-tests",
+      "attempt": 1,
+      "status": "failed",
+      "summary": "",
+      "notes": "",
+      "branch": "tf/71e5f9b6/run-python-tests",
+      "head_sha": null,
+      "commit_made": false,
+      "files_changed": [],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 1,
+        "cwd": "D:\\pr-sentinel-demo",
+        "toplevel": "D:\\pr-sentinel-demo",
+        "branch": "tf/71e5f9b6/run-python-tests",
+        "mcp_root": "D:\\pr-sentinel-demo"
+      },
+      "error": "upstream add-notifications-tests did not finish"
+    }
+  ],
+  "verdicts": [],
+  "isolation": {
+    "tasks": [
+      {
+        "task_id": "review-existing-test-patterns",
+        "worktree_path": "C:\\wt\\71e5f9b6\\review-existing-test-patterns",
+        "branch": "tf/71e5f9b6/review-existing-test-patterns",
+        "pid": 37276,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "document-client-exported-types",
+        "worktree_path": "C:\\wt\\71e5f9b6\\document-client-exported-types",
+        "branch": "tf/71e5f9b6/document-client-exported-types",
+        "pid": 59332,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "add-notifications-tests",
+        "worktree_path": "C:\\wt\\71e5f9b6\\add-notifications-tests",
+        "branch": "tf/71e5f9b6/add-notifications-tests",
+        "pid": null,
+        "process_cwd_matches": true,
+        "toplevel_matches": false,
+        "registered_in_worktree_list": false,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": false
+      },
+      {
+        "task_id": "add-admin-tests",
+        "worktree_path": "C:\\wt\\71e5f9b6\\add-admin-tests",
+        "branch": "tf/71e5f9b6/add-admin-tests",
+        "pid": null,
+        "process_cwd_matches": true,
+        "toplevel_matches": false,
+        "registered_in_worktree_list": false,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": false
+      },
+      {
+        "task_id": "run-client-tests-and-check",
+        "worktree_path": "C:\\wt\\71e5f9b6\\run-client-tests-and-check",
+        "branch": "tf/71e5f9b6/run-client-tests-and-check",
+        "pid": 4856,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "run-python-tests",
+        "worktree_path": "C:\\wt\\71e5f9b6\\run-python-tests",
+        "branch": "tf/71e5f9b6/run-python-tests",
+        "pid": null,
+        "process_cwd_matches": true,
+        "toplevel_matches": false,
+        "registered_in_worktree_list": false,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": false
+      }
+    ],
+    "main": {
+      "status_before": [],
+      "status_after": [],
+      "head_before": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "head_after": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "canary_present": true,
+      "ok": true
+    },
+    "ok": false
+  },
+  "integration": null,
+  "routing": [
+    {
+      "task_id": "review-existing-test-patterns",
+      "model": "composer-2.5",
+      "complexity": "trivial",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "add-notifications-tests",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "add-admin-tests",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "document-client-exported-types",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "run-python-tests",
+      "model": "composer-2.5",
+      "complexity": "trivial",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "run-client-tests-and-check",
+      "model": "composer-2.5",
+      "complexity": "trivial",
+      "confidence": 1.0,
+      "source": "router",
+      "cursor_model": "composer-2.5"
+    }
+  ],
+  "metrics": {
+    "wall_seconds": 344.39099999982864,
+    "sequential_seconds": 307.0,
+    "costs": [],
+    "jev_calls": 0,
+    "speedup": 0.89,
+    "total_usd": 0.0
+  },
+  "guard_decisions": []
+}
