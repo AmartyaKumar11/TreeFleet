@@ -1,0 +1,7 @@
+green  DEEPSEEK_API_KEY is set
+green  TYPESAFE_API_KEY is set
+green  cursor-agent is on PATH and logged in
+green  cursor model list loads
+green  repo is on demo-base
+green  working tree is clean
+green  no stale worktrees

@@ -11,7 +11,8 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from treefleet.ui.server import create_app, local_host
+from treefleet.demo import login_ok, preflight, reset_repo
+from treefleet.ui.server import create_app, local_host, replay_gap
 
 pytestmark = pytest.mark.phase8
 
@@ -106,6 +107,94 @@ def test_sse_redacts_a_line_and_diff_stays_inside_a_worktree(tmp_path: Path, mon
     assert shown.status_code == 200
     assert "sk-abcdefghij" not in shown.text
     assert "[redacted]" in shown.text
+
+
+def test_replay_gap_is_capped_and_the_badge_is_not_a_live_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    assert replay_gap("2026-10-27T17:38:51Z", "2026-10-27T17:38:53Z") == 2
+    assert replay_gap("2026-10-27T17:38:51Z", "2026-10-27T18:38:51Z") == 30
+    _env(monkeypatch)
+    repo = tmp_path / "repo"
+    _git(repo)
+    recorded = tmp_path / "events.jsonl"
+    recorded.write_text(
+        json.dumps({"run_id": "abcd1234", "seq": 0, "ts": "2026-10-27T17:38:51Z", "type": "phase"}) + "\n",
+        encoding="utf-8",
+    )
+    app = create_app(repo, root=ROOT, token="test-token", replay=recorded, models=[])
+    client = TestClient(app, base_url="http://127.0.0.1")
+    page = client.get("/")
+    assert 'class="replay"' in page.text
+    assert "REPLAY" in page.text
+    assert "hidden" not in page.text.split("REPLAY", 1)[0].split("<div")[-1]
+    blocked = client.post(
+        "/api/runs",
+        headers={"Authorization": "Bearer test-token"},
+        json={"goal": "Add one sentence to the readme about pull requests."},
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"] == "replay is not a live run"
+
+
+def test_preflight_hides_secret_values_and_reset_asks_before_deleting_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    _env(monkeypatch)
+    repo = tmp_path / "repo"
+    _git(repo)
+    subprocess.run(["git", "branch", "-M", "demo-base"], cwd=repo, check=True, capture_output=True)
+    secret = "sk-abcdefghij"
+    rows = preflight(
+        repo,
+        env={"DEEPSEEK_API_KEY": secret, "TYPESAFE_API_KEY": ""},
+        login=lambda _cli: (True, ""),
+        models=lambda _cli: (True, ""),
+    )
+    printed = "\n".join(text for _ok, text in rows)
+    assert secret not in printed
+    assert any(ok and "DEEPSEEK_API_KEY is set" in text for ok, text in rows)
+    assert any(not ok and "TYPESAFE_API_KEY is unset" in text and "set TYPESAFE_API_KEY" in text for ok, text in rows)
+    assert login_ok("Logged in as person@example.com", 0)
+    assert not login_ok("Not logged in", 1)
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "tf/old/task", str(worktree), "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    kept = reset_repo(repo, confirm=lambda _names: False)
+    assert any("kept tf branches" in note for note in kept)
+    assert not worktree.exists()
+    assert (
+        subprocess.run(
+            ["git", "show-ref", "--verify", "refs/heads/tf/old/task"], cwd=repo, capture_output=True
+        ).returncode
+        == 0
+    )
+    subprocess.run(
+        ["git", "worktree", "add", str(worktree), "tf/old/task"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    deleted = reset_repo(repo, confirm=lambda names: names == ["tf/old/task"])
+    assert any(note == "deleted tf/old/task" for note in deleted)
+    assert (
+        subprocess.run(
+            ["git", "show-ref", "--verify", "refs/heads/tf/old/task"], cwd=repo, capture_output=True
+        ).returncode
+        != 0
+    )
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, capture_output=True, text=True
+        ).stdout.strip()
+        == "demo-base"
+    )
 
 
 def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

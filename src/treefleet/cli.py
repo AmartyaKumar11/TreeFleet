@@ -25,6 +25,10 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args[1:])
     if args and args[0] == "ui":
         return _ui(args[1:])
+    if args and args[0] == "demo":
+        from treefleet.demo import main as demo_main
+
+        return demo_main(args[1:])
     return _run(args)
 
 
@@ -130,6 +134,9 @@ def _ui(argv: list[str]) -> int:
     parser.add_argument("--replay", default=None)
     parser.add_argument("--port", type=int, default=8765)
     parsed = parser.parse_args(argv)
+    from treefleet.evals.harness import load_env
+
+    load_env(Path.cwd())
     repo = Path(parsed.repo)
     if not (repo / ".git").exists():
         raise SystemExit("not a git repository")

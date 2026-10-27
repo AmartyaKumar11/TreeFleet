@@ -1,0 +1,57 @@
+
+=== ruff lint: d:\TreeFleet\.venv-orch\Scripts\python.exe -m ruff check .
+[1;32mAll checks passed![0m
+
+=== ruff format: d:\TreeFleet\.venv-orch\Scripts\python.exe -m ruff format --check .
+87 files already formatted
+
+=== pyright orch: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pyright --pythonpath D:\TreeFleet\.venv-orch\Scripts\python.exe tests scripts src/treefleet/checks.py src/treefleet/cli.py src/treefleet/config.py src/treefleet/contracts.py src/treefleet/cursor_models.py src/treefleet/cursor_run.py src/treefleet/demo.py src/treefleet/events.py src/treefleet/timing.py src/treefleet/__init__.py src/treefleet/evals/harness.py src/treefleet/evals/report.py src/treefleet/evals/scenarios.py src/treefleet/evals/__init__.py src/treefleet/git/canary.py src/treefleet/git/cursor_scope.py src/treefleet/git/merge.py src/treefleet/git/proofs.py src/treefleet/git/worktrees.py src/treefleet/git/__init__.py src/treefleet/guards/artifacts.py src/treefleet/guards/cost.py src/treefleet/guards/draft.py src/treefleet/guards/input.py src/treefleet/guards/paths.py src/treefleet/guards/text.py src/treefleet/guards/__init__.py src/treefleet/jev/client.py src/treefleet/jev/__init__.py src/treefleet/mcp_servers/gitops_server.py src/treefleet/mcp_servers/worktree_fs_server.py src/treefleet/mcp_servers/__init__.py src/treefleet/orchestrator/agents.py src/treefleet/orchestrator/callbacks.py src/treefleet/orchestrator/fleet.py src/treefleet/orchestrator/pipeline.py src/treefleet/orchestrator/review.py src/treefleet/orchestrator/__init__.py src/treefleet/ui/server.py src/treefleet/ui/__init__.py
+0 errors, 0 warnings, 0 informations
+
+=== pyright worker: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pyright --pythonpath D:\TreeFleet\.venv-worker\Scripts\python.exe src/treefleet/worker
+0 errors, 0 warnings, 0 informations
+
+=== pytest: d:\TreeFleet\.venv-orch\Scripts\python.exe -m pytest -q -m (phase0 or phase1 or phase2 or phase3 or phase4 or phase5 or phase6 or phase7 or phase8) and not live
+........................................................................ [ 53%]
+...............................................................          [100%]
+============================== warnings summary ===============================
+tests/test_phase3.py::test_a2a_card_client_and_busy_reject
+  D:\TreeFleet\tests\test_phase3.py:612: DeprecationWarning: A2AClient is deprecated and will be removed in a future version. Use ClientFactory to create a client with a JSON-RPC transport.
+    client = A2AClient(authed, url=url)
+
+tests/test_phase4.py::test_declined_plan_creates_no_worktrees
+tests/test_phase4.py::test_three_workers_overlap_and_prove_isolation
+tests/test_phase4.py::test_killed_worker_fails_and_the_others_finish
+tests/test_phase4.py::test_dependent_task_gets_the_upstream_summary
+tests/test_phase4.py::test_cancelled_run_leaves_no_worker_process
+tests/test_phase4.py::test_no_commit_upstream_still_runs_the_dependent
+tests/test_phase4.py::test_plan_guard_failure_is_a_clear_message
+tests/test_phase5.py::test_scripted_run_completes_without_jev_and_when_jev_fails
+tests/test_phase5.py::test_scripted_run_completes_without_jev_and_when_jev_fails
+  D:\TreeFleet\src\treefleet\orchestrator\pipeline.py:132: DeprecationWarning: SequentialAgent is deprecated in favor of Workflow and will be removed in a future version. Workflow cannot yet be used as an LlmAgent sub-agent.
+    pipeline = SequentialAgent(
+
+tests/test_phase4.py::test_three_workers_overlap_and_prove_isolation
+  D:\TreeFleet\src\treefleet\orchestrator\fleet.py:137: UserWarning: [EXPERIMENTAL] RemoteA2aAgent: ADK Implementation for A2A support (A2aAgentExecutor, RemoteA2aAgent and corresponding supporting components etc.) is in experimental mode and is subject to breaking changes. A2A protocol and SDK are themselves not experimental. Once it's stable enough the experimental mode will be removed. Your feedback is welcome.
+    agent = remote_cls(
+
+tests/test_phase4.py::test_three_workers_overlap_and_prove_isolation
+  d:\TreeFleet\.venv-orch\Lib\site-packages\google\adk\a2a\agent\_remote_a2a_agent.py:1490: UserWarning: [EXPERIMENTAL] convert_genai_part_to_a2a_part: ADK Implementation for A2A support (A2aAgentExecutor, RemoteA2aAgent and corresponding supporting components etc.) is in experimental mode and is subject to breaking changes. A2A protocol and SDK are themselves not experimental. Once it's stable enough the experimental mode will be removed. Your feedback is welcome.
+    raw_parts = self._genai_part_converter(part)
+
+tests/test_phase4.py::test_three_workers_overlap_and_prove_isolation
+  d:\TreeFleet\.venv-orch\Lib\site-packages\google\adk\a2a\converters\event_converter.py:265: UserWarning: [EXPERIMENTAL] convert_a2a_message_to_event: ADK Implementation for A2A support (A2aAgentExecutor, RemoteA2aAgent and corresponding supporting components etc.) is in experimental mode and is subject to breaking changes. A2A protocol and SDK are themselves not experimental. Once it's stable enough the experimental mode will be removed. Your feedback is welcome.
+    event: Event = convert_a2a_message_to_event(
+
+tests/test_phase4.py::test_three_workers_overlap_and_prove_isolation
+  d:\TreeFleet\.venv-orch\Lib\site-packages\google\adk\a2a\converters\event_converter.py:349: UserWarning: [EXPERIMENTAL] convert_a2a_part_to_genai_part: ADK Implementation for A2A support (A2aAgentExecutor, RemoteA2aAgent and corresponding supporting components etc.) is in experimental mode and is subject to breaking changes. A2A protocol and SDK are themselves not experimental. Once it's stable enough the experimental mode will be removed. Your feedback is welcome.
+    parts = part_converter(a2a_part)
+
+tests/test_phase4.py::test_killed_worker_fails_and_the_others_finish
+  D:\TreeFleet\src\treefleet\orchestrator\fleet.py:165: DeprecationWarning: A2AClient is deprecated and will be removed in a future version. Use ClientFactory to create a client with a JSON-RPC transport.
+    client = A2AClient(http, url=url)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+135 passed, 7 deselected, 15 warnings in 219.02s (0:03:39)
+
+GATE GREEN (phase 8)

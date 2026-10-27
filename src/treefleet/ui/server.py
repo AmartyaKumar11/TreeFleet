@@ -23,6 +23,21 @@ _PAGE = Path(__file__).with_name("board.html")
 _STAGES = ("guard", "plan", "approve", "fleet", "review", "integrate", "done")
 
 
+def replay_gap(previous: str | None, stamp: str, cap: float = 30) -> float:
+    """Seconds to wait between two recorded events. A gap above the cap plays at the cap."""
+    if not previous or not stamp:
+        return 0
+    from datetime import datetime
+
+    try:
+        gap = (datetime.fromisoformat(stamp) - datetime.fromisoformat(previous)).total_seconds()
+    except ValueError:
+        return 0
+    if gap <= 0:
+        return 0
+    return min(gap, cap)
+
+
 def local_host(value: str) -> bool:
     name = value.split(",")[0].strip().split(":")[0].strip("[]")
     return name in {"127.0.0.1", "localhost"}
@@ -233,16 +248,8 @@ def create_app(
             previous: str | None = None
             for item in recorded:
                 stamp = str(item.get("ts") or "")
-                if previous and stamp:
-                    try:
-                        from datetime import datetime
-
-                        gap = (datetime.fromisoformat(stamp) - datetime.fromisoformat(previous)).total_seconds()
-                    except ValueError:
-                        gap = 0
-                    if gap > 0:
-                        # ponytail: a gap over 30s plays at 30s so a bad timestamp cannot stall the demo
-                        time.sleep(min(gap, 30))
+                # ponytail: a gap over 30s plays at 30s so a bad timestamp cannot stall the demo
+                time.sleep(replay_gap(previous, stamp))
                 previous = stamp or previous
                 board.replay_events.append(item)
             board.finished.add(str(recorded[-1].get("run_id")) if recorded else "replay")
@@ -262,7 +269,9 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         page = _PAGE.read_text(encoding="utf-8")
-        page = page.replace("{{TOKEN}}", board.token).replace("{{REPLAY}}", "true" if board.replay else "false")
+        page = page.replace("{{TOKEN}}", board.token)
+        page = page.replace("{{REPLAY}}", "true" if board.replay else "false")
+        page = page.replace("{{REPLAY_ATTR}}", "" if board.replay else "hidden")
         return HTMLResponse(page)
 
     @app.get("/api/models")

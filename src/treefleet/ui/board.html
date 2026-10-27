@@ -73,7 +73,7 @@ th { color: var(--muted); }
 </style>
 </head>
 <body>
-<div id="replay" class="replay" hidden>REPLAY</div>
+<div id="replay" class="replay" {{REPLAY_ATTR}}>REPLAY</div>
 <div class="app">
   <main class="main">
     <div class="bar">
@@ -208,7 +208,13 @@ th { color: var(--muted); }
   }
   function render(data) {
     state = data;
-    if (data.replay || replay) document.getElementById("replay").hidden = false;
+    if (data.replay || replay) {
+      document.getElementById("replay").hidden = false;
+      document.title = "TreeFleet replay";
+      var liveTab = document.querySelector('[data-pane="live"]');
+      if (liveTab) liveTab.textContent = "Recorded output";
+      document.getElementById("run").disabled = true;
+    }
     document.getElementById("path").textContent = data.repo || "";
     document.getElementById("title").textContent = (data.repo || "TreeFleet").split(/[\\/]/).pop();
     document.getElementById("ref").textContent = (data.branch || "") + (data.head ? " @ " + data.head : "");
