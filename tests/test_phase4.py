@@ -12,12 +12,15 @@ from pathlib import Path
 
 import pytest
 
+from treefleet.checks import detect_checks
+from treefleet.cli import main
 from treefleet.config import load_settings
-from treefleet.contracts import IsolationReport, Plan, RunRequest, StateKey, WorkerResult
+from treefleet.contracts import IsolationReport, Plan, RunRequest, StateKey, WorkerResult, WorkerTaskEnvelope
 from treefleet.events import EventSink
 from treefleet.git.cursor_scope import ScopeViolation
 from treefleet.git.worktrees import list_worktrees, remove_worktree
-from treefleet.orchestrator.agents import plan_goal
+from treefleet.mcp_servers.worktree_fs_server import execute_check
+from treefleet.orchestrator.agents import assign_checks, plan_goal, plan_problems, scan_text
 from treefleet.orchestrator.pipeline import OfflineFakes, ask_plan, cleanup_run, run_pipeline
 from treefleet.worker.spawner import before_spawn, worker_pids
 
@@ -416,7 +419,7 @@ def test_long_notes_are_clipped_to_the_draft_limit() -> None:
     assert draft.notes == "x" * 3000
 
 
-def test_changed_files_are_the_task_commit(tmp_path: Path) -> None:
+def test_file_list_uses_the_base_sha_across_two_commits(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _git(repo)
     (repo / "extra.py").write_text("x\n", encoding="utf-8", newline="\n")
@@ -431,14 +434,20 @@ def test_changed_files_are_the_task_commit(tmp_path: Path) -> None:
         check=True,
         shell=False,
     )
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, text=True, shell=False, check=True
+    ).stdout.strip()
     (worktree / "README.md").write_text("base\nmore\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "add", "README.md"], cwd=worktree, check=True, shell=False)
     subprocess.run(["git", "commit", "-m", "readme"], cwd=worktree, check=True, shell=False)
+    (worktree / "notes.txt").write_text("second commit\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "add", "notes.txt"], cwd=worktree, check=True, shell=False)
+    subprocess.run(["git", "commit", "-m", "notes"], cwd=worktree, check=True, shell=False)
     code = (
         "import json, os\n"
         "from pathlib import Path\n"
         "from treefleet.worker.crew import _files\n"
-        "print(json.dumps([item.path for item in _files(Path(os.environ['WT']))]))\n"
+        "print(json.dumps([item.path for item in _files(Path(os.environ['WT']), os.environ['BASE'])]))\n"
     )
     proc = subprocess.run(
         [str(WORKER), "-c", code],
@@ -448,11 +457,11 @@ def test_changed_files_are_the_task_commit(tmp_path: Path) -> None:
         errors="replace",
         timeout=60,
         shell=False,
-        env={**os.environ, "WT": str(worktree)},
+        env={**os.environ, "WT": str(worktree), "BASE": base},
         check=False,
     )
     assert proc.returncode == 0, (proc.stdout[-1500:] + proc.stderr[-1500:]).strip()
-    assert json.loads(proc.stdout.strip().splitlines()[-1]) == ["README.md"]
+    assert sorted(json.loads(proc.stdout.strip().splitlines()[-1])) == ["README.md", "notes.txt"]
 
 
 async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -465,8 +474,8 @@ async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monke
             "tasks": [
                 {
                     "id": "review",
-                    "title": "Review",
-                    "instructions": "Read the repository.",
+                    "title": "Note patterns",
+                    "instructions": "Describe the repository layout in notes.",
                     "allowed_paths": ["notes.txt"],
                 },
                 {
@@ -499,3 +508,226 @@ async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monke
         if outcome is not None:
             cleanup_run(repo, outcome.run_id)
         _sweep(repo)
+
+
+def _inspect_plan() -> str:
+    return json.dumps(
+        {
+            "goal": GOAL,
+            "rationale": "Look first.",
+            "tasks": [
+                {
+                    "id": "inspect-modules",
+                    "title": "Inspect the modules",
+                    "instructions": "Inspect the repository and report the gaps.",
+                    "allowed_paths": ["README.md"],
+                }
+            ],
+        }
+    )
+
+
+def test_plan_guard_flags_only_a_leading_verb() -> None:
+    plan = Plan.model_validate_json(_plan_json(["alpha"]))
+    assert plan_problems(plan) is None
+    raw = json.loads(_plan_json(["alpha"]))
+    raw["tasks"][0]["title"] = "Run the unit tests"
+    raw["tasks"][0]["instructions"] = "Add one sentence to README.md now."
+    assert "run" in (plan_problems(Plan.model_validate(raw)) or "")
+    raw["tasks"][0]["title"] = "Add unit tests"
+    raw["tasks"][0]["instructions"] = "Add tests and then inspect the names."
+    assert plan_problems(Plan.model_validate(raw)) is None
+
+
+async def test_plan_guard_replans_once_with_the_reason() -> None:
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    seen: list[str] = []
+
+    class Scripted(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):  # noqa: ANN001
+            chunks: list[str] = []
+            for content in getattr(llm_request, "contents", []) or []:
+                for part in getattr(content, "parts", []) or []:
+                    text = getattr(part, "text", None)
+                    if text:
+                        chunks.append(text)
+            seen.append("\n".join(chunks))
+            reply = _inspect_plan() if len(seen) == 1 else _plan_json(["alpha"])
+            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=reply)]))
+
+    plan = await plan_goal(Scripted(model="scripted"), GOAL, "README.md")
+    assert plan.tasks[0].id == "alpha"
+    assert len(seen) == 2
+    assert "starts with inspect" in seen[1]
+
+
+async def test_plan_guard_failure_is_a_clear_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    _git(repo)
+    outcome, _calls = await _run(repo, [_inspect_plan(), _inspect_plan()], monkeypatch, tmp_path, sleep="0")
+    assert outcome.code == 1
+    assert outcome.message.startswith("plan rejected:")
+    assert "inspect" in outcome.message
+    assert outcome.report is None
+    assert not any(item.branch and item.branch.startswith("tf/") for item in list_worktrees(repo))
+
+
+def test_empty_check_ids_follow_the_edited_file() -> None:
+    checks = {
+        "pip-install-pytest": "python -m pip install pytest",
+        "pytest": "python -m pytest -q",
+        "npm-test": "npm test",
+    }
+    readme = Plan.model_validate_json(_plan_json(["alpha"]))
+    assert assign_checks(readme, checks).tasks[0].check_ids == []
+    raw = json.loads(_plan_json(["alpha"]))
+    raw["tasks"][0]["allowed_paths"] = ["tests/test_notifications.py"]
+    py_plan = assign_checks(Plan.model_validate(raw), checks)
+    assert py_plan.tasks[0].check_ids == ["pytest"]
+    raw["tasks"][0]["allowed_paths"] = ["src/client/types.ts"]
+    raw["tasks"][0]["check_ids"] = ["npm-test"]
+    kept = assign_checks(Plan.model_validate(raw), checks)
+    assert kept.tasks[0].check_ids == ["npm-test"]
+
+
+def _ci_repo(repo: Path) -> None:
+    workflow = repo / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    (workflow / "ci.yml").write_text(
+        "jobs:\n  test:\n    steps:\n"
+        "      - run: python -m pip install pytest\n"
+        "      - run: python -m pytest -q\n"
+        "      - run: npm test\n",
+        encoding="utf-8",
+    )
+    (repo / "package.json").write_text(
+        json.dumps(
+            {"scripts": {"test": "node --test tests/client.test.ts", "lint": "echo lint", "build": "echo skip"}}
+        ),
+        encoding="utf-8",
+    )
+    (repo / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    (repo / "ruff.toml").write_text("line-length = 100\n", encoding="utf-8")
+
+
+def test_repo_scan_detects_ci_package_and_tool_config(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _git(repo)
+    _ci_repo(repo)
+    found = detect_checks(repo)
+    assert found["pytest"] == "python -m pytest -q"
+    assert found["pip-install-pytest"] == "python -m pip install pytest"
+    assert found["npm-test"] == "npm test"
+    assert found["test"] == "node --test tests/client.test.ts"
+    assert found["lint"] == "echo lint"
+    assert found["ruff"] == "ruff check"
+    assert "build" not in found
+    assert "python -m pytest -q" in scan_text(repo)
+
+
+def test_envelope_records_the_run_base_sha() -> None:
+    bare = {
+        "run_id": "ab12cd",
+        "task": {
+            "id": "alpha",
+            "title": "Edit readme",
+            "instructions": "Update README.md with a short note.",
+            "allowed_paths": ["README.md"],
+        },
+        "model": "deepseek/deepseek-flash",
+    }
+    assert WorkerTaskEnvelope.model_validate(bare).base_sha is None
+    sha = "a" * 40
+    assert WorkerTaskEnvelope.model_validate({**bare, "base_sha": sha}).base_sha == sha
+
+
+def test_npm_resolves_to_node_without_a_shell() -> None:
+    from treefleet.checks import command_argv
+
+    argv = command_argv("npm test")
+    assert argv[0].lower().endswith("node.exe")
+    assert argv[1].lower().endswith("npm-cli.js")
+    assert argv[2:] == ["test"]
+
+
+def test_run_check_finds_python_and_node_without_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    from treefleet.checks import check_env
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
+    monkeypatch.setenv("CURSOR_API_KEY", "cursor-secret-value")
+    env = check_env()
+    assert env.get("PATH")
+    assert "DEEPSEEK_API_KEY" not in env
+    assert "CURSOR_API_KEY" not in env
+    py = "python -c \"import os,sys; sys.exit(3 if 'DEEPSEEK_API_KEY' in os.environ else 0)\""
+    result = execute_check(tmp_path, {"py": py}, "py")
+    assert result["ok"] and result["data"]["passed"], result
+    node = shutil.which("node")
+    assert node
+    script = "process.exit(process.env.DEEPSEEK_API_KEY ? 3 : 0)"
+    node_result = execute_check(tmp_path, {"node": f'node -e "{script}"'}, "node")
+    assert node_result["ok"] and node_result["data"]["passed"], node_result
+
+
+def _cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    _secrets(monkeypatch)
+    monkeypatch.setattr("treefleet.cli.require_known", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("treefleet.cli.require_tiers", lambda *_args, **_kwargs: None)
+
+    def _stop(*_args, **_kwargs):  # noqa: ANN002
+        from treefleet.orchestrator.pipeline import RunOutcome
+
+        return RunOutcome(0, None, {}, "")
+
+    monkeypatch.setattr("treefleet.cli.run_blocking", _stop)
+    monkeypatch.chdir(ROOT)
+
+
+def _payload(text: str) -> dict:
+    return json.loads(next(line for line in text.splitlines() if line.startswith("{")))
+
+
+def test_cli_asks_before_using_detected_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _ci_repo(repo)
+    _cli(monkeypatch)
+    prompts: list[str] = []
+
+    def _answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return "n"
+
+    monkeypatch.setattr("builtins.input", _answer)
+    assert main([GOAL, "--repo", str(repo), "--no-approval"]) == 0
+    assert prompts == ["Use these checks? [Y/n] "]
+    assert _payload(capsys.readouterr().out)["checks"] == {}
+
+
+def test_cli_yes_no_checks_and_explicit_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _ci_repo(repo)
+    _cli(monkeypatch)
+
+    def _refuse(_prompt: str) -> str:
+        raise AssertionError("question should be skipped")
+
+    monkeypatch.setattr("builtins.input", _refuse)
+    assert main([GOAL, "--repo", str(repo), "--yes", "--no-approval"]) == 0
+    yes = _payload(capsys.readouterr().out)
+    assert yes["checks"]["pytest"] == "python -m pytest -q"
+    assert main([GOAL, "--repo", str(repo), "--no-checks", "--no-approval"]) == 0
+    assert _payload(capsys.readouterr().out)["checks"] == {}
+    assert main([GOAL, "--repo", str(repo), "--no-checks", "--check", "pyok=python -m pytest -q"]) == 0
+    explicit = _payload(capsys.readouterr().out)
+    assert explicit["checks"] == {"pyok": "python -m pytest -q"}

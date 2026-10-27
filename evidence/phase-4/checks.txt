@@ -1,0 +1,16 @@
+# Check measurement on D:\pr-sentinel-demo
+
+Worktree created from `demo-base`, then removed. Commands ran through `execute_check` (`shell=False`, PATH kept, no API keys).
+
+Detected:
+
+- pip-install-pytest: `python -m pip install pytest`
+- pytest: `python -m pytest -q`
+- npm-test: `npm test`
+- test: `node --experimental-strip-types --test tests/client.test.ts`
+
+`python -m pytest -q` resolved to the uv CPython 3.12 on PATH and exited 1: `No module named pytest`.
+
+The orchestrator venv interpreter, `d:\TreeFleet\.venv-orch\Scripts\python.exe -m pytest -q`, in that same worktree: 28 passed in 0.12s.
+
+`npm test` is `npm.cmd`, which CreateProcess cannot start. The check argv is `node.exe` plus `npm-cli.js`. With `COMSPEC` in the check environment so npm can launch the script, the client tests passed: 3 passed, exit 0.

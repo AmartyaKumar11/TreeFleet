@@ -336,6 +336,7 @@ class WorkerTaskEnvelope(_Model):
     model: str
     cursor_model: ModelChoice | None = None
     checks: dict[Slug, str] = Field(default_factory=dict)
+    base_sha: Sha | None = None
     limits: Limits = Field(default_factory=Limits)
     upstream: list[UpstreamContext] = Field(default_factory=list)
     revision_feedback: Annotated[str, StringConstraints(max_length=2000)] | None = None

@@ -41,6 +41,14 @@ def _event(bundle: RunBundle, kind: str, task_id: str, payload: dict[str, Any]) 
     )
 
 
+def _base_sha(repo: Path, base_ref: str) -> str | None:
+    proc = run_git(["rev-parse", "--verify", base_ref], cwd=repo)
+    if proc.returncode != 0:
+        return None
+    sha = proc.stdout.strip()
+    return sha if len(sha) == 40 else None
+
+
 def _unchanged_sha(worktree: Path) -> str | None:
     """HEAD of a worktree whose task committed nothing. Dependents may build on that commit."""
     if not worktree.is_dir():
@@ -309,6 +317,7 @@ def _fleet_base():
                 model=self.bundle.settings.models.fast,
                 cursor_model=route.cursor_model,
                 checks=checks,
+                base_sha=_base_sha(self.bundle.repo, self.bundle.request.base_ref),
                 upstream=upstream,
             )
 

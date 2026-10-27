@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 import threading
@@ -18,6 +17,7 @@ try:
 except ImportError:  # mcp 1.x, the version CrewAI pins
     from mcp.server.fastmcp import FastMCP as MCPServer  # pyright: ignore[reportAttributeAccessIssue]
 
+from treefleet.checks import check_env, command_argv
 from treefleet.contracts import CheckResult, Limits
 from treefleet.git.worktrees import kill_tree, run_git
 
@@ -98,19 +98,14 @@ def execute_check(root: Path, checks: dict[str, str], name: str) -> dict[str, An
     if command is None:
         return _err("NOT_ALLOWED", name)
     try:
-        argv = shlex.split(command, posix=os.name != "nt")
+        argv = command_argv(command)
     except ValueError as exc:
         return _err("BAD_ARGS", str(exc))
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
-        "PATHEXT": os.environ.get("PATHEXT", ""),
-    }
     try:
         proc = subprocess.run(
             argv,
             cwd=root,
-            env=env,
+            env=check_env(),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -122,6 +117,8 @@ def execute_check(root: Path, checks: dict[str, str], name: str) -> dict[str, An
         )
     except subprocess.TimeoutExpired:
         return _err("TIMEOUT", name)
+    except OSError as exc:
+        return _err("NOT_FOUND", str(exc)[:500])
     result = CheckResult(
         name=name,
         command=command,

@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from treefleet.checks import detect_checks, forbidden_stem
 from treefleet.config import Settings
 from treefleet.contracts import (
     FinalReport,
@@ -32,10 +33,15 @@ from treefleet.git.proofs import (
 from treefleet.git.worktrees import git_out
 
 _PLAN_INSTRUCTION = (
-    "Return one JSON object for a Plan and nothing else. "
-    "No markdown. Fields: goal, rationale, tasks. "
+    "Return one JSON object for a Plan and nothing else. No markdown. "
+    "Fields: goal, rationale, tasks. "
     "Each task has id, title, instructions, allowed_paths, and optional depends_on, "
-    "complexity, and model_override. complexity is trivial, moderate, or complex. Ids are lowercase slugs."
+    "check_ids, complexity, and model_override. "
+    "complexity is trivial, moderate, or complex. Ids are lowercase slugs. "
+    "Every task edits at least one file. allowed_paths names the files that task edits. "
+    "Do not add a task that only inspects, reviews, explores, reads, investigates, or runs tests or commands. "
+    "Tests and lint run as checks after the edit. Put the relevant check names in check_ids. "
+    "Leave depends_on empty so independent tasks share one wave."
 )
 
 _COMPLEXITY_ALIASES = {"low": "trivial", "simple": "trivial", "medium": "moderate", "high": "complex"}
@@ -105,6 +111,66 @@ def repo_map(repo: Path) -> str:
     return "\n".join(files[:200])
 
 
+def scan_text(repo: Path) -> str:
+    """File list plus the commands RepoScan detected. The CLI confirms which ones run."""
+    files = repo_map(repo)
+    found = detect_checks(repo)
+    if not found:
+        return files
+    lines = "\n".join(f"{name}: {command}" for name, command in found.items())
+    return f"{files}\n\nDetected checks:\n{lines}"
+
+
+class PlanRejected(RuntimeError):
+    """The planner returned a read-only task twice."""
+
+
+def plan_problems(plan: Plan) -> str | None:
+    reasons: list[str] = []
+    for task in plan.tasks:
+        for label, text in (("title", task.title), ("instructions", task.instructions)):
+            stem = forbidden_stem(text)
+            if stem:
+                reasons.append(f"{task.id} {label} starts with {stem}")
+                break
+    if not reasons:
+        return None
+    return "; ".join(reasons)
+
+
+def assign_checks(plan: Plan, checks: dict[str, str]) -> Plan:
+    """Fill empty check_ids from the edited suffix. Install commands are not checks."""
+    if not checks:
+        return plan
+    tasks = []
+    for task in plan.tasks:
+        if task.check_ids:
+            tasks.append(task)
+            continue
+        paths = " ".join(task.allowed_paths).lower()
+        py = [name for name, command in checks.items() if _is_python_check(command)]
+        js = [name for name, command in checks.items() if _is_js_check(command)]
+        chosen: list[str] = []
+        if ".py" in paths:
+            chosen.extend(py[:2])
+        if any(ext in paths for ext in (".ts", ".tsx", ".js", ".jsx")):
+            chosen.extend(js[:1])
+        tasks.append(task.model_copy(update={"check_ids": chosen[:5]}))
+    return plan.model_copy(update={"tasks": tasks})
+
+
+def _is_python_check(command: str) -> bool:
+    text = command.lower()
+    if "pip install" in text:
+        return False
+    return "pytest" in text or "ruff" in text
+
+
+def _is_js_check(command: str) -> bool:
+    text = command.lower()
+    return "npm" in text or "node" in text or "tsc" in text
+
+
 def resolve_cursor_model(
     task_override: str | None, request: RunRequest, settings: Settings
 ) -> tuple[str | None, Literal["override", "run", "router", "default"]]:
@@ -165,14 +231,16 @@ async def _complete(llm: Any, user_text: str) -> str:
     return stored or text
 
 
-async def plan_goal(llm: Any, goal: str, tree: str) -> Plan:
-    """Parse Plan JSON. One repair retry sends the validation error back."""
+async def plan_goal(llm: Any, goal: str, tree: str, checks: dict[str, str] | None = None) -> Plan:
+    """Parse Plan JSON. One JSON repair, then one re-plan when a task is read-only."""
     from pydantic import ValidationError
 
-    prompt = f"Goal:\n{goal}\n\nRepository files:\n{tree}"
+    available = checks or {}
+    listed = "\n".join(f"{name}: {command}" for name, command in available.items()) or "none"
+    prompt = f"Goal:\n{goal}\n\nRepository files:\n{tree}\n\nChecks:\n{listed}\n"
     text = await _complete(llm, prompt)
     try:
-        return Plan.model_validate_json(_normalize_plan(text))
+        plan = Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
         repair = (
             f"The previous JSON failed validation:\n{exc}\n"
@@ -180,7 +248,26 @@ async def plan_goal(llm: Any, goal: str, tree: str) -> Plan:
             f"{prompt}"
         )
         text = await _complete(llm, repair[:4000])
-        return Plan.model_validate_json(_normalize_plan(text))
+        plan = Plan.model_validate_json(_normalize_plan(text))
+    problem = plan_problems(plan)
+    if problem is None:
+        return assign_checks(plan, available)
+    replan = (
+        f"The plan was rejected: {problem}. "
+        "Every task must edit a file. allowed_paths names that file. "
+        "Do not start a title or instructions with inspect, review, explore, investigate, run, or check. "
+        "Leave depends_on empty. Return only the corrected JSON object.\n\n"
+        f"{prompt}"
+    )
+    try:
+        text = await _complete(llm, replan[:8000])
+        plan = Plan.model_validate_json(_normalize_plan(text))
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise PlanRejected(f"plan rejected: {exc}") from None
+    problem = plan_problems(plan)
+    if problem:
+        raise PlanRejected(f"plan rejected: {problem}")
+    return assign_checks(plan, available)
 
 
 def route_plan(plan: Plan, request: RunRequest, settings: Settings) -> list[RouteDecision]:
@@ -313,7 +400,7 @@ class RepoScanAgent(BaseAgent):
     bundle: Any
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
-        text = repo_map(self.bundle.repo)
+        text = scan_text(self.bundle.repo)
         yield _adk_event(
             ctx,
             self.name,
@@ -329,7 +416,12 @@ class PlannerAgent(BaseAgent):
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
         tree = str(ctx.session.state.get(StateKey.REPO_MAP, ""))
-        plan = await plan_goal(planner_llm(self.bundle), self.bundle.request.goal, tree)
+        plan = await plan_goal(
+            planner_llm(self.bundle),
+            self.bundle.request.goal,
+            tree,
+            dict(self.bundle.request.checks),
+        )
         approved = True
         if self.bundle.request.plan_approval:
             approved = True if self.bundle.approve is None else bool(self.bundle.approve(plan))

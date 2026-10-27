@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shlex
 import subprocess
 import time
 from collections.abc import Callable
@@ -19,6 +18,7 @@ from crewai.mcp.transports.stdio import StdioTransport
 from crewai.tools import BaseTool
 from pydantic import ValidationError
 
+from treefleet.checks import check_env, command_argv
 from treefleet.contracts import (
     CheckResult,
     CursorUsage,
@@ -270,22 +270,41 @@ def _main_repo(worktree: Path) -> Path:
     return common.parent
 
 
+def _check_failed(name: str, command: str, message: str) -> CheckResult:
+    return CheckResult(
+        name=name,
+        command=command,
+        exit_code=127,
+        passed=False,
+        stderr_tail=message[:4000],
+    )
+
+
 def _checks(envelope: WorkerTaskEnvelope, worktree: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
     for name, command in envelope.checks.items():
-        argv = shlex.split(command, posix=os.name != "nt")
+        try:
+            argv = command_argv(command)
+        except ValueError as exc:
+            results.append(_check_failed(name, command, str(exc)))
+            continue
         started = time.monotonic()
-        completed = subprocess.run(
-            argv,
-            cwd=worktree,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            shell=False,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                argv,
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                shell=False,
+                check=False,
+                env=check_env(),
+            )
+        except OSError as exc:
+            results.append(_check_failed(name, command, str(exc)))
+            continue
         results.append(
             CheckResult(
                 name=name,
@@ -312,9 +331,18 @@ def _commit(worktree: Path, envelope: WorkerTaskEnvelope) -> str | None:
     return git_out(["rev-parse", "HEAD"], worktree).strip()
 
 
-def _files(worktree: Path) -> list[FileChange]:
-    """Files in the commit just made. `main...HEAD` includes history that is not this task."""
-    proc = run_git(["diff", "--numstat", "HEAD^", "HEAD"], cwd=worktree)
+def _task_base(worktree: Path, base: str | None) -> str:
+    if base:
+        return base
+    parent = run_git(["rev-parse", "HEAD^"], cwd=worktree)
+    if parent.returncode == 0 and parent.stdout.strip():
+        return parent.stdout.strip()
+    return "HEAD"
+
+
+def _files(worktree: Path, base: str) -> list[FileChange]:
+    """Files changed from the run's base commit through HEAD, including every revision commit."""
+    proc = run_git(["diff", "--numstat", f"{base}..HEAD"], cwd=worktree)
     if proc.returncode != 0:
         return []
     found: list[FileChange] = []
@@ -494,7 +522,7 @@ def _result(
     notes: str = "",
 ) -> WorkerResult:
     branch = git_out(["branch", "--show-current"], worktree).strip()
-    files = _files(worktree) if sha else []
+    files = _files(worktree, _task_base(worktree, envelope.base_sha)) if sha else []
     return WorkerResult(
         run_id=envelope.run_id,
         task_id=envelope.task.id,

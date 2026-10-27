@@ -1,4 +1,5 @@
 .env
+runs/
 .venv*/
 .venv-orch/
 .venv-worker/

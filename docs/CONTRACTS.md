@@ -86,6 +86,7 @@ S10, with `--sandbox disabled`, printed one JSON result that included `usage.inp
 | `worker_model` | `RunRequest`, default `router` | `router` means TreeFleet routing (UI label Smart routing). Any other value, including Cursor's own `auto`, is one discovered Cursor model id for every task |
 | `model_override` | `TaskSpec`, default null | Cursor model id for that task only |
 | `cursor_model` | `WorkerTaskEnvelope`, default null | Id passed to `cursor-agent`, or null to omit `--model` |
+| `base_sha` | `WorkerTaskEnvelope`, default null | Run base commit. File lists diff this sha through `HEAD`, including a revision's earlier commits |
 | `cursor_model` | `RouteDecision`, default null | Id the router resolved |
 | `source` | `RouteDecision` | `override`, `run`, `router`, or `default`. Older values `jev` and `heuristic` still validate |
 

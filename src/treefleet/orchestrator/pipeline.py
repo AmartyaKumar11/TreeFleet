@@ -16,6 +16,7 @@ from treefleet.git.canary import CANARY_NAME
 from treefleet.git.worktrees import GitError, kill_tree, list_worktrees, prepare_repo, remove_worktree
 from treefleet.orchestrator.agents import (
     PlannerAgent,
+    PlanRejected,
     ReporterAgent,
     RepoScanAgent,
     RouterAgent,
@@ -131,6 +132,8 @@ async def run_pipeline(
     try:
         async for _event in runner.run_async(user_id="u", session_id=run_id, new_message=message):
             pass
+    except PlanRejected as exc:
+        return RunOutcome(1, None, {}, run_id, str(exc))
     finally:
         for proc in bundle.procs:
             kill_tree(proc.popen.pid)
