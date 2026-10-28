@@ -40,8 +40,8 @@ from treefleet.mcp_servers.worktree_fs_server import (
     mcp_stdio,
     resolve_inside,
 )
-from treefleet.worker.draft import draft_with_retry
-from treefleet.worker.facts import summary_from_files
+from treefleet.worker.draft import draft_with_retry, parse_draft
+from treefleet.worker.facts import reconcile_notes, summary_from_files
 
 pytestmark = pytest.mark.phase3
 
@@ -273,6 +273,33 @@ def test_malformed_draft_retries_once() -> None:
     assert draft_with_retry(lambda error: '{"notes": "ok"}' if error or True else "") == WorkerDraft(notes="ok")
     with pytest.raises(ValidationError):
         WorkerDraft.model_validate({"summary": "old field"})
+
+
+def test_control_character_in_notes_parses_and_retries_once() -> None:
+    draft = parse_draft('{"notes": "BLOCKED \x01 still here"}')
+    assert draft.notes == "BLOCKED   still here"
+    seen: list[str | None] = []
+
+    def produce(error: str | None) -> str:
+        seen.append(error)
+        return "not json"
+
+    with pytest.raises(ValidationError):
+        draft_with_retry(produce)
+    assert len(seen) == 2
+
+
+def test_notes_that_deny_a_real_diff_are_labeled() -> None:
+    files = [FileChange(path="tests/test_notifications.py", additions=42, deletions=0)]
+    claim = "No changes were made in this attempt. tests/test_notifications.py was not created or edited."
+    text = reconcile_notes(claim, files)
+    assert text.startswith("tests/test_notifications.py +42 -0.")
+    assert "agent claim (unverified)" in text
+    assert "No changes were made" in text
+    invented = reconcile_notes("Edited missing.py and tests/test_notifications.py.", files)
+    assert invented.startswith("tests/test_notifications.py +42 -0.")
+    assert "agent claim (unverified)" in invented
+    assert reconcile_notes("Added tests/test_notifications.py.", files) == "Added tests/test_notifications.py."
 
 
 def _worker(env: dict[str, str], envelope: dict, worktree: Path) -> dict:

@@ -43,7 +43,7 @@ from treefleet.timing import record_step, reset_steps
 from treefleet.worker.callbacks import emit_step, emit_task, on_tool_args, on_tool_result
 from treefleet.worker.cursor_tool import make_cursor_tool
 from treefleet.worker.draft import parse_draft
-from treefleet.worker.facts import summary_from_files
+from treefleet.worker.facts import reconcile_notes, summary_from_files
 
 cursor_usages: list[CursorUsage] = []
 cursor_notes: list[str] = []
@@ -784,7 +784,7 @@ def _result(
         attempt=envelope.attempt,
         status=status,  # type: ignore[arg-type]
         summary=summary_from_files(files),
-        notes=notes,
+        notes=reconcile_notes(notes, files),
         branch=branch,
         head_sha=sha,
         commit_made=sha is not None,

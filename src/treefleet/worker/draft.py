@@ -12,10 +12,15 @@ from treefleet.contracts import WorkerDraft
 _NOTES_LIMIT = 3000
 
 
+def _plain(text: str) -> str:
+    """Control characters are illegal in JSON strings. Keep tab, newline, and carriage return."""
+    return "".join(ch if ch in "\t\n\r" or ord(ch) >= 32 else " " for ch in text)
+
+
 def parse_draft(text: str) -> WorkerDraft:
     start = text.find("{")
     end = text.rfind("}")
-    body = text[start : end + 1] if start >= 0 and end > start else text
+    body = _plain(text[start : end + 1] if start >= 0 and end > start else text)
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
