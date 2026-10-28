@@ -46,6 +46,7 @@ from treefleet.worker.draft import parse_draft
 from treefleet.worker.facts import summary_from_files
 
 cursor_usages: list[CursorUsage] = []
+cursor_notes: list[str] = []
 cursor_files: list[str] = []
 last_reverted: list[str] = []
 tools_seen: list[str] = []
@@ -289,6 +290,7 @@ def build_agent(
     envelope: WorkerTaskEnvelope,
     worktree: Path,
     usages: list[CursorUsage] | None = None,
+    notes: list[str] | None = None,
 ) -> Agent:
     cli = Path(os.environ.get("TREEFLEET_CURSOR_CLI", "cursor-agent"))
     cursor = make_cursor_tool(
@@ -302,6 +304,7 @@ def build_agent(
         run_id=envelope.run_id,
         task_id=envelope.task.id,
         usages=usages,
+        notes=notes,
         files=cursor_files,
         revision=envelope.revision_feedback or "",
         saboteur=envelope.saboteur,
@@ -509,11 +512,12 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     main = _main_repo(worktree)
     before = snapshot_main(main)
     cursor_usages.clear()
+    cursor_notes.clear()
     cursor_files.clear()
     last_reverted.clear()
     try:
         check_cursor_scope(worktree, run_id=envelope.run_id, sink=_sink(), task_id=envelope.task.id)
-        agent = build_agent(envelope, worktree, cursor_usages)
+        agent = build_agent(envelope, worktree, cursor_usages, cursor_notes)
     except ScopeViolation as exc:
         return _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started)
     except TimeoutError as exc:
@@ -618,12 +622,15 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
         task_id=envelope.task.id,
     )
     if sha is None:
+        message = "worker made no changes"
+        if cursor_notes:
+            message = f"{message}: {cursor_notes[-1]}"[:2000]
         return _with_usage(
             _result(
                 envelope,
                 worktree,
                 "failed",
-                "no commit was made",
+                message,
                 None,
                 checks,
                 started,

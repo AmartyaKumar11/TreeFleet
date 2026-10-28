@@ -47,7 +47,14 @@ def shim() -> None:
         flush=True,
     )
     print(
-        json.dumps({"usage": {"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 1, "cacheWriteTokens": 0}}),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "result": "shim edit",
+                "usage": {"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 1, "cacheWriteTokens": 0},
+            }
+        ),
         flush=True,
     )
 

@@ -142,6 +142,13 @@ def _forced_reject(task_id: str, source: ReviewVerdict | str) -> ReviewVerdict:
     )
 
 
+def verdict_reason(verdict: ReviewVerdict) -> str:
+    parts = [item for item in verdict.reasons if item]
+    if verdict.revision_instructions:
+        parts.append(verdict.revision_instructions)
+    return "; ".join(parts)[:300]
+
+
 def verdict_unparseable(verdict: ReviewVerdict) -> bool:
     return any(str(item).startswith("verdict JSON was not valid") for item in verdict.reasons)
 
@@ -184,6 +191,18 @@ async def review_loop(
         import time
 
         result = results[task_id]
+        error = result.error or ""
+        if result.status == "failed" and (
+            error.startswith("worker made no changes") or error.startswith("upstream ")
+        ):
+            verdict = ReviewVerdict(
+                task_id=task_id,  # type: ignore[arg-type]
+                verdict="reject",
+                confidence=1,
+                reasons=[error[:500]],
+            )
+            _emit("review_verdict", task_id, 1, {"verdict": "reject", "reason": error[:300]})
+            return task_id, result, verdict
         verdict: ReviewVerdict | None = None
         for round_no in range(1, max_revisions + 2):
             _emit("review_started", task_id, round_no, {})
@@ -192,7 +211,7 @@ async def review_loop(
                 verdict = await review(task_id, result, round_no)
             except Exception as exc:
                 verdict = _forced_reject(task_id, type(exc).__name__)
-                _emit("review_verdict", task_id, round_no, {"verdict": "reject"})
+                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
                 if timings is not None:
                     timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
                 break
@@ -200,9 +219,14 @@ async def review_loop(
                 timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
             if verdict.verdict == "revise" and round_no > max_revisions:
                 verdict = _forced_reject(task_id, verdict)
-                _emit("review_verdict", task_id, round_no, {"verdict": "reject"})
+                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
                 break
-            _emit("review_verdict", task_id, round_no, {"verdict": verdict.verdict})
+            _emit(
+                "review_verdict",
+                task_id,
+                round_no,
+                {"verdict": verdict.verdict, "reason": verdict_reason(verdict)},
+            )
             if verdict.verdict != "revise":
                 break
             feedback = "\n".join(verdict.required_changes) or (verdict.revision_instructions or "")
@@ -240,7 +264,7 @@ async def review_loop(
                     reasons=["no new diff"],
                     issues=["no new diff"],
                 )
-                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": "no new diff"})
+                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
                 break
         assert verdict is not None
         return task_id, result, verdict
@@ -253,6 +277,45 @@ async def review_loop(
         updated[task_id] = result
         verdicts[task_id] = verdict
     return updated, verdicts
+
+
+def selected_branches(
+    plan: Plan,
+    results: dict[str, WorkerResult],
+    verdicts: dict[str, ReviewVerdict],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Approved branches whose upstream was not rejected. A rejected upstream drops its dependents."""
+    branches: dict[str, str] = {}
+    reasons: dict[str, str] = {}
+    blocked: dict[str, str] = {}
+    by_id = {task.id: task for task in plan.tasks}
+    order = [task_id for wave in plan.waves() for task_id in wave]
+    for task_id in order:
+        task = by_id[task_id]
+        upstream = next((dep for dep in task.depends_on if dep in blocked), None)
+        if upstream is None:
+            for dep in task.depends_on:
+                parent = results.get(dep)
+                verdict = verdicts.get(dep)
+                if parent is None or parent.status != "done" or (verdict is not None and verdict.verdict != "approve"):
+                    upstream = dep
+                    break
+        if upstream is not None:
+            blocked[task_id] = upstream
+            reasons[task_id] = f"upstream {upstream} rejected"
+            continue
+        verdict = verdicts.get(task_id)
+        result = results.get(task_id)
+        if verdict and verdict.verdict == "approve" and result and result.status == "done" and result.head_sha:
+            branches[task_id] = result.branch
+            continue
+        if verdict is None:
+            reasons[task_id] = "not approved"
+        elif verdict.verdict == "reject":
+            reasons[task_id] = "rejected: " + (verdict.reasons[0] if verdict.reasons else "rejected")
+        else:
+            reasons[task_id] = verdict.verdict
+    return branches, reasons
 
 
 def approved_branches(
@@ -468,20 +531,7 @@ class IntegratorAgent(BaseAgent):
             for item in (ReviewVerdict.model_validate(raw) for raw in ctx.session.state.get(StateKey.VERDICTS, []))
         }
         order = [task_id for wave in plan.waves() for task_id in wave]
-        branches: dict[str, str] = {}
-        reasons: dict[str, str] = {}
-        for task_id in order:
-            verdict = verdicts.get(task_id)
-            result = results.get(task_id)
-            if verdict and verdict.verdict == "approve" and result and result.status == "done" and result.head_sha:
-                branches[task_id] = result.branch
-                continue
-            if verdict is None:
-                reasons[task_id] = "not approved"
-            elif verdict.verdict == "reject":
-                reasons[task_id] = "rejected: " + (verdict.reasons[0] if verdict.reasons else "rejected")
-            else:
-                reasons[task_id] = verdict.verdict
+        branches, reasons = selected_branches(plan, results, verdicts)
         import time
 
         started = time.monotonic()

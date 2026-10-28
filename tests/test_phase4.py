@@ -464,13 +464,13 @@ def test_file_list_uses_the_base_sha_across_two_commits(tmp_path: Path) -> None:
     assert sorted(json.loads(proc.stdout.strip().splitlines()[-1])) == ["README.md", "notes.txt"]
 
 
-async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_empty_upstream_cancels_the_dependent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     _git(repo)
     plan = json.dumps(
         {
             "goal": GOAL,
-            "rationale": "A task that changes nothing must not cancel the writer behind it.",
+            "rationale": "A task that changes nothing cancels the writer behind it.",
             "tasks": [
                 {
                     "id": "review",
@@ -494,16 +494,29 @@ async def test_no_commit_upstream_still_runs_the_dependent(tmp_path: Path, monke
         assert outcome.report is not None, outcome.message
         by_id = {item.task_id: item for item in outcome.report.results}
         assert by_id["review"].status == "failed"
-        assert by_id["review"].error == "no commit was made"
-        assert by_id["write"].status == "done"
-        assert [item.path for item in by_id["write"].files_changed] == ["README.md"]
-        assert outcome.report.isolation.ok
-        spawned = [
-            json.loads(line)["task_id"]
+        assert by_id["review"].error is not None
+        assert by_id["review"].error.startswith("worker made no changes")
+        assert "shim edit" in by_id["review"].error
+        assert by_id["write"].status == "failed"
+        assert by_id["write"].error == "upstream review rejected"
+        assert by_id["write"].commit_made is False
+        events = [
+            json.loads(line)
             for line in (tmp_path / "runs" / outcome.run_id / "events.jsonl").read_text(encoding="utf-8").splitlines()
-            if line.strip() and json.loads(line)["type"] == "worker.spawned"
+            if line.strip()
         ]
-        assert spawned == ["review", "write"]
+        spawned = [event["task_id"] for event in events if event["type"] == "worker.spawned"]
+        assert spawned == ["review"]
+        reviewed = [
+            event["task_id"]
+            for event in events
+            if event["type"] == "review_started" and event["task_id"] == "review"
+        ]
+        assert reviewed == []
+        integration = outcome.report.integration
+        assert integration is not None
+        assert "write" not in integration.merged
+        assert "review" not in integration.merged
     finally:
         if outcome is not None:
             cleanup_run(repo, outcome.run_id)

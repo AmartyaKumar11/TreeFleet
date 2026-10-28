@@ -23,6 +23,7 @@ def make_cursor_tool(
     run_id: str | None = None,
     task_id: str | None = None,
     usages: list[CursorUsage] | None = None,
+    notes: list[str] | None = None,
     files: list[str] | None = None,
     revision: str = "",
     saboteur: bool = False,
@@ -50,6 +51,8 @@ def make_cursor_tool(
         )
         if usages is not None and result.usage is not None:
             usages.append(result.usage)
+        if notes is not None and result.output_tail:
+            notes.append(result.output_tail)
         if files is not None:
             files.extend(result.files_changed)
         return result.model_dump_json()

@@ -47,6 +47,7 @@ from treefleet.orchestrator.review import (
     reviewer_tools,
     screen_review_call,
     screen_review_result,
+    selected_branches,
     verdict_unparseable,
     verdict_with_repair,
 )
@@ -346,6 +347,92 @@ def _short_root() -> Path:
     path = Path(r"C:\tf") if sys.platform == "win32" else Path("/tmp/tf")
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+async def test_empty_worker_skips_review() -> None:
+    seen: list[str] = []
+
+    async def review(task_id: str, result: WorkerResult, round_no: int) -> ReviewVerdict:
+        seen.append(task_id)
+        return ReviewVerdict(task_id=task_id, verdict="approve", confidence=1, reasons=["unused"])
+
+    async def rerun(task_id: str, result: WorkerResult, feedback: str, attempt: int) -> WorkerResult:
+        raise AssertionError(task_id)
+
+    failed = _result(status="failed", commit_made=False, head_sha=None, error="worker made no changes: shim edit")
+    _updated, verdicts = await review_loop(["alpha"], {"alpha": failed}, review=review, rerun=rerun)
+    assert seen == []
+    assert verdicts["alpha"].verdict == "reject"
+    assert verdicts["alpha"].reasons == ["worker made no changes: shim edit"]
+
+
+def test_downstream_commit_stays_off_the_integrated_branch(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init", "-b", "main"], repo)
+    _git(["config", "user.email", "treefleet@local"], repo)
+    _git(["config", "user.name", "TreeFleet"], repo)
+    (repo / "README.md").write_text("base\n", encoding="utf-8", newline="\n")
+    _git(["add", "README.md"], repo)
+    _git(["commit", "-m", "init"], repo)
+    run_id = uuid.uuid4().hex[:8]
+    root = _short_root()
+    made: list[Path] = []
+    try:
+        upstream = create_worktree(repo, run_id, "alpha", root, "main")
+        made.append(upstream)
+        (upstream / "README.md").write_text("base\nupstream\n", encoding="utf-8", newline="\n")
+        _git(["add", "README.md"], upstream)
+        _git(["commit", "-m", "tf alpha"], upstream)
+        downstream = create_worktree(repo, run_id, "beta", root, "main")
+        made.append(downstream)
+        (downstream / "DOWN.md").write_text("downstream\n", encoding="utf-8", newline="\n")
+        _git(["add", "DOWN.md"], downstream)
+        _git(["commit", "-m", "tf beta"], downstream)
+        plan = Plan.model_validate(
+            {
+                "goal": "Two tasks.",
+                "rationale": "Beta follows alpha.",
+                "tasks": [
+                    {
+                        "id": "alpha",
+                        "title": "Upstream",
+                        "instructions": "Edit the readme with one line.",
+                        "allowed_paths": ["README.md"],
+                    },
+                    {
+                        "id": "beta",
+                        "title": "Downstream",
+                        "instructions": "Add DOWN.md with one line.",
+                        "allowed_paths": ["DOWN.md"],
+                        "depends_on": ["alpha"],
+                    },
+                ],
+            }
+        )
+        results = {
+            "alpha": _result("alpha", branch=f"tf/{run_id}/alpha", run_id=run_id),
+            "beta": _result("beta", branch=f"tf/{run_id}/beta", run_id=run_id),
+        }
+        verdicts = {
+            "alpha": ReviewVerdict(task_id="alpha", verdict="reject", confidence=1, reasons=["bad diff"]),
+            "beta": ReviewVerdict(task_id="beta", verdict="approve", confidence=1, reasons=["ok"]),
+        }
+        branches, reasons = selected_branches(plan, results, verdicts)
+        assert "beta" not in branches
+        assert reasons["beta"] == "upstream alpha rejected"
+        report = integrate(repo, run_id, ["alpha", "beta"], branches, "main", worktree_root=root, reasons=reasons)
+        integrated = root / run_id / "integrated"
+        assert "beta" not in report.merged
+        assert not (integrated / "DOWN.md").exists()
+        assert "tf beta" not in _git(["log", "--oneline"], integrated)
+    finally:
+        made.append(root / run_id / "integrated")
+        for path in reversed(made):
+            try:
+                remove_worktree(repo, path)
+            except GitError:
+                pass
 
 
 def test_conflict_is_reported_and_a_later_task_still_merges(tmp_path: Path) -> None:

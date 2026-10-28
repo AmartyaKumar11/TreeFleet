@@ -60,17 +60,6 @@ def _base_sha(repo: Path, base_ref: str) -> str | None:
     return sha if len(sha) == 40 else None
 
 
-def _unchanged_sha(worktree: Path) -> str | None:
-    """HEAD of a worktree whose task committed nothing. Dependents may build on that commit."""
-    if not worktree.is_dir():
-        return None
-    proc = run_git(["rev-parse", "HEAD"], cwd=worktree)
-    if proc.returncode != 0:
-        return None
-    sha = proc.stdout.strip()
-    return sha if len(sha) == 40 else None
-
-
 def _failed(envelope: WorkerTaskEnvelope, worktree: Path | str, message: str, pid: int) -> WorkerResult:
     branch = branch_name(envelope.run_id, envelope.task.id)
     return WorkerResult(
@@ -251,14 +240,15 @@ def _fleet_base():
             upstream: list[UpstreamContext] = []
             for dep in task.depends_on:
                 prev = results.get(dep)
-                sha = prev.head_sha if prev is not None else None
-                # A finished task with no commit still has the base HEAD. A main-checkout
-                # mutation stays fail-closed and does not unblock anyone.
-                if prev is not None and not sha and "main checkout" not in (prev.error or ""):
-                    sha = _unchanged_sha(self.bundle.worktree_root / self.bundle.run_id / dep)
+                sha = prev.head_sha if prev is not None and prev.status == "done" else None
+                # A main-checkout mutation stays fail-closed. Any other failed upstream cancels this task.
                 if prev is None or not sha:
                     envelope = self._envelope(task, route, [])
-                    return _failed(envelope, self.bundle.repo, f"upstream {dep} did not finish", 1)
+                    if prev is not None and "main checkout" in (prev.error or ""):
+                        reason = f"upstream {dep} did not finish"
+                    else:
+                        reason = f"upstream {dep} rejected"
+                    return _failed(envelope, self.bundle.repo, reason, 1)
                 upstream.append(
                     UpstreamContext(
                         task_id=dep,
@@ -321,7 +311,8 @@ def _fleet_base():
                 task.id,
                 {
                     "status": result.status,
-                    "files": [item.path for item in result.files_changed],
+                    "files": [item.model_dump() for item in result.files_changed],
+                    "error": result.error or "",
                     "a2a": note,
                 },
             )
