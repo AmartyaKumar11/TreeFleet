@@ -279,7 +279,7 @@ def _fleet_base():
             except GitError as exc:
                 return _failed(envelope, self.bundle.repo, str(exc), 1)
             try:
-                before_spawn(worktree, self.bundle.run_id, self.bundle.sink)
+                before_spawn(worktree, self.bundle.run_id, self.bundle.sink, task.id)
             except ScopeViolation as exc:
                 return _failed(envelope, worktree, str(exc), 1)
             port = free_port(self.bundle.port_start, self.bundle.ports)

@@ -15,7 +15,9 @@ class ScopeViolation(RuntimeError):
     """A worktree has Cursor config that is not in the base commit."""
 
 
-def check_cursor_scope(worktree: Path, *, run_id: str, sink: EventSink | None) -> list[str]:
+def check_cursor_scope(
+    worktree: Path, *, run_id: str, sink: EventSink | None, task_id: str | None = None
+) -> list[str]:
     """Return warnings for tracked Cursor files. Raise when an untracked one is present."""
     tracked = _tracked(worktree)
     warnings: list[str] = []
@@ -25,15 +27,15 @@ def check_cursor_scope(worktree: Path, *, run_id: str, sink: EventSink | None) -
         if rel in tracked:
             text = path.read_text(encoding="utf-8", errors="replace")[:_CAP]
             warnings.append(f"{rel}: {text}")
-            _emit(sink, run_id, "git.cursor_warning", {"path": rel, "text": text})
+            _emit(sink, run_id, "git.cursor_warning", {"path": rel, "text": text}, task_id)
         else:
             violations.append(rel)
-            _emit(sink, run_id, "scope_violation", {"path": rel, "reason": "untracked cursor config"})
+            _emit(sink, run_id, "scope_violation", {"path": rel, "reason": "untracked cursor config"}, task_id)
     cursor = worktree / ".cursor"
     if cursor.is_dir() and not any(item.startswith(".cursor/") for item in tracked) and ".cursor" not in violations:
         if not any(item.startswith(".cursor/") for item in violations):
             violations.append(".cursor")
-            _emit(sink, run_id, "scope_violation", {"path": ".cursor", "reason": "untracked cursor config"})
+            _emit(sink, run_id, "scope_violation", {"path": ".cursor", "reason": "untracked cursor config"}, task_id)
     if violations:
         raise ScopeViolation("untracked cursor config: " + ", ".join(violations))
     return warnings
@@ -55,7 +57,15 @@ def _tracked(worktree: Path) -> set[str]:
     return {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
 
 
-def _emit(sink: EventSink | None, run_id: str, event_type: str, payload: dict[str, str]) -> None:
+def _emit(
+    sink: EventSink | None,
+    run_id: str,
+    event_type: str,
+    payload: dict[str, str],
+    task_id: str | None = None,
+) -> None:
     if sink is None:
         return
-    sink.emit_sync(RunEvent(run_id=run_id, seq=0, source="git", type=event_type, payload=payload))
+    sink.emit_sync(
+        RunEvent(run_id=run_id, seq=0, source="git", type=event_type, task_id=task_id, payload=payload)
+    )

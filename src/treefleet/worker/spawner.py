@@ -42,9 +42,11 @@ class WorkerProcess:
     worktree: Path
 
 
-def before_spawn(worktree: Path, run_id: str, sink: EventSink | None = None) -> list[str]:
+def before_spawn(
+    worktree: Path, run_id: str, sink: EventSink | None = None, task_id: str | None = None
+) -> list[str]:
     """Fail the task when the worktree has untracked Cursor config. Return warnings for tracked files."""
-    return check_cursor_scope(worktree, run_id=run_id, sink=sink)
+    return check_cursor_scope(worktree, run_id=run_id, sink=sink, task_id=task_id)
 
 
 def worker_env(token: str, extra: dict[str, str] | None = None) -> dict[str, str]:

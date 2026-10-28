@@ -222,7 +222,7 @@ def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
     ]
 
 
-def _timed(inner: Any, run_id: str) -> BaseLLM:
+def _timed(inner: Any, run_id: str, task_id: str) -> BaseLLM:
     global _current_llm
     _current_llm = inner
 
@@ -253,7 +253,14 @@ def _timed(inner: Any, run_id: str) -> BaseLLM:
                     response_model,
                 )
             finally:
-                record_step("deepseek", time.monotonic() - started, name="deepseek", sink=_sink(), run_id=run_id)
+                record_step(
+                    "deepseek",
+                    time.monotonic() - started,
+                    name="deepseek",
+                    sink=_sink(),
+                    run_id=run_id,
+                    task_id=task_id,
+                )
 
         async def acall(  # noqa: ANN001
             self,
@@ -301,7 +308,7 @@ def build_agent(
     )
     fs_tools = _fs_tools(envelope, worktree)
     raw = MockLLM(model="mock") if os.environ.get("TREEFLEET_MOCK_LLM") else _deepseek()
-    llm = _timed(raw, envelope.run_id)
+    llm = _timed(raw, envelope.run_id, envelope.task.id)
     return Agent(
         role="worker",
         goal="Direct cursor-agent inside this worktree and do not edit files yourself.",
@@ -347,7 +354,14 @@ def _checks(envelope: WorkerTaskEnvelope, worktree: Path) -> list[CheckResult]:
                 duration_s=round(time.monotonic() - started, 3),
             )
         )
-        record_step("check", results[-1].duration_s, name=name, sink=_sink(), run_id=envelope.run_id)
+        record_step(
+            "check",
+            results[-1].duration_s,
+            name=name,
+            sink=_sink(),
+            run_id=envelope.run_id,
+            task_id=envelope.task.id,
+        )
     return results
 
 
@@ -498,13 +512,20 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     cursor_files.clear()
     last_reverted.clear()
     try:
-        check_cursor_scope(worktree, run_id=envelope.run_id, sink=_sink())
+        check_cursor_scope(worktree, run_id=envelope.run_id, sink=_sink(), task_id=envelope.task.id)
         agent = build_agent(envelope, worktree, cursor_usages)
     except ScopeViolation as exc:
         return _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started)
     except TimeoutError as exc:
         return _result(envelope, worktree, "failed", str(exc)[:2000], None, [], started)
-    record_step("start", time.monotonic() - started, name="start", sink=_sink(), run_id=envelope.run_id)
+    record_step(
+        "start",
+        time.monotonic() - started,
+        name="start",
+        sink=_sink(),
+        run_id=envelope.run_id,
+        task_id=envelope.task.id,
+    )
     feedback = envelope.revision_feedback or ""
 
     def produce(error: str | None) -> str:
@@ -588,7 +609,14 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
         )
     commit_started = time.monotonic()
     sha = _commit(worktree, envelope)
-    record_step("commit", time.monotonic() - commit_started, name="commit", sink=_sink(), run_id=envelope.run_id)
+    record_step(
+        "commit",
+        time.monotonic() - commit_started,
+        name="commit",
+        sink=_sink(),
+        run_id=envelope.run_id,
+        task_id=envelope.task.id,
+    )
     if sha is None:
         return _with_usage(
             _result(

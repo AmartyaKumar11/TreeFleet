@@ -114,6 +114,16 @@ def test_stream_events_carry_the_task_and_redact(tmp_path: Path) -> None:
     assert result.output_tail == "Added hello"
 
 
+def test_step_inside_a_task_keeps_its_id(tmp_path: Path) -> None:
+    from treefleet.timing import record_step
+
+    sink = EventSink(tmp_path / "runs")
+    record_step("start", 0.1, sink=sink, run_id="ab12cd34", task_id="alpha")
+    event = __import__("json").loads((tmp_path / "runs" / "ab12cd34" / "events.jsonl").read_text(encoding="utf-8"))
+    assert event["type"] == "worker.step"
+    assert event["task_id"] == "alpha"
+
+
 def test_non_local_host_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _env(monkeypatch)
     repo = tmp_path / "repo"
@@ -289,13 +299,21 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
         "awaiting": [{"id": "alpha", "title": "Parser tests", "allowed_paths": ["tests"]}],
         "tasks": [
             {
+                "id": "alpha",
+                "title": "Parser",
+                "status": "done",
+                "branch": "tf/abcd1234/alpha",
+                "model": "composer-2.5",
+                "lines": ["Parser finished"],
+            },
+            {
                 "id": "beta",
                 "title": "Notifier",
                 "status": "running",
                 "branch": "tf/abcd1234/beta",
                 "model": "composer-2.5",
                 "lines": ["Reading tests"],
-            }
+            },
         ],
         "worktrees": [{"path": r"C:\wt\abcd1234\beta", "branch": "tf/abcd1234/beta", "changed": 2}],
         "proof": [
@@ -348,6 +366,11 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "Within scope" in proof.inner_text()
             assert "yes" in proof.inner_text()
             assert page.locator("#live").get_attribute("aria-readonly") == "true"
+            assert page.locator("#task-title").inner_text() == "Notifier"
+            assert "Reading tests" in page.locator("#live").inner_text()
+            page.get_by_role("button", name="Parser").click()
+            page.wait_for_timeout(1200)
+            assert page.locator("#task-title").inner_text() == "Parser"
             browser.close()
     finally:
         server.should_exit = True

@@ -39,6 +39,7 @@ def record_step(
     output_tail: str = "",
     sink: EventSink | None = None,
     run_id: str | None = None,
+    task_id: str | None = None,
 ) -> StepTiming:
     item = StepTiming(
         step=step,  # type: ignore[arg-type]
@@ -49,5 +50,14 @@ def record_step(
     )
     steps.append(item)
     if sink is not None and run_id:
-        sink.emit_sync(RunEvent(run_id=run_id, seq=0, source="worker", type="worker.step", payload=item.model_dump()))
+        sink.emit_sync(
+            RunEvent(
+                run_id=run_id,
+                seq=0,
+                source="worker",
+                type="worker.step",
+                task_id=task_id,
+                payload=item.model_dump(),
+            )
+        )
     return item

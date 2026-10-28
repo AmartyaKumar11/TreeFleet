@@ -366,6 +366,7 @@ def run_cursor(
         output_tail=tail,
         sink=sink,
         run_id=run_id,
+        task_id=task_id,
     )
     try:
         changed = collect_changes(worktree, "HEAD") if worktree.exists() else []

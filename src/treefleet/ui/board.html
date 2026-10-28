@@ -154,6 +154,7 @@ th { color: var(--muted); }
   var replay = "{{REPLAY}}" === "true";
   var started = 0;
   var selected = null;
+  var pinned = false;
   var state = {};
   var streamFor = "";
   function esc(value) {
@@ -188,6 +189,14 @@ th { color: var(--muted); }
       if (event.type === "review_verdict") task.verdict = (event.payload || {}).verdict || task.verdict;
       if (event.type === "revise_started") task.round = (event.payload || {}).round || task.round;
       if (event.type === "output_line") task.lines.push((event.payload || {}).line || "");
+      if (event.type === "cursor.tool_start" || event.type === "cursor.tool_finish") {
+        var tool = event.payload || {};
+        var verb = tool.tool === "edit" ? "editing" : (tool.tool || "tool");
+        var path = tool.path || "";
+        var done = event.type === "cursor.tool_finish" ? (tool.ok ? " done" : " failed") : "";
+        task.lines.push(verb + " " + path + done);
+        if (event.type === "cursor.tool_start") task.action = verb + " " + path;
+      }
       byId[id] = task;
     });
     var report = data.report;
@@ -252,9 +261,17 @@ th { color: var(--muted); }
       button.className = "card";
       button.type = "button";
       button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.model || "") + '</div>';
-      button.addEventListener("click", function () { select(task); });
+      button.addEventListener("click", function () { select(task, true); });
       document.getElementById(lane(task)).appendChild(button);
     });
+    if (!pinned) {
+      var current = null;
+      tasks.forEach(function (task) { if (!current && lane(task) === "working") current = task; });
+      if (current) select(current, false);
+    } else if (selected) {
+      var held = tasks.filter(function (task) { return task.id === selected.id; })[0];
+      if (held) select(held, false);
+    }
     var body = document.querySelector("#worktrees tbody");
     body.innerHTML = "";
     (data.worktrees || []).forEach(function (row) {
@@ -317,7 +334,12 @@ th { color: var(--muted); }
     }
     return "";
   }
-  function select(task) {
+  function select(task, fromUser) {
+    if (fromUser) pinned = true;
+    if (selected && selected.id === task.id && !fromUser) {
+      document.getElementById("live").textContent = (task.lines || []).join("\n");
+      return;
+    }
     selected = task;
     document.getElementById("task-title").textContent = task.title;
     document.getElementById("task-meta").textContent = (task.model || "") + " " + (task.branch || "");
