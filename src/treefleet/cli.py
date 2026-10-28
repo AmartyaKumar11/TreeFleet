@@ -169,6 +169,11 @@ def _run(argv: list[str]) -> int:
     parser.add_argument("--model", default="router")
     parser.add_argument("--repo", default=None)
     parser.add_argument("--no-approval", action="store_true")
+    parser.add_argument(
+        "--include-needs-review",
+        action="store_true",
+        help="merge branches whose review is unresolved but whose diff and checks are valid",
+    )
     parser.add_argument("--yes", action="store_true", help="accept detected checks without asking")
     parser.add_argument("--no-checks", action="store_true", help="do not run detected checks")
     parser.add_argument("--check", action="append", default=[], help="name=command, repeatable")
@@ -202,6 +207,7 @@ def _run(argv: list[str]) -> int:
         repo=str(repo),
         worker_model=worker_model,
         plan_approval=not parsed.no_approval,
+        include_needs_review=parsed.include_needs_review,
         checks=checks,
         notes=notes,
         saboteur_task=parsed.saboteur,

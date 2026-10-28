@@ -240,6 +240,9 @@ def _fleet_base():
             upstream: list[UpstreamContext] = []
             for dep in task.depends_on:
                 prev = results.get(dep)
+                if prev is not None and prev.status == "needs_review":
+                    envelope = self._envelope(task, route, [])
+                    return _failed(envelope, self.bundle.repo, f"upstream {dep} needs review", 1)
                 sha = prev.head_sha if prev is not None and prev.status == "done" else None
                 # A main-checkout mutation stays fail-closed. Any other failed upstream cancels this task.
                 if prev is None or not sha:

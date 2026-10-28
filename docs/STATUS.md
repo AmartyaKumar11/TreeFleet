@@ -17,6 +17,14 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — needs_review
+
+`WorkerResult.status` may be `needs_review` when checks passed, the diff is in scope, and review requests are still open after the rounds or a revise with no new diff. It is excluded from `tf/<run>/integrated` unless `RunRequest.include_needs_review` (`treefleet --include-needs-review`). A `needs_review` upstream cancels dependents. `failed` remains the status for failing checks, scope violations, and an empty diff.
+
+## 2026-10-28 — Reviewer suggestions
+
+`ReviewVerdict.suggestions` holds quality notes. A revise or reject stands only for failing checks, files outside scope, an empty diff, tests that assert nothing, or a function named in the task with no coverage. Anything else is approved and the model's notes move to suggestions.
+
 ## 2026-10-28 — Run aa85638e cursor message
 
 `WorkerResult.cursor_message` stores Cursor's final message. A revise whose diff matches the previous round puts that message on the `review_verdict` event, the board card, and the report line `<task> cursor:`.

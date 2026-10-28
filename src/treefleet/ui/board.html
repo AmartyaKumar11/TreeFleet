@@ -172,6 +172,7 @@ th { color: var(--muted); }
   }
   function lane(task) {
     var verdict = task.verdict || "";
+    if (task.status === "needs_review") return "needs";
     if (verdict === "approve") return "ready";
     if (verdict === "revise" || verdict === "reject" || task.status === "failed") return "needs";
     if (task.status === "done") return "review";
@@ -192,7 +193,10 @@ th { color: var(--muted); }
       if (event.type === "review_verdict") {
         task.verdict = (event.payload || {}).verdict || task.verdict;
         if ((event.payload || {}).reason) task.reason = event.payload.reason;
+        if ((event.payload || {}).status) task.status = event.payload.status;
         if ((event.payload || {}).cursor_message) task.cursor_message = event.payload.cursor_message;
+        var ideas = (event.payload || {}).suggestions;
+        if (ideas && ideas.length) task.suggestions = ideas.join("; ");
       }
       if (event.type === "revise_started") task.round = (event.payload || {}).round || task.round;
       if (event.type === "output_line") task.lines.push((event.payload || {}).line || "");
@@ -224,6 +228,9 @@ th { color: var(--muted); }
           byId[item.task_id].verdict = item.verdict;
           var why = (item.reasons || []).join("; ");
           if (why) byId[item.task_id].reason = why;
+          if (item.suggestions && item.suggestions.length) {
+            byId[item.task_id].suggestions = item.suggestions.join("; ");
+          }
         }
       });
     }
@@ -282,8 +289,10 @@ th { color: var(--muted); }
         var plus = typeof file === "string" ? "" : " +" + (file.additions || 0) + " -" + (file.deletions || 0);
         return esc(name) + plus;
       }).join(", ");
-      var detail = [task.reason, task.cursor_message, task.error].filter(function (item) { return item; }).join(" · ");
-      button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.action || "") + '</div><div class="mono">' + fileLine + '</div><div>' + esc(detail) + '</div><div class="mono">' + esc(task.model || "") + '</div>';
+      var label = task.status === "needs_review" ? "needs_review" : (task.verdict || task.status || "working");
+      var merge = task.status === "needs_review" ? ("git -C " + (state.repo || "") + " merge " + (task.branch || task.id)) : "";
+      var detail = [task.reason, task.cursor_message, task.suggestions, merge, task.error].filter(function (item) { return item; }).join(" · ");
+      button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(label) + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.action || "") + '</div><div class="mono">' + fileLine + '</div><div>' + esc(detail) + '</div><div class="mono">' + esc(task.model || "") + '</div>';
       button.addEventListener("click", function () { select(task, true); });
       document.getElementById(lane(task)).appendChild(button);
     });

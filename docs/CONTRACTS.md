@@ -184,7 +184,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.step_callback`, `worker.task_callback`, `worker.guardrail`, `worker.exited`
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, `default`, or `jev`, and `complexity`)
-- `review_started`, `review_verdict`, `revise_started` (payload: `round`). A third revise verdict rejects the task. Two re-dispatches is the maximum. A `review_verdict` for an unchanged diff also carries `cursor_message`, Cursor's final text from `WorkerResult.cursor_message`.
+- `review_started`, `review_verdict`, `revise_started` (payload: `round`). A third revise verdict rejects the task. Two re-dispatches is the maximum. A `review_verdict` for an unchanged diff also carries `cursor_message`, Cursor's final text from `WorkerResult.cursor_message`. `ReviewVerdict.suggestions` holds quality notes that do not block approval. `WorkerResult.status` includes `needs_review` for a committed in-scope diff whose review is unresolved. `RunRequest.include_needs_review` merges those branches. A needs_review upstream cancels dependents.
 - `phase` (payload: `name` of `scan`, `planner`, `router`, or `fleet`, and `duration_s`)
 - `awaiting_approval` (payload: `approved`) when `RunRequest.plan_approval` is true. The CLI prints the plan and asks `Approve plan? [y/N]` unless `--no-approval`. A decline exits without creating worktrees. The HTTP approval endpoint is Phase 8.
 - `mcp.call` (payload: server, tool, ok, error code)

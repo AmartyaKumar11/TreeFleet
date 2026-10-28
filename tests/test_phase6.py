@@ -16,6 +16,7 @@ from treefleet.config import Pricing, load_settings
 from treefleet.contracts import (
     CheckResult,
     CursorCall,
+    FileChange,
     FinalReport,
     IntegrationReport,
     IsolationProof,
@@ -41,6 +42,7 @@ from treefleet.mcp_servers.gitops_server import READ_ONLY_TOOLS
 from treefleet.orchestrator.agents import model_selected_payload, route_plan
 from treefleet.orchestrator.review import (
     MAX_REVISIONS,
+    apply_rubric,
     approved_branches,
     review_loop,
     review_or_escalate,
@@ -709,6 +711,145 @@ async def test_identical_diff_stops_the_revise_loop() -> None:
     assert reruns == 1
     assert verdicts["alpha"].verdict == "reject"
     assert verdicts["alpha"].reasons == ["no new diff"]
+
+
+def _two_task_plan() -> Plan:
+    return Plan.model_validate(
+        {
+            "goal": "Two tasks.",
+            "rationale": "Beta follows alpha.",
+            "tasks": [
+                {
+                    "id": "alpha",
+                    "title": "Upstream",
+                    "instructions": "Edit the readme with one line.",
+                    "allowed_paths": ["README.md"],
+                },
+                {
+                    "id": "beta",
+                    "title": "Downstream",
+                    "instructions": "Add DOWN.md with one line.",
+                    "allowed_paths": ["DOWN.md"],
+                    "depends_on": ["alpha"],
+                },
+            ],
+        }
+    )
+
+
+async def test_unchanged_in_scope_diff_needs_review() -> None:
+    files = [FileChange(path="tests/test_admin.py", additions=94, deletions=0)]
+
+    async def review(task_id: str, _result: WorkerResult, _round_no: int) -> ReviewVerdict:
+        return ReviewVerdict(
+            task_id=task_id,
+            verdict="revise",
+            confidence=0.4,
+            reasons=["again"],
+            required_changes=["fix the test"],
+        )
+
+    async def rerun(_task_id: str, result: WorkerResult, _feedback: str, attempt: int) -> WorkerResult:
+        return result.model_copy(update={"attempt": attempt, "cursor_message": "on disk (94 lines)."})
+
+    results, verdicts = await review_loop(
+        ["alpha"],
+        {"alpha": _result(files_changed=files)},
+        review=review,
+        rerun=rerun,
+        diff_of=lambda _result: "same diff",
+    )
+    assert results["alpha"].status == "needs_review"
+    assert results["alpha"].head_sha
+    assert "94 lines" in results["alpha"].cursor_message
+    assert verdicts["alpha"].reasons[0] == "no new diff"
+    plan = Plan(
+        goal="Add the missing admin tests now",
+        rationale="coverage",
+        tasks=[
+            TaskSpec(
+                id="alpha",
+                title="Admin tests",
+                instructions="Add unit tests for the admin module.",
+                allowed_paths=["tests/test_admin.py"],
+            )
+        ],
+    )
+    branches, reasons = selected_branches(plan, results, verdicts)
+    assert branches == {}
+    assert reasons["alpha"].startswith("needs review")
+    included, _skipped = selected_branches(plan, results, verdicts, include_needs_review=True)
+    assert included["alpha"] == results["alpha"].branch
+    blocked, why = selected_branches(
+        _two_task_plan(),
+        {"alpha": results["alpha"], "beta": _result("beta")},
+        {
+            "alpha": verdicts["alpha"],
+            "beta": ReviewVerdict(task_id="beta", verdict="approve", confidence=1, reasons=["ok"]),
+        },
+        include_needs_review=True,
+    )
+    assert "beta" not in blocked
+    assert why["beta"] == "upstream alpha needs review"
+    text = FinalReport(
+        run_id="abc12345",
+        goal=plan.goal,
+        plan=plan,
+        results=[results["alpha"]],
+        verdicts=[verdicts["alpha"]],
+        isolation=IsolationReport(
+            tasks=[],
+            main=MainCheckoutProof(
+                status_before=[], status_after=[], head_before=SHA, head_after=SHA, canary_present=True
+            ),
+        ),
+        integration=IntegrationReport(repo=r"D:\pr-sentinel-demo", branch="tf/abc12345/integrated", head_sha=SHA),
+        metrics=RunMetrics(wall_seconds=1, sequential_seconds=1, task_count=1),
+    ).to_markdown()
+    assert "needs review on `tf/abc12345/alpha`" in text
+    assert r"git -C D:\pr-sentinel-demo merge tf/abc12345/alpha" in text
+
+
+def test_weak_but_valid_tests_are_approved_with_suggestions() -> None:
+    source = "def test_send_email():\n    assert send_email('hi') == 'sent'\n"
+    asked = ReviewVerdict(
+        task_id="alpha",
+        verdict="revise",
+        confidence=0.6,
+        reasons=["The assertion could be stronger."],
+        required_changes=["Also assert the logger call."],
+    )
+    approved = apply_rubric(
+        asked,
+        checks_failed=False,
+        outside_scope=False,
+        empty_diff=False,
+        test_text=source,
+        functions=["send_email"],
+    )
+    assert approved.verdict == "approve"
+    assert "logger" in " ".join(approved.suggestions)
+    assert approved.required_changes == []
+    silent = apply_rubric(
+        asked,
+        checks_failed=False,
+        outside_scope=False,
+        empty_diff=False,
+        test_text="def test_send_email():\n    send_email('hi')\n",
+        functions=["send_email"],
+    )
+    assert silent.verdict == "revise"
+    assert "tests assert nothing" in silent.reasons
+    missed = apply_rubric(
+        asked,
+        checks_failed=False,
+        outside_scope=False,
+        empty_diff=False,
+        test_text=source,
+        functions=["send_email", "send_sms"],
+    )
+    assert missed.verdict == "revise"
+    assert any("send_sms" in item for item in missed.reasons)
 
 
 async def test_no_new_diff_keeps_the_cursor_message() -> None:

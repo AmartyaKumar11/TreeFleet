@@ -354,6 +354,14 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 "error": "worker made no changes",
                 "branch": "tf/abcd1234/gamma",
             },
+            {
+                "id": "delta",
+                "title": "Held",
+                "status": "needs_review",
+                "verdict": "reject",
+                "reason": "no new diff",
+                "branch": "tf/abcd1234/delta",
+            },
         ],
         "worktrees": [
             {
@@ -439,6 +447,8 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert page.locator("#live").get_attribute("aria-readonly") == "true"
             assert "editing README.md" in page.locator("#working").inner_text()
             assert "README.md +6 -0" in page.locator("#working").inner_text()
+            assert "needs_review" in page.locator("#needs").inner_text()
+            assert "merge tf/abcd1234/delta" in page.locator("#needs").inner_text()
             assert "no new diff" in page.locator("#needs").inner_text()
             assert "94 lines" in page.locator("#needs").inner_text()
             assert "worker made no changes" in page.locator("#needs").inner_text()

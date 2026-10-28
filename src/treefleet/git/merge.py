@@ -103,4 +103,5 @@ def integrate(
         excluded=excluded,
         merge_command=f"git -C {repo} merge {branch}",
         user_branch=user_branch,
+        repo=str(repo),
     )

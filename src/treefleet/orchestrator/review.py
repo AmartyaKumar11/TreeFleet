@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,11 @@ REVIEW_INSTRUCTION = (
     "You are a reviewer. You have no write tool and no mutating git tool. "
     "Return one JSON object and nothing else. "
     "Fields: verdict (approve, revise, or reject), confidence from 0 to 1, "
-    "reasons (a list of strings), required_changes (a list of strings). "
+    "reasons (a list of strings), required_changes (a list of strings), "
+    "suggestions (a list of strings). "
+    "Revise or reject only for failing checks, files outside scope, an empty or irrelevant diff, "
+    "tests that assert nothing, or a function named in the task with no coverage. "
+    "Stronger assertions and extra cases go in suggestions and do not block approval. "
     "If checks failed, do not approve. revise requires at least one required change."
 )
 
@@ -142,6 +147,81 @@ def _forced_reject(task_id: str, source: ReviewVerdict | str) -> ReviewVerdict:
     )
 
 
+def apply_rubric(
+    verdict: ReviewVerdict,
+    *,
+    checks_failed: bool,
+    outside_scope: bool,
+    empty_diff: bool,
+    test_text: str,
+    functions: list[str],
+) -> ReviewVerdict:
+    """Quality notes become suggestions. Only a real gap can revise or reject."""
+    uncovered = [name for name in functions if name not in test_text]
+    asserts_nothing = bool(test_text) and "assert " not in test_text
+    blockers: list[str] = []
+    if checks_failed:
+        blockers.append("checks failed")
+    if outside_scope:
+        blockers.append("files outside scope")
+    if empty_diff:
+        blockers.append("empty diff")
+    if asserts_nothing:
+        blockers.append("tests assert nothing")
+    if uncovered:
+        blockers.append("no coverage for " + ", ".join(uncovered))
+    if blockers:
+        kind = "reject" if checks_failed or outside_scope or empty_diff else "revise"
+        changes = blockers if kind == "revise" else []
+        return verdict.model_copy(
+            update={
+                "verdict": kind,
+                "reasons": blockers,
+                "issues": blockers,
+                "required_changes": changes,
+                "revision_instructions": "\n".join(changes) or None,
+                "suggestions": [],
+            }
+        )
+    ideas: list[str] = []
+    for item in [*verdict.suggestions, *verdict.reasons, *verdict.required_changes]:
+        text = item.strip()
+        if text and text not in ideas:
+            ideas.append(text[:500])
+    return verdict.model_copy(
+        update={
+            "verdict": "approve",
+            "reasons": ["checks passed and the diff is in scope"],
+            "issues": ["checks passed and the diff is in scope"],
+            "required_changes": [],
+            "revision_instructions": None,
+            "suggestions": ideas[:20],
+        }
+    )
+
+
+def _holdable(result: WorkerResult) -> bool:
+    """A committed in-scope diff with passing checks can wait for a person."""
+    if result.status not in {"done", "needs_review"}:
+        return False
+    if not (result.head_sha and result.commit_made and result.files_changed):
+        return False
+    if result.reverted_scope or any(not item.passed for item in result.checks):
+        return False
+    return "scope" not in (result.error or "")
+
+
+def _needs_review(result: WorkerResult, fresh: WorkerResult) -> WorkerResult:
+    return result.model_copy(
+        update={
+            "status": "needs_review",
+            "error": None,
+            "attempt": fresh.attempt,
+            "cursor_message": fresh.cursor_message or result.cursor_message,
+        }
+    )
+
+
 def verdict_reason(verdict: ReviewVerdict) -> str:
     parts = [item for item in verdict.reasons if item]
     if verdict.revision_instructions:
@@ -216,14 +296,34 @@ async def review_loop(
             if timings is not None:
                 timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
             if verdict.verdict == "revise" and round_no > max_revisions:
-                verdict = _forced_reject(task_id, verdict)
-                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
+                if _holdable(result):
+                    result = _needs_review(result, result)
+                    reasons = ["review rounds exhausted", *list(verdict.reasons)]
+                    verdict = verdict.model_copy(
+                        update={"verdict": "reject", "reasons": reasons[:20], "issues": reasons[:20]}
+                    )
+                else:
+                    verdict = _forced_reject(task_id, verdict)
+                _emit(
+                    "review_verdict",
+                    task_id,
+                    round_no,
+                    {
+                        "verdict": verdict.verdict,
+                        "reason": verdict_reason(verdict),
+                        "status": result.status,
+                    },
+                )
                 break
             _emit(
                 "review_verdict",
                 task_id,
                 round_no,
-                {"verdict": verdict.verdict, "reason": verdict_reason(verdict)},
+                {
+                    "verdict": verdict.verdict,
+                    "reason": verdict_reason(verdict),
+                    "suggestions": list(verdict.suggestions),
+                },
             )
             if verdict.verdict != "revise":
                 break
@@ -234,6 +334,7 @@ async def review_loop(
             prior_duration = result.duration_s
             prior_scope = list(result.reverted_scope)
             revise_started = time.monotonic()
+            prior = result
             try:
                 fresh = await rerun(task_id, result, feedback[:2000], result.attempt + 1)
             except Exception as exc:
@@ -255,6 +356,9 @@ async def review_loop(
                 snapshot[task_id] = result
                 prove(snapshot)
             if diff_of is not None and diff_of(result) == before:
+                base = result if _holdable(result) else prior
+                if _holdable(base):
+                    result = _needs_review(base, result)
                 message = (result.cursor_message or "").strip()[:500]
                 reasons = ["no new diff", message] if message else ["no new diff"]
                 verdict = ReviewVerdict(
@@ -272,6 +376,7 @@ async def review_loop(
                         "verdict": "reject",
                         "reason": verdict_reason(verdict),
                         "cursor_message": result.cursor_message,
+                        "status": result.status,
                     },
                 )
                 break
@@ -292,6 +397,8 @@ def selected_branches(
     plan: Plan,
     results: dict[str, WorkerResult],
     verdicts: dict[str, ReviewVerdict],
+    *,
+    include_needs_review: bool = False,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Approved branches whose upstream was not rejected. A rejected upstream drops its dependents."""
     branches: dict[str, str] = {}
@@ -311,10 +418,21 @@ def selected_branches(
                     break
         if upstream is not None:
             blocked[task_id] = upstream
-            reasons[task_id] = f"upstream {upstream} rejected"
+            parent = results.get(upstream)
+            if parent is not None and parent.status == "needs_review":
+                reasons[task_id] = f"upstream {upstream} needs review"
+            else:
+                reasons[task_id] = f"upstream {upstream} rejected"
             continue
         verdict = verdicts.get(task_id)
         result = results.get(task_id)
+        if include_needs_review and result is not None and result.status == "needs_review" and result.head_sha:
+            branches[task_id] = result.branch
+            continue
+        if result is not None and result.status == "needs_review":
+            why = verdict.reasons[0] if verdict is not None and verdict.reasons else "needs review"
+            reasons[task_id] = f"needs review: {why}"[:300]
+            continue
         if verdict and verdict.verdict == "approve" and result and result.status == "done" and result.head_sha:
             branches[task_id] = result.branch
             continue
@@ -454,10 +572,20 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
             reported=reported,
         )
     )
-    if verdict.verdict == "approve" and any(not item.passed for item in result.checks):
-        reason = "checks failed"
-        return ReviewVerdict(task_id=result.task_id, verdict="reject", confidence=1, reasons=[reason], issues=[reason])
-    return verdict
+    from treefleet.git.proofs import in_scope
+
+    outside = any(
+        not in_scope(item.path, list(task.allowed_paths), list(task.denied_paths)) for item in result.files_changed
+    )
+    names = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", task.instructions)
+    return apply_rubric(
+        verdict,
+        checks_failed=any(not item.passed for item in result.checks),
+        outside_scope=outside,
+        empty_diff=not result.files_changed,
+        test_text=snapshot,
+        functions=names,
+    )
 
 
 async def _redispatch(
@@ -540,7 +668,12 @@ class IntegratorAgent(BaseAgent):
             for item in (ReviewVerdict.model_validate(raw) for raw in ctx.session.state.get(StateKey.VERDICTS, []))
         }
         order = [task_id for wave in plan.waves() for task_id in wave]
-        branches, reasons = selected_branches(plan, results, verdicts)
+        branches, reasons = selected_branches(
+            plan,
+            results,
+            verdicts,
+            include_needs_review=bool(getattr(self.bundle.request, "include_needs_review", False)),
+        )
         import time
 
         started = time.monotonic()

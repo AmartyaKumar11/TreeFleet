@@ -156,6 +156,7 @@ class RunRequest(_Model):
     use_jev: bool = True
     worker_model: ModelChoice = "router"
     plan_approval: bool = True
+    include_needs_review: bool = False
 
 
 class TaskSpec(_Model):
@@ -431,7 +432,7 @@ class WorkerResult(_Model):
     run_id: RunId
     task_id: Slug
     attempt: int = Field(ge=1)
-    status: Literal["done", "failed", "needs_human"]
+    status: Literal["done", "failed", "needs_human", "needs_review"]
     summary: Annotated[str, StringConstraints(max_length=3000)] = ""
     notes: Annotated[str, StringConstraints(max_length=3000)] = ""
     branch: str
@@ -456,8 +457,8 @@ class WorkerResult(_Model):
 
     @model_validator(mode="after")
     def _status_is_consistent(self) -> Self:
-        if self.status == "done" and not (self.commit_made and self.head_sha):
-            raise ValueError("status=done requires commit_made and head_sha")
+        if self.status in {"done", "needs_review"} and not (self.commit_made and self.head_sha):
+            raise ValueError(f"status={self.status} requires commit_made and head_sha")
         if self.status == "failed" and not self.error:
             raise ValueError("status=failed requires error")
         return self
@@ -504,6 +505,7 @@ class ReviewVerdict(_Model):
     )
     scope_violation: bool = False
     revision_instructions: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    suggestions: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="before")
     @classmethod
@@ -602,6 +604,7 @@ class IntegrationReport(_Model):
     excluded: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)
     merge_command: str = ""
     user_branch: str = ""
+    repo: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +761,14 @@ class FinalReport(_Model):
         for result in self.results:
             if result.cursor_message:
                 lines.append(f"- {result.task_id} cursor: {result.cursor_message}")
+            verdict = verdicts.get(result.task_id)
+            if verdict is not None and verdict.suggestions:
+                lines.append(f"- {result.task_id} suggestions: {'; '.join(verdict.suggestions)}")
+            if result.status == "needs_review":
+                why = "; ".join(verdict.reasons) if verdict is not None and verdict.reasons else "needs review"
+                root = self.integration.repo if self.integration is not None and self.integration.repo else ""
+                command = f"git -C {root} merge {result.branch}" if root else f"git merge {result.branch}"
+                lines.append(f"- {result.task_id} needs review on `{result.branch}`: {why}. Merge: `{command}`")
         if self.routing:
             lines += ["", "## Models", ""]
             for route in self.routing:
