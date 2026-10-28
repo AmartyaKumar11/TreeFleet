@@ -57,8 +57,10 @@ class LiveSink(EventSink):
         if stored.type == "model_selected":
             print(f"model {stored.task_id} {stored.payload.get('model')}", flush=True)
         elif stored.type == "worker.exited":
-            files = stored.payload.get("files") or []
-            shown = ", ".join(files) if isinstance(files, list) else ""
+            raw = stored.payload.get("files") or []
+            files = raw if isinstance(raw, list) else []
+            names = [item.get("path", "") if isinstance(item, dict) else str(item) for item in files]
+            shown = ", ".join(names)
             print(f"status {stored.task_id} {stored.payload.get('status')} files {shown}", flush=True)
         return stored
 

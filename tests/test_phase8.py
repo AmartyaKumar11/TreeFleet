@@ -463,8 +463,103 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             labels = page.locator("#map text")
             assert labels.nth(1).get_attribute("font-size") == "13"
             assert labels.nth(2).get_attribute("font-size") == "13"
-            assert float(labels.nth(2).get_attribute("y")) - float(labels.nth(1).get_attribute("y")) >= 32
+            first = labels.nth(1).get_attribute("y")
+            second = labels.nth(2).get_attribute("y")
+            assert first is not None and second is not None
+            assert float(second) - float(first) >= 32
             browser.close()
     finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+
+def test_exit_line_accepts_file_stats(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from treefleet.contracts import RunEvent
+    from treefleet.orchestrator.pipeline import LiveSink
+
+    sink = LiveSink(tmp_path)
+    sink.emit_sync(
+        RunEvent(
+            run_id="abcd1234",
+            seq=0,
+            source="orchestrator",
+            type="worker.exited",
+            task_id="alpha",
+            payload={"status": "done", "files": [{"path": "README.md", "additions": 1, "deletions": 0}]},
+        )
+    )
+    assert "README.md" in capsys.readouterr().out
+
+
+def test_stubbed_stream_shows_work_while_the_run_is_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import subprocess
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from treefleet.ui.server import Approval
+
+    _env(monkeypatch)
+    repo = tmp_path / "repo"
+    _git(repo)
+    app = create_app(repo, root=ROOT, token="test-token", runs=tmp_path / "runs", models=[])
+    board = app.state.board
+    board.approvals["abcd1234"] = Approval()
+    board.started["abcd1234"] = time.time()
+    worktree = tmp_path / "wt-beta"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "tf/abcd1234/beta", str(worktree), "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    (worktree / "README.md").write_text("hi\nmore\n", encoding="utf-8")
+    log = tmp_path / "runs" / "abcd1234"
+    log.mkdir(parents=True)
+    events = log / "events.jsonl"
+
+    def add(seq: int, kind: str, payload: dict[str, object]) -> None:
+        row = {
+            "run_id": "abcd1234",
+            "seq": seq,
+            "source": "worker",
+            "type": kind,
+            "task_id": "beta",
+            "payload": payload,
+        }
+        with events.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+
+    add(1, "worker.spawned", {"pid": 1})
+    add(2, "cursor.tool_start", {"tool": "edit", "path": "README.md", "ok": None})
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while time.time() < deadline and not server.started:
+        time.sleep(0.05)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
+            page.locator("#working").get_by_text("editing README.md").wait_for(timeout=8000)
+            assert "abcd1234" not in board.finished
+            page.get_by_text("README.md +1 -0").wait_for(timeout=8000)
+            add(
+                3,
+                "review_verdict",
+                {"verdict": "reject", "reason": "the tests do not cover the notifier"},
+            )
+            page.get_by_text("the tests do not cover the notifier").wait_for(timeout=8000)
+            assert "abcd1234" not in board.finished
+            browser.close()
+    finally:
+        board.finished.add("abcd1234")
         server.should_exit = True
         thread.join(timeout=5)

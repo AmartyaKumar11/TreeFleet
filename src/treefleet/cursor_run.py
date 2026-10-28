@@ -193,11 +193,13 @@ def parse_stream_line(line: str) -> StreamHit | None:
             break
     if not tool:
         return None
-    args = body.get("args") if isinstance(body.get("args"), dict) else {}
+    raw_args = body.get("args")
+    args = raw_args if isinstance(raw_args, dict) else {}
     path = str(args.get("path") or "")
     if payload.get("subtype") == "started":
         return StreamHit(kind="tool_start", tool=tool, path=path)
-    result = body.get("result") if isinstance(body.get("result"), dict) else {}
+    raw_result = body.get("result")
+    result = raw_result if isinstance(raw_result, dict) else {}
     return StreamHit(kind="tool_finish", tool=tool, path=path, ok="success" in result)
 
 

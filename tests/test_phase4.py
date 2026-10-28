@@ -508,9 +508,7 @@ async def test_empty_upstream_cancels_the_dependent(tmp_path: Path, monkeypatch:
         spawned = [event["task_id"] for event in events if event["type"] == "worker.spawned"]
         assert spawned == ["review"]
         reviewed = [
-            event["task_id"]
-            for event in events
-            if event["type"] == "review_started" and event["task_id"] == "review"
+            event["task_id"] for event in events if event["type"] == "review_started" and event["task_id"] == "review"
         ]
         assert reviewed == []
         integration = outcome.report.integration

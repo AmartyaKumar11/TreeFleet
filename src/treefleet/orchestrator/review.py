@@ -192,9 +192,7 @@ async def review_loop(
 
         result = results[task_id]
         error = result.error or ""
-        if result.status == "failed" and (
-            error.startswith("worker made no changes") or error.startswith("upstream ")
-        ):
+        if result.status == "failed" and (error.startswith("worker made no changes") or error.startswith("upstream ")):
             verdict = ReviewVerdict(
                 task_id=task_id,  # type: ignore[arg-type]
                 verdict="reject",

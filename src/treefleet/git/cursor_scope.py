@@ -15,9 +15,7 @@ class ScopeViolation(RuntimeError):
     """A worktree has Cursor config that is not in the base commit."""
 
 
-def check_cursor_scope(
-    worktree: Path, *, run_id: str, sink: EventSink | None, task_id: str | None = None
-) -> list[str]:
+def check_cursor_scope(worktree: Path, *, run_id: str, sink: EventSink | None, task_id: str | None = None) -> list[str]:
     """Return warnings for tracked Cursor files. Raise when an untracked one is present."""
     tracked = _tracked(worktree)
     warnings: list[str] = []
@@ -66,6 +64,4 @@ def _emit(
 ) -> None:
     if sink is None:
         return
-    sink.emit_sync(
-        RunEvent(run_id=run_id, seq=0, source="git", type=event_type, task_id=task_id, payload=payload)
-    )
+    sink.emit_sync(RunEvent(run_id=run_id, seq=0, source="git", type=event_type, task_id=task_id, payload=payload))
