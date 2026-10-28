@@ -152,6 +152,7 @@ class Board:
         self.approvals: dict[str, Approval] = {}
         self.started: dict[str, float] = {}
         self.finished: set[str] = set()
+        self.ended: dict[str, float] = {}
         self.messages: dict[str, str] = {}
         self.replay = False
         self.replay_events: list[dict[str, Any]] = []
@@ -191,6 +192,7 @@ class Board:
             )
             with self._lock:
                 self.finished.add(run_id)
+                self.ended[run_id] = time.time()
                 self.messages[run_id] = outcome.message
 
         threading.Thread(target=work, name=f"tf-{run_id}", daemon=True).start()
@@ -224,6 +226,7 @@ class Board:
             "run_id": run_id,
             "stage": _stage(events, waiting, run_id in self.finished or report is not None),
             "started_at": self.started.get(run_id, time.time()),
+            "finished_at": self.ended.get(run_id),
             "awaiting": plan if waiting else None,
             "events": events[-400:],
             "worktrees": worktree_rows(self.repo, self.base_sha),

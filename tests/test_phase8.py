@@ -320,8 +320,9 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
         "head": "abc1234",
         "clean": True,
         "replay": False,
-        "stage": "approve",
+        "stage": "done",
         "started_at": time.time() - 12,
+        "finished_at": time.time() - 0,
         "run_id": "abcd1234",
         "awaiting": [{"id": "alpha", "title": "Parser tests", "allowed_paths": ["tests"]}],
         "tasks": [
@@ -353,7 +354,15 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 "branch": "tf/abcd1234/gamma",
             },
         ],
-        "worktrees": [{"path": r"C:\wt\abcd1234\beta", "branch": "tf/abcd1234/beta", "changed": 2}],
+        "worktrees": [
+            {
+                "path": r"C:\wt\abcd1234\beta",
+                "branch": "tf/abcd1234/beta",
+                "changed": 1,
+                "files": [{"path": "README.md", "additions": 6, "deletions": 0}],
+            },
+            {"path": r"C:\wt\abcd1234\gamma", "branch": "tf/abcd1234/gamma", "changed": 0, "files": []},
+        ],
         "proof": [
             {
                 "task_id": "beta",
@@ -381,7 +390,20 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 },
             },
         ],
-        "report": None,
+        "report": {
+            "metrics": {
+                "costs": [
+                    {
+                        "component": "worker",
+                        "model": "deepseek/deepseek-flash",
+                        "usd": 0,
+                        "label": "usage not reported",
+                    },
+                    {"component": "cursor", "model": "auto", "usd": 0, "label": "rate unknown"},
+                    {"component": "planner", "model": "deepseek/deepseek-flash", "usd": 0.005439, "label": ""},
+                ]
+            }
+        },
     }
     app = create_app(
         repo,
@@ -423,9 +445,25 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "[]" not in guards
             assert page.locator("#task-title").inner_text() == "Notifier"
             assert "Reading tests" in page.locator("#live").inner_text()
+            page.get_by_role("tab", name="Proof").click()
+            proof_pane = page.locator("#proofpane").inner_text()
+            assert "Within scope" in proof_pane
+            assert "yes" in proof_pane
+            assert "{" not in proof_pane
             page.get_by_role("button", name="Parser").click()
             page.wait_for_timeout(1200)
             assert page.locator("#task-title").inner_text() == "Parser"
+            assert page.locator("#elapsed").inner_text() == "0:12"
+            costs = page.locator("#metrics").inner_text()
+            assert "usage not reported" in costs
+            assert "unpriced" in costs
+            assert "$0" not in costs
+            assert "0.005439" in costs
+            assert page.get_by_role("tab", name="Feedback").is_disabled()
+            labels = page.locator("#map text")
+            assert labels.nth(1).get_attribute("font-size") == "13"
+            assert labels.nth(2).get_attribute("font-size") == "13"
+            assert float(labels.nth(2).get_attribute("y")) - float(labels.nth(1).get_attribute("y")) >= 32
             browser.close()
     finally:
         server.should_exit = True

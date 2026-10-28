@@ -136,15 +136,13 @@ th { color: var(--muted); }
       <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button">Live output</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button">Diff</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button">Proof</button>
-      <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button">Feedback</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button" disabled>Feedback</button>
     </div>
     <div class="pane log mono" id="live" role="tabpanel" aria-readonly="true"></div>
     <div class="pane" id="diff" role="tabpanel" hidden></div>
     <div class="pane" id="proofpane" role="tabpanel" hidden></div>
     <div class="pane" id="fb" role="tabpanel" hidden>
-      <textarea aria-label="Feedback for this worker" id="feedback" placeholder="Tell this worker what to change"></textarea>
-      <button class="btn primary" id="send" type="button">Send feedback</button>
-      <p class="note" id="fb-note">Shown here only. It is not sent to the worker.</p>
+      <p class="note">Feedback is off. This board does not start a revise.</p>
     </div>
   </aside>
 </div>
@@ -153,6 +151,7 @@ th { color: var(--muted); }
   var token = document.querySelector('meta[name="tf-token"]').content;
   var replay = "{{REPLAY}}" === "true";
   var started = 0;
+  var finished = 0;
   var selected = null;
   var pinned = false;
   var state = {};
@@ -243,6 +242,8 @@ th { color: var(--muted); }
     document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
     document.getElementById("stage").textContent = "Stage: " + (data.stage || "guard");
     if (data.started_at) started = data.started_at;
+    if (data.finished_at) finished = data.finished_at;
+    else if (data.stage === "done" && !finished) finished = Date.now() / 1000;
     ["needs", "working", "review", "ready"].forEach(function (id) { document.getElementById(id).innerHTML = ""; });
     if (data.awaiting) {
       var card = document.createElement("div");
@@ -329,7 +330,7 @@ th { color: var(--muted); }
     var costs = (data.report && data.report.metrics && data.report.metrics.costs) || [];
     costs.forEach(function (row) {
       var tr = document.createElement("tr");
-      tr.innerHTML = "<td>" + row.component + "</td><td>" + row.model + "</td><td>" + row.usd + "</td>";
+      tr.innerHTML = "<td>" + esc(row.component) + "</td><td>" + esc(row.model) + "</td><td>" + moneyCell(row) + "</td>";
       costBody.appendChild(tr);
     });
     if (data.message) {
@@ -339,14 +340,16 @@ th { color: var(--muted); }
   }
   function drawMap(rows) {
     var svg = document.getElementById("map");
-    var height = Math.max(80, 36 + rows.length * 28);
+    var height = Math.max(96, 48 + rows.length * 44);
     svg.setAttribute("viewBox", "0 0 900 " + height);
     var paths = rows.map(function (row, index) {
-      var y = 28 + index * 28;
-      return '<path class="draw" d="M40 16 C40 ' + y + ' 80 ' + y + ' 120 ' + y + ' L860 ' + y + '" fill="none" stroke="#5aa2f0" stroke-width="2" pathLength="1"/>' +
-        '<text x="130" y="' + (y - 6) + '" fill="#8b8c92" font-size="11">' + esc(row.branch) + "  " + esc(row.path) + '</text>';
+      var y = 52 + index * 44;
+      var label = ((row.branch || row.path || "") + "  " + changedLabel(row));
+      if (label.length > 64) label = label.slice(0, 61) + "...";
+      return '<path class="draw" d="M40 20 C40 ' + y + ' 80 ' + y + ' 120 ' + y + ' L860 ' + y + '" fill="none" stroke="#5aa2f0" stroke-width="2" pathLength="1"/>' +
+        '<text x="130" y="' + (y - 10) + '" fill="#c6c7cc" font-size="13">' + esc(label) + '</text>';
     }).join("");
-    svg.innerHTML = '<line x1="24" y1="16" x2="876" y2="16" stroke="#3a3b40" stroke-width="2"/><text x="24" y="12" fill="#8b8c92" font-size="11">main</text>' + paths;
+    svg.innerHTML = '<line x1="24" y1="20" x2="876" y2="20" stroke="#3a3b40" stroke-width="2"/><text x="24" y="16" fill="#c6c7cc" font-size="13">main</text>' + paths;
   }
   function filesFor(task) {
     var rows = state.worktrees || [];
@@ -392,7 +395,7 @@ th { color: var(--muted); }
     var proof = ((state.report && state.report.isolation && state.report.isolation.tasks) || state.proof || []).filter(function (item) {
       return item.task_id === task.id;
     })[0];
-    document.getElementById("proofpane").textContent = proof ? JSON.stringify(proof, null, 2) : "Proof rows are in the isolation table.";
+    document.getElementById("proofpane").innerHTML = proof ? proofTable(proof) : "Proof rows are in the isolation table.";
     var path = worktreeFor(task);
     document.getElementById("diff").textContent = path ? "Loading diff…" : "No worktree for this task yet.";
     if (!path) return;
@@ -434,9 +437,27 @@ th { color: var(--muted); }
   function post(url, body) {
     return fetch(url, {method: "POST", headers: auth({"Content-Type": "application/json"}), body: body ? JSON.stringify(body) : "{}"});
   }
+  function moneyCell(row) {
+    if (row.label === "usage not reported") return "<span class='pill'>usage not reported</span>";
+    if (!row.usd) return "<span class='pill'>unpriced</span>";
+    return esc(String(row.usd));
+  }
+  function proofTable(proof) {
+    var rows = [
+      ["Process cwd", proof.process_cwd_matches],
+      ["Toplevel", proof.toplevel_matches],
+      ["Registered", proof.registered_in_worktree_list],
+      ["Canary absent", proof.canary_absent],
+      ["Within scope", proof.changes_within_allowed_paths]
+    ];
+    return "<table><tbody>" + rows.map(function (row) {
+      return "<tr><th>" + esc(row[0]) + "</th><td>" + (row[1] ? "yes" : "NO") + "</td></tr>";
+    }).join("") + "</tbody></table>";
+  }
   function tick() {
     if (!started) return;
-    var shown = clock(Date.now() / 1000 - started);
+    var end = finished || Date.now() / 1000;
+    var shown = clock(end - started);
     document.getElementById("elapsed").textContent = shown;
     document.getElementById("metrics-elapsed").textContent = "Elapsed " + shown;
   }
@@ -464,9 +485,6 @@ th { color: var(--muted); }
       document.querySelectorAll(".tab").forEach(function (item) { item.setAttribute("aria-selected", String(item === tab)); });
       document.querySelectorAll(".pane").forEach(function (pane) { pane.hidden = pane.id !== tab.dataset.pane; });
     });
-  });
-  document.getElementById("send").addEventListener("click", function () {
-    document.getElementById("fb-note").textContent = "Not sent. This board does not start a revise.";
   });
   document.getElementById("run").addEventListener("click", function () {
     var auto = document.getElementById("auto").getAttribute("aria-checked") === "true";
