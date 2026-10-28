@@ -753,6 +753,8 @@ def _with_usage(result: WorkerResult, usages: list[CursorUsage]) -> WorkerResult
         "cursor_usage_reported": bool(usages),
         "cursor_calls": calls,
     }
+    if cursor_notes:
+        update["cursor_message"] = cursor_notes[-1][:2000]
     if usages:
         update["usage"] = TokenUsage(
             input_tokens=sum(item.input_tokens for item in usages),

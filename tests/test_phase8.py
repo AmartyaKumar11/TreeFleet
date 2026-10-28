@@ -350,6 +350,7 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 "status": "failed",
                 "verdict": "reject",
                 "reason": "no new diff",
+                "cursor_message": "tests/test_admin.py is on disk (94 lines).",
                 "error": "worker made no changes",
                 "branch": "tf/abcd1234/gamma",
             },
@@ -439,6 +440,7 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "editing README.md" in page.locator("#working").inner_text()
             assert "README.md +6 -0" in page.locator("#working").inner_text()
             assert "no new diff" in page.locator("#needs").inner_text()
+            assert "94 lines" in page.locator("#needs").inner_text()
             assert "worker made no changes" in page.locator("#needs").inner_text()
             guards = page.locator("#guards").inner_text()
             assert "malformed tool result" in guards

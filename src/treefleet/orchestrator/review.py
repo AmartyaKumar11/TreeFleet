@@ -255,14 +255,25 @@ async def review_loop(
                 snapshot[task_id] = result
                 prove(snapshot)
             if diff_of is not None and diff_of(result) == before:
+                message = (result.cursor_message or "").strip()[:500]
+                reasons = ["no new diff", message] if message else ["no new diff"]
                 verdict = ReviewVerdict(
                     task_id=task_id,  # type: ignore[arg-type]
                     verdict="reject",
                     confidence=1,
-                    reasons=["no new diff"],
-                    issues=["no new diff"],
+                    reasons=reasons,
+                    issues=reasons,
                 )
-                _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
+                _emit(
+                    "review_verdict",
+                    task_id,
+                    round_no,
+                    {
+                        "verdict": "reject",
+                        "reason": verdict_reason(verdict),
+                        "cursor_message": result.cursor_message,
+                    },
+                )
                 break
         assert verdict is not None
         return task_id, result, verdict

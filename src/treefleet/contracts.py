@@ -451,6 +451,7 @@ class WorkerResult(_Model):
     model: str
     isolation: SelfReportedIsolation
     error: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    cursor_message: Annotated[str, StringConstraints(max_length=2000)] = ""
     reverted_generated: list[str] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
@@ -754,6 +755,9 @@ class FinalReport(_Model):
             rounds = max(0, r.attempt - 1)
             cells = f"| {r.task_id} | {r.status} | {verdict} | {rounds} | `{r.branch}` | {len(r.files_changed)} |"
             lines.append(f"{cells} {checks} |")
+        for result in self.results:
+            if result.cursor_message:
+                lines.append(f"- {result.task_id} cursor: {result.cursor_message}")
         if self.routing:
             lines += ["", "## Models", ""]
             for route in self.routing:

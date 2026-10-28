@@ -192,6 +192,7 @@ th { color: var(--muted); }
       if (event.type === "review_verdict") {
         task.verdict = (event.payload || {}).verdict || task.verdict;
         if ((event.payload || {}).reason) task.reason = event.payload.reason;
+        if ((event.payload || {}).cursor_message) task.cursor_message = event.payload.cursor_message;
       }
       if (event.type === "revise_started") task.round = (event.payload || {}).round || task.round;
       if (event.type === "output_line") task.lines.push((event.payload || {}).line || "");
@@ -212,6 +213,7 @@ th { color: var(--muted); }
         task.status = result.status;
         task.title = result.task_id;
         if (result.error) task.error = result.error;
+        if (result.cursor_message) task.cursor_message = result.cursor_message;
         if (result.files_changed) task.files = result.files_changed;
         byId[result.task_id] = task;
       });
@@ -280,7 +282,7 @@ th { color: var(--muted); }
         var plus = typeof file === "string" ? "" : " +" + (file.additions || 0) + " -" + (file.deletions || 0);
         return esc(name) + plus;
       }).join(", ");
-      var detail = [task.reason, task.error].filter(function (item) { return item; }).join(" · ");
+      var detail = [task.reason, task.cursor_message, task.error].filter(function (item) { return item; }).join(" · ");
       button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.action || "") + '</div><div class="mono">' + fileLine + '</div><div>' + esc(detail) + '</div><div class="mono">' + esc(task.model || "") + '</div>';
       button.addEventListener("click", function () { select(task, true); });
       document.getElementById(lane(task)).appendChild(button);

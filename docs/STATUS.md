@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — Run aa85638e cursor message
+
+`WorkerResult.cursor_message` stores Cursor's final message. A revise whose diff matches the previous round puts that message on the `review_verdict` event, the board card, and the report line `<task> cursor:`.
+
 ## 2026-10-28 — Cursor stream events
 
 `cursor-agent` supports `stream-json` and `--stream-partial-output`. The sample is `docs/spikes/s12-cursor-stream.sample.txt`. Assistant deltas, tool start, and tool finish are events. The result line supplies `CursorUsage`. Contract addition: `CursorToolEvent`.

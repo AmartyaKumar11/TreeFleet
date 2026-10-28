@@ -711,6 +711,80 @@ async def test_identical_diff_stops_the_revise_loop() -> None:
     assert verdicts["alpha"].reasons == ["no new diff"]
 
 
+async def test_no_new_diff_keeps_the_cursor_message() -> None:
+    seen: list[dict[str, object]] = []
+
+    async def review(task_id: str, _result: WorkerResult, _round_no: int) -> ReviewVerdict:
+        return ReviewVerdict(
+            task_id=task_id,
+            verdict="revise",
+            confidence=0.4,
+            reasons=["again"],
+            required_changes=["fix the test"],
+        )
+
+    async def rerun(_task_id: str, result: WorkerResult, _feedback: str, attempt: int) -> WorkerResult:
+        return result.model_copy(
+            update={"attempt": attempt, "cursor_message": "tests/test_admin.py is on disk (94 lines)."}
+        )
+
+    def emit(_kind: str, _task_id: str, _round_no: int, payload: dict[str, object]) -> None:
+        seen.append(payload)
+
+    _results, verdicts = await review_loop(
+        ["alpha"],
+        {"alpha": _result()},
+        review=review,
+        rerun=rerun,
+        diff_of=lambda _result: "same diff",
+        emit=emit,
+    )
+    assert verdicts["alpha"].reasons[0] == "no new diff"
+    assert "94 lines" in verdicts["alpha"].reasons[1]
+    assert seen[-1]["cursor_message"] == "tests/test_admin.py is on disk (94 lines)."
+    report = FinalReport(
+        run_id="abc12345",
+        goal="Add the missing notification tests",
+        plan=Plan(
+            goal="Add the missing notification tests",
+            rationale="coverage",
+            tasks=[
+                TaskSpec(
+                    id="alpha",
+                    title="Add tests",
+                    instructions="Add unit tests for the notifications module.",
+                    allowed_paths=["tests/test_notifications.py"],
+                )
+            ],
+        ),
+        results=[_result(cursor_message="tests/test_admin.py is on disk (94 lines).")],
+        verdicts=[verdicts["alpha"]],
+        isolation=IsolationReport(
+            tasks=[
+                IsolationProof(
+                    task_id="alpha",
+                    worktree_path="C:/wt/alpha",
+                    branch="tf/abc12345/alpha",
+                    process_cwd_matches=True,
+                    toplevel_matches=True,
+                    registered_in_worktree_list=True,
+                    canary_absent=True,
+                    changes_within_allowed_paths=True,
+                )
+            ],
+            main=MainCheckoutProof(
+                status_before=[],
+                status_after=[],
+                head_before=SHA,
+                head_after=SHA,
+                canary_present=True,
+            ),
+        ),
+        metrics=RunMetrics(wall_seconds=1, sequential_seconds=1, task_count=1),
+    )
+    assert "94 lines" in report.to_markdown()
+
+
 def test_unknown_cursor_id_falls_back_to_the_default_tier(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
