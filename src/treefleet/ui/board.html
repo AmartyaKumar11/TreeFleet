@@ -185,8 +185,15 @@ th { color: var(--muted); }
       if (!id) return;
       var task = byId[id] || {id: id, title: id, status: "", verdict: "", model: "", round: 0, lines: []};
       if (event.type === "model_selected") task.model = (event.payload || {}).model || task.model;
-      if (event.type === "worker.exited") task.status = (event.payload || {}).status || task.status;
-      if (event.type === "review_verdict") task.verdict = (event.payload || {}).verdict || task.verdict;
+      if (event.type === "worker.exited") {
+        task.status = (event.payload || {}).status || task.status;
+        if ((event.payload || {}).error) task.error = event.payload.error;
+        if ((event.payload || {}).files) task.files = event.payload.files;
+      }
+      if (event.type === "review_verdict") {
+        task.verdict = (event.payload || {}).verdict || task.verdict;
+        if ((event.payload || {}).reason) task.reason = event.payload.reason;
+      }
       if (event.type === "revise_started") task.round = (event.payload || {}).round || task.round;
       if (event.type === "output_line") task.lines.push((event.payload || {}).line || "");
       if (event.type === "cursor.tool_start" || event.type === "cursor.tool_finish") {
@@ -205,12 +212,18 @@ th { color: var(--muted); }
         var task = byId[result.task_id] || {id: result.task_id, title: result.task_id, lines: []};
         task.status = result.status;
         task.title = result.task_id;
+        if (result.error) task.error = result.error;
+        if (result.files_changed) task.files = result.files_changed;
         byId[result.task_id] = task;
       });
     }
     if (report && report.verdicts) {
       report.verdicts.forEach(function (item) {
-        if (byId[item.task_id]) byId[item.task_id].verdict = item.verdict;
+        if (byId[item.task_id]) {
+          byId[item.task_id].verdict = item.verdict;
+          var why = (item.reasons || []).join("; ");
+          if (why) byId[item.task_id].reason = why;
+        }
       });
     }
     return Object.keys(byId).map(function (id) { return byId[id]; });
@@ -260,7 +273,14 @@ th { color: var(--muted); }
       var button = document.createElement("button");
       button.className = "card";
       button.type = "button";
-      button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.model || "") + '</div>';
+      var files = filesFor(task);
+      var fileLine = files.map(function (file) {
+        var name = typeof file === "string" ? file : file.path;
+        var plus = typeof file === "string" ? "" : " +" + (file.additions || 0) + " -" + (file.deletions || 0);
+        return esc(name) + plus;
+      }).join(", ");
+      var detail = [task.reason, task.error].filter(function (item) { return item; }).join(" · ");
+      button.innerHTML = '<div class="title">' + esc(task.title) + '</div><span class="branch mono">' + esc(task.branch || task.id) + '</span><div class="status">' + esc(task.verdict || task.status || "working") + (task.round ? " · round " + esc(task.round) : "") + '</div><div class="mono">' + esc(task.action || "") + '</div><div class="mono">' + fileLine + '</div><div>' + esc(detail) + '</div><div class="mono">' + esc(task.model || "") + '</div>';
       button.addEventListener("click", function () { select(task, true); });
       document.getElementById(lane(task)).appendChild(button);
     });
@@ -286,8 +306,10 @@ th { color: var(--muted); }
     (data.events || []).filter(function (event) { return event.type === "guard.decision"; }).forEach(function (event) {
       var payload = event.payload || {};
       var p = document.createElement("p");
+      var reasons = (payload.reasons || []).join("; ");
       var scores = payload.scores || {};
-      p.textContent = (payload.stage || "") + " " + (payload.allowed ? "allowed" : "blocked") + " " + JSON.stringify(scores);
+      var scoreText = Object.keys(scores).length ? JSON.stringify(scores) : "";
+      p.textContent = [payload.stage || "", payload.allowed ? "allowed" : "blocked", reasons, scoreText].filter(Boolean).join(" ");
       guards.appendChild(p);
     });
     var proofBody = document.querySelector("#proof tbody");
@@ -325,6 +347,18 @@ th { color: var(--muted); }
         '<text x="130" y="' + (y - 6) + '" fill="#8b8c92" font-size="11">' + esc(row.branch) + "  " + esc(row.path) + '</text>';
     }).join("");
     svg.innerHTML = '<line x1="24" y1="16" x2="876" y2="16" stroke="#3a3b40" stroke-width="2"/><text x="24" y="12" fill="#8b8c92" font-size="11">main</text>' + paths;
+  }
+  function filesFor(task) {
+    var rows = state.worktrees || [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var branch = String(row.branch || "");
+      var path = String(row.path || "");
+      if ((task.branch && branch === task.branch) || (task.id && (path.indexOf(task.id) >= 0 || branch.indexOf(task.id) >= 0))) {
+        if (row.files && row.files.length) return row.files;
+      }
+    }
+    return task.files || [];
   }
   function changedLabel(row) {
     var files = row.files || [];

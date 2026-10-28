@@ -339,7 +339,18 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 "status": "running",
                 "branch": "tf/abcd1234/beta",
                 "model": "composer-2.5",
+                "action": "editing README.md",
+                "files": [{"path": "README.md", "additions": 6, "deletions": 0}],
                 "lines": ["Reading tests"],
+            },
+            {
+                "id": "gamma",
+                "title": "Admin",
+                "status": "failed",
+                "verdict": "reject",
+                "reason": "no new diff",
+                "error": "worker made no changes",
+                "branch": "tf/abcd1234/gamma",
             },
         ],
         "worktrees": [{"path": r"C:\wt\abcd1234\beta", "branch": "tf/abcd1234/beta", "changed": 2}],
@@ -358,7 +369,17 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
                 "type": "guard.decision",
                 "seq": 1,
                 "payload": {"stage": "input", "allowed": True, "scores": {"prompt_injection": 0.02}},
-            }
+            },
+            {
+                "type": "guard.decision",
+                "seq": 2,
+                "payload": {
+                    "stage": "tool_result",
+                    "allowed": False,
+                    "reasons": ["malformed tool result"],
+                    "scores": {},
+                },
+            },
         ],
         "report": None,
     }
@@ -393,6 +414,13 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "Within scope" in proof.inner_text()
             assert "yes" in proof.inner_text()
             assert page.locator("#live").get_attribute("aria-readonly") == "true"
+            assert "editing README.md" in page.locator("#working").inner_text()
+            assert "README.md +6 -0" in page.locator("#working").inner_text()
+            assert "no new diff" in page.locator("#needs").inner_text()
+            assert "worker made no changes" in page.locator("#needs").inner_text()
+            guards = page.locator("#guards").inner_text()
+            assert "malformed tool result" in guards
+            assert "[]" not in guards
             assert page.locator("#task-title").inner_text() == "Notifier"
             assert "Reading tests" in page.locator("#live").inner_text()
             page.get_by_role("button", name="Parser").click()
