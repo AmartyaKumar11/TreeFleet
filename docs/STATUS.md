@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — Revise budget
+
+`treefleet.toml` `[revise]` sets `max_rounds` to 1 and `round_budget_s` to 240. A revise that exceeds the budget stops and the report records `revise round exceeded <seconds>s`.
+
 ## 2026-10-28 — needs_review
 
 `WorkerResult.status` may be `needs_review` when checks passed, the diff is in scope, and review requests are still open after the rounds or a revise with no new diff. It is excluded from `tf/<run>/integrated` unless `RunRequest.include_needs_review` (`treefleet --include-needs-review`). A `needs_review` upstream cancels dependents. `failed` remains the status for failing checks, scope violations, and an empty diff.

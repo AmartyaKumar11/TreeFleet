@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 import sys
@@ -238,7 +239,11 @@ async def test_verdict_json_repairs_once() -> None:
     assert rejected.verdict == "reject"
 
 
-async def test_revise_then_approve_is_attempt_two_on_the_same_branch() -> None:
+async def test_revise_then_approve_is_attempt_two_on_the_same_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
     seen: list[tuple[str, int, str]] = []
     proved = 0
 
@@ -274,7 +279,10 @@ async def test_revise_then_approve_is_attempt_two_on_the_same_branch() -> None:
     assert results["alpha"].branch == "tf/abc12345/alpha"
     assert verdicts["alpha"].verdict == "approve"
     assert proved == 1
-    assert MAX_REVISIONS == 2
+    loaded = load_settings(ROOT / "treefleet.toml")
+    assert loaded.revise.max_rounds == 1
+    assert loaded.revise.round_budget_s == 240
+    assert MAX_REVISIONS == loaded.revise.max_rounds
 
 
 async def test_three_revises_reject_and_exclude() -> None:
@@ -306,16 +314,16 @@ async def test_three_revises_reject_and_exclude() -> None:
         rerun=rerun,
         emit=emit,
     )
-    assert reruns == 2
-    assert results["alpha"].attempt == 3
+    assert reruns == 1
+    assert results["alpha"].attempt == 2
     assert verdicts["alpha"].verdict == "reject"
     assert "still broken" in verdicts["alpha"].reasons
     assert "alpha" not in approved_branches(results, verdicts)
     assert ("review_started", "alpha", 1) in events
     assert ("review_verdict", "alpha", 1) in events
     assert ("revise_started", "alpha", 1) in events
-    assert ("review_started", "alpha", 3) in events
-    assert not any(kind == "revise_started" and round_no == 3 for kind, _task, round_no in events)
+    assert ("review_started", "alpha", 2) in events
+    assert not any(kind == "revise_started" and round_no == 2 for kind, _task, round_no in events)
 
 
 def test_reviewer_tools_are_read_only() -> None:
@@ -735,6 +743,33 @@ def _two_task_plan() -> Plan:
             ],
         }
     )
+
+
+async def test_revise_budget_records_the_reason() -> None:
+    async def review(task_id: str, _result: WorkerResult, _round_no: int) -> ReviewVerdict:
+        return ReviewVerdict(
+            task_id=task_id,
+            verdict="revise",
+            confidence=0.4,
+            reasons=["again"],
+            required_changes=["fix the test"],
+        )
+
+    async def rerun(_task_id: str, result: WorkerResult, _feedback: str, _attempt: int) -> WorkerResult:
+        await asyncio.sleep(1)
+        return result
+
+    files = [FileChange(path="tests/test_admin.py", additions=94, deletions=0)]
+    results, verdicts = await review_loop(
+        ["alpha"],
+        {"alpha": _result(files_changed=files)},
+        review=review,
+        rerun=rerun,
+        round_budget_s=0.05,
+        diff_of=lambda _result: "same diff",
+    )
+    assert results["alpha"].status == "needs_review"
+    assert verdicts["alpha"].reasons == ["revise round exceeded 0.05s"]
 
 
 async def test_unchanged_in_scope_diff_needs_review() -> None:

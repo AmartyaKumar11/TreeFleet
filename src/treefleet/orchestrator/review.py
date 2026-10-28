@@ -26,8 +26,8 @@ from treefleet.orchestrator.agents import (
     read_results,
 )
 
-# Two re-dispatches. A third revise verdict rejects the task.
-MAX_REVISIONS = 2
+# One re-dispatch by default. treefleet.toml [revise] max_rounds is the live value.
+MAX_REVISIONS = 1
 
 REVIEW_INSTRUCTION = (
     "You are a reviewer. You have no write tool and no mutating git tool. "
@@ -259,8 +259,9 @@ async def review_loop(
     max_revisions: int = MAX_REVISIONS,
     diff_of: Callable[[WorkerResult], str] | None = None,
     timings: dict[str, float] | None = None,
+    round_budget_s: float | None = None,
 ) -> tuple[dict[str, WorkerResult], dict[str, ReviewVerdict]]:
-    """One reviewer per task, in parallel. A revise re-runs the same branch, at most twice."""
+    """One reviewer per task, in parallel. A revise re-runs the same branch within the round budget."""
     import asyncio
 
     def _emit(kind: str, task_id: str, round_no: int, payload: dict[str, Any]) -> None:
@@ -336,7 +337,33 @@ async def review_loop(
             revise_started = time.monotonic()
             prior = result
             try:
-                fresh = await rerun(task_id, result, feedback[:2000], result.attempt + 1)
+                fresh_call = rerun(task_id, result, feedback[:2000], result.attempt + 1)
+                if round_budget_s is None:
+                    fresh = await fresh_call
+                else:
+                    fresh = await asyncio.wait_for(fresh_call, timeout=round_budget_s)
+            except TimeoutError:
+                reason = f"revise round exceeded {round_budget_s:g}s"
+                if _holdable(prior):
+                    result = _needs_review(prior, prior)
+                    verdict = ReviewVerdict(
+                        task_id=task_id,  # type: ignore[arg-type]
+                        verdict="reject",
+                        confidence=1,
+                        reasons=[reason],
+                        issues=[reason],
+                    )
+                else:
+                    verdict = _forced_reject(task_id, reason)
+                _emit(
+                    "review_verdict",
+                    task_id,
+                    round_no,
+                    {"verdict": verdict.verdict, "reason": reason, "status": result.status},
+                )
+                if timings is not None:
+                    timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
+                break
             except Exception as exc:
                 verdict = _forced_reject(task_id, str(exc))
                 if timings is not None:
@@ -638,6 +665,8 @@ class ReviewerAgent(BaseAgent):
             emit=lambda kind, task_id, round_no, payload: _emit(self.bundle, kind, task_id, round_no, payload),
             diff_of=lambda result: gitops_snapshot(self.bundle.repo, self.bundle.request.base_ref, result.branch),
             timings=timings,
+            max_revisions=self.bundle.settings.revise.max_rounds,
+            round_budget_s=self.bundle.settings.revise.round_budget_s,
         )
         self.bundle.review_seconds += timings.get("review", 0.0)
         self.bundle.revise_seconds += timings.get("revise", 0.0)

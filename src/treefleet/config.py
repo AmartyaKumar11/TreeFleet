@@ -106,6 +106,11 @@ class Guards(_Strict):
     max_tasks: int = Field(default=6, ge=1, le=6)
 
 
+class Revise(_Strict):
+    max_rounds: int = Field(default=1, ge=0, le=2)
+    round_budget_s: float = Field(default=240, gt=0, le=3600)
+
+
 class Settings(_Strict):
     models: Models
     cursor: CursorCli
@@ -114,6 +119,7 @@ class Settings(_Strict):
     paths: Paths
     pricing: Pricing
     guards: Guards = Field(default_factory=Guards)
+    revise: Revise = Field(default_factory=Revise)
     worktree_root: str
     orchestrator_python: str
     worker_python: str

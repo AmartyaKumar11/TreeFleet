@@ -30,6 +30,10 @@ port_start = 9101
 mcp_startup_s = 15
 max_workers = 3
 
+[revise]
+max_rounds = 1
+round_budget_s = 240
+
 [paths]
 worktree_windows = 'C:\wt'
 worktree_other = "/tmp/tf-wt"
