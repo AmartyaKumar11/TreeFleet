@@ -38,8 +38,17 @@ def shim() -> None:
             Path(outside).write_text("escaped\n", encoding="utf-8")
     print(
         json.dumps(
-            {"usage": {"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 1, "cacheWriteTokens": 0}}
-        )
+            {
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "shim edit"}]},
+                "timestamp_ms": 1,
+            }
+        ),
+        flush=True,
+    )
+    print(
+        json.dumps({"usage": {"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 1, "cacheWriteTokens": 0}}),
+        flush=True,
     )
 
 
@@ -66,8 +75,13 @@ def crew() -> None:
             return self.call(messages, tools, callbacks, available_functions, **kwargs)
 
     agent = Agent(
-        role="adder", goal="Add numbers.", backstory="Uses the tool.",
-        llm=Scripted(model="scripted"), tools=[add_tool], verbose=False, max_iter=2,
+        role="adder",
+        goal="Add numbers.",
+        backstory="Uses the tool.",
+        llm=Scripted(model="scripted"),
+        tools=[add_tool],
+        verbose=False,
+        max_iter=2,
     )
     task = Task(description="Add 2 and 3 with the add tool.", expected_output="5", agent=agent)
     Crew(agents=[agent], tasks=[task], verbose=False).kickoff()
@@ -128,8 +142,12 @@ def main() -> None:
     adk_ok = asyncio.run(adk())
     worker = Path(".venv-worker/Scripts/python.exe")
     crew_run = subprocess.run(
-        [str(worker), "-u", __file__, "--crew"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", shell=False,
+        [str(worker), "-u", __file__, "--crew"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
     )
     print((crew_run.stdout or "").strip())
     if crew_run.returncode != 0:
@@ -142,7 +160,9 @@ def main() -> None:
     if adk_ok and crew_ok and shim_ok:
         print("Result: PASS")
     else:
-        print("Result: FALLBACK LiteLLM mock_response or a recorded-fixture proxy; the shim is a small Python script on PATH")
+        print(
+            "Result: FALLBACK LiteLLM mock_response or a recorded-fixture proxy; the shim is a small Python script on PATH"
+        )
     os._exit(0)
 
 

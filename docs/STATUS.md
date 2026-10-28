@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | not started | |
 | 11 | Demo hardening | not started | |
 
+## 2026-10-28 — Cursor stream events
+
+`cursor-agent` supports `stream-json` and `--stream-partial-output`. The sample is `docs/spikes/s12-cursor-stream.sample.txt`. Assistant deltas, tool start, and tool finish are events. The result line supplies `CursorUsage`. Contract addition: `CursorToolEvent`.
+
 ## 2026-10-28 — Demo kit
 
 `treefleet demo preflight` prints green or red for the two API keys, the Cursor login, the model list, `demo-base`, a clean tree, and leftover worktrees. It does not print a secret value. `treefleet demo reset` removes extra worktrees, returns the repo to a clean `demo-base`, and deletes `tf/*` branches only after a yes. `treefleet ui --replay` plays `events.jsonl` at the recorded gaps, capped at 30 seconds, with a REPLAY bar and the Run button off. The dry run is `1d4d116d` in `evidence/phase-8/`: 343 seconds, isolation PASS, notifications approved, admin rejected after a revise with no new diff.

@@ -190,6 +190,7 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `mcp.call` (payload: server, tool, ok, error code)
 - `protocol_error`
 - `output_line` (payload is `OutputLine`: one redacted line, max 200 characters, local only)
+- `cursor.tool_start`, `cursor.tool_finish` (payload is `CursorToolEvent`: `tool`, `path`, and `ok` on finish). The file body is not stored. `task_id` is the task that launched Cursor.
 
 `seq` is a per-run monotonically increasing integer assigned by the sink. The SSE `id` field equals `seq`, so a reconnecting UI resumes with `Last-Event-ID`.
 

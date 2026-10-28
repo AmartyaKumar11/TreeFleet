@@ -293,6 +293,7 @@ def build_agent(
         timeout_s=envelope.limits.timeout_s,
         sink=_sink(),
         run_id=envelope.run_id,
+        task_id=envelope.task.id,
         usages=usages,
         files=cursor_files,
         revision=envelope.revision_feedback or "",

@@ -301,6 +301,14 @@ class OutputLine(_Model):
     line: Annotated[str, StringConstraints(max_length=200)]
 
 
+class CursorToolEvent(_Model):
+    """One Cursor tool start or finish. Path only. Never the file body."""
+
+    tool: Annotated[str, StringConstraints(min_length=1, max_length=40)]
+    path: Annotated[str, StringConstraints(max_length=300)] = ""
+    ok: bool | None = None
+
+
 class StepTiming(_Model):
     """One timed worker step. Payload of a worker.step event."""
 

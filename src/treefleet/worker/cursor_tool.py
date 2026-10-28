@@ -21,6 +21,7 @@ def make_cursor_tool(
     timeout_s: float,
     sink: EventSink | None = None,
     run_id: str | None = None,
+    task_id: str | None = None,
     usages: list[CursorUsage] | None = None,
     files: list[str] | None = None,
     revision: str = "",
@@ -45,6 +46,7 @@ def make_cursor_tool(
             timeout_s=timeout_s,
             sink=sink,
             run_id=run_id,
+            task_id=task_id,
         )
         if usages is not None and result.usage is not None:
             usages.append(result.usage)

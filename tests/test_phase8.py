@@ -11,7 +11,9 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
+from treefleet.cursor_run import parse_stream_line, run_cursor
 from treefleet.demo import login_ok, preflight, reset_repo
+from treefleet.events import EventSink
 from treefleet.ui.server import create_app, local_host, replay_gap
 
 pytestmark = pytest.mark.phase8
@@ -39,6 +41,77 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _client(repo: Path) -> TestClient:
     app = create_app(repo, root=ROOT, token="test-token", models=[{"id": "composer-2.5", "label": "Composer 2.5"}])
     return TestClient(app, base_url="http://127.0.0.1")
+
+
+def test_stream_parser_matches_the_captured_sample() -> None:
+    sample = (ROOT / "docs" / "spikes" / "s12-cursor-stream.sample.txt").read_text(encoding="utf-8")
+    hits = [hit for hit in (parse_stream_line(line) for line in sample.splitlines()) if hit is not None]
+    texts = [hit.text for hit in hits if hit.kind == "text"]
+    assert any(text == "Checking" for text in texts)
+    starts = [hit for hit in hits if hit.kind == "tool_start"]
+    assert [hit.tool for hit in starts] == ["read", "edit"]
+    assert all(hit.path.endswith("README.md") for hit in starts)
+    finish = [hit for hit in hits if hit.kind == "tool_finish" and hit.tool == "edit"]
+    assert finish and finish[0].ok is True
+    result = [hit for hit in hits if hit.kind == "result"]
+    assert result[-1].usage is not None and result[-1].usage.input_tokens == 12620
+    assert "beforeFullFileContent" not in " ".join(hit.text + hit.path for hit in hits)
+
+
+def test_stream_events_carry_the_task_and_redact(tmp_path: Path) -> None:
+    import json
+
+    events = [
+        {
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "sk-abcdefghij"}]},
+            "timestamp_ms": 1,
+        },
+        {"type": "tool_call", "subtype": "started", "tool_call": {"editToolCall": {"args": {"path": "README.md"}}}},
+        {
+            "type": "tool_call",
+            "subtype": "completed",
+            "tool_call": {"editToolCall": {"args": {"path": "README.md"}, "result": {"success": {}}}},
+        },
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": "Added hello",
+            "usage": {"inputTokens": 4, "outputTokens": 1, "cacheReadTokens": 0, "cacheWriteTokens": 0},
+        },
+    ]
+    script = tmp_path / "fake_cursor.py"
+    printed = ["import json"]
+    printed.extend(f"print(json.dumps({json.dumps(item)}), flush=True)" for item in events)
+    script.write_text("\n".join(printed) + "\n", encoding="utf-8")
+    sink = EventSink(tmp_path / "runs")
+    result = run_cursor(
+        cli=script,
+        worktree=tmp_path,
+        instruction="edit",
+        allowed=["README.md"],
+        denied=[],
+        model=None,
+        timeout_s=15,
+        sink=sink,
+        run_id="ab12cd34",
+        task_id="alpha",
+    )
+    events = [
+        __import__("json").loads(line)
+        for line in (tmp_path / "runs" / "ab12cd34" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    output = [event for event in events if event["type"] == "output_line"]
+    assert output and output[0]["task_id"] == "alpha"
+    assert "sk-abcdefghij" not in output[0]["payload"]["line"]
+    assert "[redacted]" in output[0]["payload"]["line"]
+    start = next(event for event in events if event["type"] == "cursor.tool_start")
+    assert start["task_id"] == "alpha" and start["payload"] == {"tool": "edit", "path": "README.md", "ok": None}
+    finish = next(event for event in events if event["type"] == "cursor.tool_finish")
+    assert finish["payload"]["ok"] is True
+    assert "streamContent" not in str(finish["payload"])
+    assert result.usage is not None and result.usage.input_tokens == 4
+    assert result.output_tail == "Added hello"
 
 
 def test_non_local_host_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -219,6 +219,8 @@ def test_cursor_omits_model_flag_and_emits_output_line(tmp_path: Path, monkeypat
     selected = command_for(FAKE, tmp_path, "composer-2.5-fast", "edit the readme")
     assert "--model" not in omitted
     assert "--trust" in omitted
+    assert omitted[omitted.index("--output-format") + 1] == "stream-json"
+    assert "--stream-partial-output" in omitted
     assert selected[selected.index("--model") + 1] == "composer-2.5-fast"
     sink = EventSink(tmp_path / "runs")
     run_cursor(
