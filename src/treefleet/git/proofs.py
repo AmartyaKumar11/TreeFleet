@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import psutil
 
-from treefleet.contracts import IsolationProof, MainCheckoutProof
+from treefleet.contracts import FileChange, IsolationProof, MainCheckoutProof
 from treefleet.git.canary import CANARY_NAME
 from treefleet.git.worktrees import GitError, Worktree, _same, branch_name, git_out, list_worktrees, run_git
 
@@ -49,6 +49,48 @@ def in_scope(path: str, allowed: list[str], denied: list[str]) -> bool:
     if any(_match(path, pattern) for pattern in denied):
         return False
     return any(_match(path, pattern) for pattern in allowed)
+
+
+def diff_stats(worktree: Path, base_sha: str) -> list[FileChange]:
+    """Committed and uncommitted tracked changes against base_sha, plus untracked files."""
+    stats: dict[str, FileChange] = {}
+    proc = run_git(["-c", "core.quotepath=false", "diff", "--numstat", base_sha], cwd=worktree)
+    if proc.returncode != 0:
+        raise GitError(proc.stderr.strip() or "git diff failed")
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        path = parts[-1].replace("\\", "/")
+        if " => " in path:
+            path = path.split(" => ")[-1].strip().strip("}")
+        stats[path] = FileChange(
+            path=path,
+            additions=int(parts[0]) if parts[0].isdigit() else 0,
+            deletions=int(parts[1]) if parts[1].isdigit() else 0,
+        )
+    others = run_git(["-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard"], cwd=worktree)
+    if others.returncode != 0:
+        raise GitError(others.stderr.strip() or "git ls-files failed")
+    for raw in others.stdout.splitlines():
+        path = raw.strip().replace("\\", "/")
+        if not path or path in stats:
+            continue
+        stats[path] = FileChange(path=path, additions=_line_count(worktree / path), deletions=0)
+    return [stats[key] for key in sorted(stats)]
+
+
+def _line_count(path: Path) -> int:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return 0
+    if b"\0" in data[:8000]:
+        return 0
+    text = data.decode("utf-8", errors="replace")
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
 
 
 def collect_changes(worktree: Path, base_ref: str) -> list[str]:

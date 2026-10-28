@@ -192,6 +192,33 @@ def test_sse_redacts_a_line_and_diff_stays_inside_a_worktree(tmp_path: Path, mon
     assert "[redacted]" in shown.text
 
 
+def test_committed_and_untracked_files_stay_visible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    _env(monkeypatch)
+    repo = tmp_path / "repo"
+    _git(repo)
+    app = create_app(repo, root=ROOT, token="test-token", runs=tmp_path / "runs", models=[])
+    worktree = tmp_path / "wt"
+    subprocess.run(["git", "worktree", "add", str(worktree), "HEAD"], cwd=repo, check=True, capture_output=True)
+    readme = worktree / "README.md"
+    readme.write_text("hi\nlogging\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=worktree, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "log"], cwd=worktree, check=True, capture_output=True)
+    (worktree / "extra.txt").write_text("one\ntwo\n", encoding="utf-8")
+    client = TestClient(app, base_url="http://127.0.0.1")
+    headers = {"Authorization": "Bearer test-token"}
+    rows = client.get("/api/worktrees", headers=headers).json()["worktrees"]
+    row = next(item for item in rows if item["path"] == str(worktree))
+    by_path = {item["path"]: item for item in row["files"]}
+    assert by_path["README.md"] == {"path": "README.md", "additions": 1, "deletions": 0}
+    assert by_path["extra.txt"]["additions"] == 2
+    assert row["changed"] == 2
+    shown = client.get("/api/diff", params={"path": str(worktree)}, headers=headers)
+    assert "logging" in shown.json()["diff"]
+    assert "extra.txt" in shown.json()["diff"]
+
+
 def test_replay_gap_is_capped_and_the_badge_is_not_a_live_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 

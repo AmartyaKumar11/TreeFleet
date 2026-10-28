@@ -276,7 +276,7 @@ th { color: var(--muted); }
     body.innerHTML = "";
     (data.worktrees || []).forEach(function (row) {
       var tr = document.createElement("tr");
-      tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(row.changed) + "</td>";
+      tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(changedLabel(row)) + "</td>";
       body.appendChild(tr);
     });
     drawMap(data.worktrees || []);
@@ -326,6 +326,17 @@ th { color: var(--muted); }
     }).join("");
     svg.innerHTML = '<line x1="24" y1="16" x2="876" y2="16" stroke="#3a3b40" stroke-width="2"/><text x="24" y="12" fill="#8b8c92" font-size="11">main</text>' + paths;
   }
+  function changedLabel(row) {
+    var files = row.files || [];
+    if (!files.length) return String(row.changed == null ? 0 : row.changed);
+    var added = 0;
+    var removed = 0;
+    files.forEach(function (file) {
+      added += file.additions || 0;
+      removed += file.deletions || 0;
+    });
+    return files.length + " +" + added + " -" + removed;
+  }
   function worktreeFor(task) {
     var branch = task.branch || "";
     var rows = state.worktrees || [];
@@ -352,7 +363,10 @@ th { color: var(--muted); }
     document.getElementById("diff").textContent = path ? "Loading diff…" : "No worktree for this task yet.";
     if (!path) return;
     fetch("/api/diff?path=" + encodeURIComponent(path), {headers: auth()}).then(function (res) { return res.json(); }).then(function (data) {
-      document.getElementById("diff").textContent = data.diff || data.error || "No diff.";
+      var files = (data.files || []).map(function (file) {
+        return file.path + " +" + (file.additions || 0) + " -" + (file.deletions || 0);
+      }).join("\n");
+      document.getElementById("diff").textContent = (files ? files + "\n\n" : "") + (data.diff || data.error || "No diff.");
     });
   }
   function openEvents(runId) {
@@ -401,7 +415,7 @@ th { color: var(--muted); }
       body.innerHTML = "";
       state.worktrees.forEach(function (row) {
         var tr = document.createElement("tr");
-        tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(row.changed) + "</td>";
+        tr.innerHTML = "<td class='mono'>" + esc(row.path) + "</td><td class='mono'>" + esc(row.branch) + "</td><td>" + esc(changedLabel(row)) + "</td>";
         body.appendChild(tr);
       });
       drawMap(state.worktrees);

@@ -64,8 +64,9 @@ class Approval:
         self._decision.set()
 
 
-def worktree_rows(repo: Path) -> list[dict[str, Any]]:
-    """Live git worktree list, excluding the main checkout, with a changed-file count."""
+def worktree_rows(repo: Path, base_sha: str = "HEAD") -> list[dict[str, Any]]:
+    """Live git worktree list, excluding the main checkout, with files changed since base_sha."""
+    from treefleet.git.proofs import diff_stats
     from treefleet.git.worktrees import list_worktrees
 
     rows: list[dict[str, Any]] = []
@@ -80,9 +81,19 @@ def worktree_rows(repo: Path) -> list[dict[str, Any]]:
                 continue
         except OSError:
             continue
-        status = run_git(["status", "--porcelain"], cwd=item.path)
-        changed = len([line for line in status.stdout.splitlines() if line.strip()])
-        rows.append({"path": str(item.path), "branch": item.branch or "", "changed": changed, "head": item.head[:7]})
+        try:
+            files = [change.model_dump() for change in diff_stats(item.path, base_sha or "HEAD")]
+        except Exception:
+            files = []
+        rows.append(
+            {
+                "path": str(item.path),
+                "branch": item.branch or "",
+                "changed": len(files),
+                "files": files,
+                "head": item.head[:7],
+            }
+        )
     return rows
 
 
@@ -144,10 +155,12 @@ class Board:
         self.messages: dict[str, str] = {}
         self.replay = False
         self.replay_events: list[dict[str, Any]] = []
+        self.base_sha = run_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip() or "HEAD"
         self._lock = threading.Lock()
 
     def launch(self, goal: str, worker_model: str, plan_approval: bool) -> str:
         run_id = secrets.token_hex(4)
+        self.base_sha = run_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip() or self.base_sha
         approval = Approval()
         with self._lock:
             self.approvals[run_id] = approval
@@ -213,7 +226,7 @@ class Board:
             "started_at": self.started.get(run_id, time.time()),
             "awaiting": plan if waiting else None,
             "events": events[-400:],
-            "worktrees": worktree_rows(self.repo),
+            "worktrees": worktree_rows(self.repo, self.base_sha),
             "report": report,
             "message": self.messages.get(run_id, ""),
             "stages": list(_STAGES),
@@ -280,7 +293,11 @@ def create_app(
 
     @app.get("/api/worktrees")
     def worktrees() -> JSONResponse:
-        rows = fixture.get("worktrees") if fixture is not None and fixture.get("worktrees") else worktree_rows(repo)
+        rows = (
+            fixture.get("worktrees")
+            if fixture is not None and fixture.get("worktrees")
+            else worktree_rows(repo, board.base_sha)
+        )
         body, _count = redact_payload({"worktrees": rows})
         return JSONResponse(body)
 
@@ -304,7 +321,7 @@ def create_app(
                     "stage": "guard",
                     "stages": list(_STAGES),
                     "events": list(board.replay_events),
-                    "worktrees": worktree_rows(repo),
+                    "worktrees": worktree_rows(repo, board.base_sha),
                     "awaiting": None,
                     "report": None,
                 }
@@ -345,10 +362,19 @@ def create_app(
             return JSONResponse({"error": "unknown worktree"}, status_code=404)
         if target not in allowed or target.resolve() == repo.resolve():
             return JSONResponse({"error": "unknown worktree"}, status_code=404)
-        shown = run_git(["diff", "--stat", "HEAD"], cwd=target)
-        full = run_git(["diff", "HEAD"], cwd=target)
-        text = (full.stdout or shown.stdout)[:8000]
-        body, _count = redact_payload({"diff": text})
+        from treefleet.git.proofs import diff_stats
+
+        base = board.base_sha or "HEAD"
+        full = run_git(["diff", base], cwd=target)
+        text = full.stdout or ""
+        try:
+            files = [change.model_dump() for change in diff_stats(target, base)]
+        except Exception:
+            files = []
+        extra = [item["path"] for item in files if f"diff --git a/{item['path']}" not in text]
+        if extra:
+            text += "\nUntracked:\n" + "\n".join(extra)
+        body, _count = redact_payload({"diff": text[:8000], "files": files})
         return JSONResponse(body)
 
     @app.post("/api/runs/{run_id}/approve")
