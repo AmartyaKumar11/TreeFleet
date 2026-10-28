@@ -104,6 +104,7 @@ def on_tool_result(raw: str, sink: EventSink | None, run_id: str, task_id: str |
         data = None
     if isinstance(data, dict) and "ok" in data:
         return text
+    reason = " ".join(text.split())[:300] or "empty tool result"
     if sink is not None:
         sink.emit_sync(
             RunEvent(
@@ -116,11 +117,11 @@ def on_tool_result(raw: str, sink: EventSink | None, run_id: str, task_id: str |
                     "stage": "tool_result",
                     "allowed": False,
                     "detector": "deterministic",
-                    "reasons": ["malformed tool result"],
+                    "reasons": [reason],
                 },
             )
         )
-    return json.dumps({"ok": False, "error": {"code": "BAD_ARGS", "message": "malformed tool result"}})
+    return json.dumps({"ok": False, "error": {"code": "BAD_ARGS", "message": reason}})
 
 
 def _arg_problem(name: str, args: dict[str, Any], root: Any, checks: dict[str, str]) -> str | None:

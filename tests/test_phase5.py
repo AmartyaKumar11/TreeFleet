@@ -234,11 +234,35 @@ def test_malformed_tool_result_is_rejected(tmp_path: Path) -> None:
     raw = on_tool_result("not-json", sink, "abc12345", "alpha")
     body = json.loads(raw)
     assert body["ok"] is False
-    assert body["error"]["message"] == "malformed tool result"
+    assert body["error"]["message"] == "not-json"
     secret = "sk-abcdefghijklmnopqrstuvwxyz"
     cleaned = on_tool_result(json.dumps({"ok": True, "data": {"text": secret}}), sink, "abc12345", "alpha")
     assert secret not in cleaned
     assert "[redacted]" in cleaned
+
+
+def test_fastmcp_validation_text_keeps_its_reason(tmp_path: Path) -> None:
+    """The shape captured from run aa85638e: a valid isError string, not a dropped body."""
+    sink = EventSink(tmp_path)
+    shape = (
+        "Error executing tool read_file: 1 validation error for read_fileArguments\n"
+        "path\n"
+        "  Field required [type=missing, input_value={}, input_type=dict]"
+    )
+    raw = on_tool_result(shape, sink, "abc12345", "alpha")
+    body = json.loads(raw)
+    assert body["ok"] is False
+    assert "Field required" in body["error"]["message"]
+    events = (tmp_path / "abc12345" / "events.jsonl").read_text(encoding="utf-8")
+    assert "Field required" in events
+    kept = on_tool_result(
+        json.dumps({"ok": True, "data": {"lines": []}, "error": None}),
+        sink,
+        "abc12345",
+        "alpha",
+    )
+    assert json.loads(kept)["ok"] is True
+    assert json.loads(kept)["data"] == {"lines": []}
 
 
 def test_draft_guardrail_rejects_empty_secret_and_unknown_files() -> None:
