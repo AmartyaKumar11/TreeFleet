@@ -1,0 +1,54 @@
+/* TreeFleet board tokens — dark only */
+
+@font-face {
+  font-family: "Geist";
+  src: url("../fonts/Geist-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("../fonts/Geist-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../fonts/GeistMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../fonts/GeistMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #07090c;
+  --surface: #0e1116;
+  --surface-2: #141922;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f4f6f8;
+  --muted: #8b94a3;
+  --blue: #4c8dff;
+  --orange: #ff9f43;
+  --yellow: #f5c542;
+  --green: #3ddc84;
+  --red: #ff5c5c;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --radius-lg: 12px;
+  --motion: 160ms;
+  --ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --dot-grid: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}

@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from treefleet.config import Settings, load_settings
 from treefleet.contracts import Plan, RunRequest
@@ -21,6 +22,7 @@ from treefleet.guards.text import redact_payload
 from treefleet.ui.lanes import run_needs_human, tasks_from_snapshot
 
 _PAGE = Path(__file__).with_name("board.html")
+_STATIC = Path(__file__).with_name("static")
 _STAGES = ("guard", "plan", "approve", "fleet", "review", "integrate", "done")
 
 
@@ -259,6 +261,7 @@ def create_app(
     app.state.board = board
     app.state.fixture = fixture
     app.state.models = models
+    app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
     if replay is not None:
         board.replay = True
