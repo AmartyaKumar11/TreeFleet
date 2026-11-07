@@ -169,6 +169,19 @@ async def run_pipeline(
     report = FinalReport.model_validate(state["report"]) if "report" in state else None
     if report is None:
         return RunOutcome(1, None, state, run_id, "run finished without a report")
+    from treefleet.contracts import RunEvent
+    from treefleet.reactions import Event, reaction_payload, resolve
+
+    done = resolve(Event.run_done, 1, bundle.settings.reactions)
+    bundle.sink.emit_sync(
+        RunEvent(
+            run_id=run_id,
+            seq=0,
+            source="orchestrator",
+            type="reaction.fired",
+            payload=reaction_payload(Event.run_done, done, None),
+        )
+    )
     path = root / run_id / "report.md"
     print(path, flush=True)
     return RunOutcome(0, report, state, run_id, "")

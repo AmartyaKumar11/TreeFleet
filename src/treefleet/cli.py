@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "models":
         return _models()
+    if args and args[0] == "reactions":
+        return _reactions(args[1:])
     if args and args[0] == "cleanup":
         return _cleanup(args[1:])
     if args and args[0] == "eval":
@@ -142,6 +144,27 @@ def _ui(argv: list[str]) -> int:
         raise SystemExit("not a git repository")
     app = create_app(repo, replay=Path(parsed.replay) if parsed.replay else None)
     uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
+    return 0
+
+
+def _reactions(argv: list[str]) -> int:
+    from treefleet.reactions import explain_events, format_list
+
+    parser = argparse.ArgumentParser(prog="treefleet reactions")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list")
+    explain = sub.add_parser("explain")
+    explain.add_argument("--run", required=True)
+    parsed = parser.parse_args(argv)
+    if parsed.cmd == "list":
+        settings = load_settings(Path.cwd() / "treefleet.toml")
+        print(format_list(settings.reactions))
+        return 0
+    path = Path.cwd() / "runs" / parsed.run / "events.jsonl"
+    if not path.is_file():
+        print(f"no events at {path}", file=sys.stderr)
+        return 1
+    print(explain_events(path.read_text(encoding="utf-8").splitlines()))
     return 0
 
 

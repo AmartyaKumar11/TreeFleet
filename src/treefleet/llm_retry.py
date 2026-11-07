@@ -8,9 +8,31 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from treefleet.guards.text import redact
+from treefleet.reactions import Action, Event, ReactionTable, reaction_payload, resolve
 
 _BACKOFF_S = (2.0, 6.0)
 _RETRY_ATTEMPTS = 2  # after the first try: two more = three flash attempts, then escalate once
+
+
+def _follow(
+    decision: Any,
+    *,
+    primary: str,
+    escalate: str | None,
+    backoff: Sequence[float],
+    attempt: int,
+) -> tuple[str, float | None] | None:
+    """Next call after a transient failure. None means stop."""
+    if decision.action == Action.escalate_model:
+        if escalate is None or escalate == primary:
+            return None
+        return (escalate, None)
+    if decision.action == Action.send_to_agent:
+        index = attempt - 1
+        if index < 0 or index >= len(backoff):
+            return None
+        return (primary, float(backoff[index]))
+    return None
 
 
 class ModelUnavailableError(RuntimeError):
@@ -100,6 +122,7 @@ async def with_llm_retry[T](
     agent: str = "",
     task_id: str | None = None,
     backoff: Sequence[float] = _BACKOFF_S,
+    reactions: ReactionTable | None = None,
 ) -> T:
     """Up to 2 retries on the first model (2s then 6s), then one call on the escalate model if given."""
     if not models:
@@ -107,13 +130,11 @@ async def with_llm_retry[T](
     primary = models[0]
     escalate = models[1] if len(models) > 1 else None
     last: BaseException | None = None
-    sequence: list[tuple[str, float | None]] = [(primary, None)]
-    for wait in backoff[:_RETRY_ATTEMPTS]:
-        sequence.append((primary, wait))
-    if escalate is not None and escalate != primary:
-        sequence.append((escalate, None))
-
-    for index, (model, wait) in enumerate(sequence):
+    pending: list[tuple[str, float | None]] = [(primary, None)]
+    index = 0
+    failures = 0
+    while index < len(pending):
+        model, wait = pending[index]
         if wait is not None:
             await asyncio.sleep(wait)
         try:
@@ -122,17 +143,27 @@ async def with_llm_retry[T](
             last = exc
             if not is_transient_provider_error(exc):
                 raise
+            failures += 1
+            decision = resolve(Event.provider_error, failures, reactions)
+            nxt = _follow(
+                decision, primary=primary, escalate=escalate, backoff=backoff[:_RETRY_ATTEMPTS], attempt=failures
+            )
             payload = {
                 "agent": agent,
                 "task_id": task_id,
                 "model": model,
-                "attempt": index + 1,
+                "attempt": failures,
                 "error_class": error_class_name(exc),
                 "error": redact_error(exc),
-                "next": sequence[index + 1][0] if index + 1 < len(sequence) else None,
+                "next": nxt[0] if nxt else None,
             }
             if emit is not None:
                 emit("llm_retry", {k: v for k, v in payload.items() if v is not None})
+                emit("reaction.fired", reaction_payload(Event.provider_error, decision, task_id))
+            if nxt is None:
+                break
+            pending.append(nxt)
+            index += 1
             continue
     assert last is not None
     if emit is not None:
@@ -156,6 +187,7 @@ def with_llm_retry_sync[T](
     agent: str = "",
     task_id: str | None = None,
     backoff: Sequence[float] = _BACKOFF_S,
+    reactions: ReactionTable | None = None,
 ) -> T:
     """Sync twin for CrewAI worker-brain calls."""
     if not models:
@@ -163,13 +195,11 @@ def with_llm_retry_sync[T](
     primary = models[0]
     escalate = models[1] if len(models) > 1 else None
     last: BaseException | None = None
-    sequence: list[tuple[str, float | None]] = [(primary, None)]
-    for wait in backoff[:_RETRY_ATTEMPTS]:
-        sequence.append((primary, wait))
-    if escalate is not None and escalate != primary:
-        sequence.append((escalate, None))
-
-    for index, (model, wait) in enumerate(sequence):
+    pending: list[tuple[str, float | None]] = [(primary, None)]
+    index = 0
+    failures = 0
+    while index < len(pending):
+        model, wait = pending[index]
         if wait is not None:
             time.sleep(wait)
         try:
@@ -178,17 +208,27 @@ def with_llm_retry_sync[T](
             last = exc
             if not is_transient_provider_error(exc):
                 raise
+            failures += 1
+            decision = resolve(Event.provider_error, failures, reactions)
+            nxt = _follow(
+                decision, primary=primary, escalate=escalate, backoff=backoff[:_RETRY_ATTEMPTS], attempt=failures
+            )
             payload = {
                 "agent": agent,
                 "task_id": task_id,
                 "model": model,
-                "attempt": index + 1,
+                "attempt": failures,
                 "error_class": error_class_name(exc),
                 "error": redact_error(exc),
-                "next": sequence[index + 1][0] if index + 1 < len(sequence) else None,
+                "next": nxt[0] if nxt else None,
             }
             if emit is not None:
                 emit("llm_retry", {k: v for k, v in payload.items() if v is not None})
+                emit("reaction.fired", reaction_payload(Event.provider_error, decision, task_id))
+            if nxt is None:
+                break
+            pending.append(nxt)
+            index += 1
             continue
     assert last is not None
     if emit is not None:

@@ -26,6 +26,7 @@ from treefleet.orchestrator.agents import (
     read_plan,
     read_results,
 )
+from treefleet.reactions import Action, Decision, Event, ReactionTable, default_table, reaction_payload, resolve
 
 # One re-dispatch by default. treefleet.toml [revise] max_rounds is the live value.
 MAX_REVISIONS = 1
@@ -277,19 +278,30 @@ async def review_loop(
     diff_of: Callable[[WorkerResult], str] | None = None,
     timings: dict[str, float] | None = None,
     round_budget_s: float | None = None,
+    reactions: ReactionTable | None = None,
 ) -> tuple[dict[str, WorkerResult], dict[str, ReviewVerdict]]:
     """One reviewer per task, in parallel. A revise re-runs the same branch within the round budget."""
     import asyncio
 
+    table = reactions if reactions is not None else default_table(review_rounds=max_revisions)
+    bound = table.get(Event.review_rejected).retries
+
     def _emit(kind: str, task_id: str, round_no: int, payload: dict[str, Any]) -> None:
         if emit is not None:
             emit(kind, task_id, round_no, payload)
+
+    def _fired(event: Event, task_id: str, attempt: int) -> Decision:
+        decision = resolve(event, attempt, table)
+        _emit("reaction.fired", task_id, attempt, reaction_payload(event, decision, task_id))
+        return decision
 
     async def _one(task_id: str) -> tuple[str, WorkerResult, ReviewVerdict]:
         import time
 
         result = results[task_id]
         error = result.error or ""
+        if result.status == "failed" and not any(not item.passed for item in result.checks):
+            _fired(Event.task_failed, task_id, 1)
         if result.status == "failed" and (error.startswith("worker made no changes") or error.startswith("upstream ")):
             verdict = ReviewVerdict(
                 task_id=task_id,  # type: ignore[arg-type]
@@ -300,30 +312,36 @@ async def review_loop(
             _emit("review_verdict", task_id, 1, {"verdict": "reject", "reason": error[:300]})
             return task_id, result, verdict
         if any(not item.passed for item in result.checks):
-            feedback = check_failure_feedback(result.checks)
-            _emit("revise_started", task_id, 0, {"reason": "checks_failed"})
-            revise_started = time.monotonic()
-            try:
-                fresh = await rerun(task_id, result, feedback, result.attempt + 1)
-            except Exception as exc:
-                verdict = _forced_reject(task_id, str(exc))
-                _emit("review_verdict", task_id, 0, {"verdict": "reject", "reason": verdict_reason(verdict)})
-                return task_id, result, verdict
-            if timings is not None:
-                timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
-            result = fresh.model_copy(
-                update={
-                    "cursor_calls": [*list(result.cursor_calls), *fresh.cursor_calls],
-                    "duration_s": result.duration_s + fresh.duration_s,
-                    "reverted_scope": [*list(result.reverted_scope), *fresh.reverted_scope],
-                }
-            )
-            if prove is not None:
-                snapshot = dict(results)
-                snapshot[task_id] = result
-                prove(snapshot)
+            attempt = 1
+            while True:
+                decision = _fired(Event.checks_failed, task_id, attempt)
+                if decision.action != Action.send_to_agent:
+                    break
+                feedback = check_failure_feedback(result.checks)
+                _emit("revise_started", task_id, 0, {"reason": "checks_failed"})
+                revise_started = time.monotonic()
+                try:
+                    fresh = await rerun(task_id, result, feedback, result.attempt + 1)
+                except Exception as exc:
+                    verdict = _forced_reject(task_id, str(exc))
+                    _emit("review_verdict", task_id, 0, {"verdict": "reject", "reason": verdict_reason(verdict)})
+                    return task_id, result, verdict
+                if timings is not None:
+                    timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
+                result = fresh.model_copy(
+                    update={
+                        "cursor_calls": [*list(result.cursor_calls), *fresh.cursor_calls],
+                        "duration_s": result.duration_s + fresh.duration_s,
+                        "reverted_scope": [*list(result.reverted_scope), *fresh.reverted_scope],
+                    }
+                )
+                if prove is not None:
+                    snapshot = dict(results)
+                    snapshot[task_id] = result
+                    prove(snapshot)
+                attempt += 1
         verdict: ReviewVerdict | None = None
-        for round_no in range(1, max_revisions + 2):
+        for round_no in range(1, bound + 2):
             _emit("review_started", task_id, round_no, {})
             started = time.monotonic()
             try:
@@ -331,6 +349,7 @@ async def review_loop(
             except ModelUnavailableError as exc:
                 reason = f"reviewer unavailable: {exc.error_class}"
                 if result.status in {"done", "needs_review"} and result.commit_made and result.head_sha:
+                    _fired(Event.needs_review, task_id, 1)
                     result = result.model_copy(update={"status": "needs_review", "error": reason[:500]})
                     status = "needs_review"
                 else:
@@ -362,8 +381,12 @@ async def review_loop(
                 break
             if timings is not None:
                 timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
-            if verdict.verdict == "revise" and round_no > max_revisions:
+            if (
+                verdict.verdict == "revise"
+                and _fired(Event.review_rejected, task_id, round_no).action != Action.send_to_agent
+            ):
                 if _holdable(result):
+                    _fired(Event.needs_review, task_id, 1)
                     result = _needs_review(result, result)
                     reasons = ["review rounds exhausted", *list(verdict.reasons)]
                     verdict = verdict.model_copy(
@@ -393,6 +416,8 @@ async def review_loop(
                 },
             )
             if verdict.verdict != "revise":
+                if verdict.verdict == "approve":
+                    _fired(Event.approved_green, task_id, 1)
                 break
             feedback = "\n".join(verdict.required_changes) or (verdict.revision_instructions or "")
             _emit("revise_started", task_id, round_no, {})
@@ -411,6 +436,7 @@ async def review_loop(
             except TimeoutError:
                 reason = f"revise round exceeded {round_budget_s:g}s"
                 if _holdable(prior):
+                    _fired(Event.needs_review, task_id, 1)
                     result = _needs_review(prior, prior)
                     verdict = ReviewVerdict(
                         task_id=task_id,  # type: ignore[arg-type]
@@ -451,6 +477,7 @@ async def review_loop(
             if diff_of is not None and diff_of(result) == before:
                 base = result if _holdable(result) else prior
                 if _holdable(base):
+                    _fired(Event.needs_review, task_id, 1)
                     result = _needs_review(base, result)
                 message = (result.cursor_message or "").strip()[:500]
                 reasons = ["no new diff", message] if message else ["no new diff"]
@@ -683,6 +710,7 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
             emit=_emit_llm,
             agent="reviewer",
             task_id=result.task_id,
+            reactions=bundle.settings.reactions,
         )
 
     # First attempt through retry helper; parse/repair still uses review_or_escalate on success path.
@@ -693,6 +721,7 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
             emit=_emit_llm,
             agent="reviewer",
             task_id=result.task_id,
+            reactions=bundle.settings.reactions,
         )
     except ModelUnavailableError:
         raise
@@ -784,6 +813,7 @@ class ReviewerAgent(BaseAgent):
             timings=timings,
             max_revisions=self.bundle.settings.revise.max_rounds,
             round_budget_s=self.bundle.settings.revise.round_budget_s,
+            reactions=self.bundle.settings.reactions,
         )
         self.bundle.review_seconds += timings.get("review", 0.0)
         self.bundle.revise_seconds += timings.get("revise", 0.0)
@@ -863,6 +893,14 @@ class IntegratorAgent(BaseAgent):
             checks=dict(self.bundle.request.checks) or None,
             reasons=reasons,
             resolve_once=resolve_once,
+            reactions=self.bundle.settings.reactions,
+            on_reaction=lambda task_id, decision: _emit(
+                self.bundle,
+                "reaction.fired",
+                task_id,
+                decision.attempt,
+                reaction_payload(Event.merge_conflict, decision, task_id),
+            ),
         )
         self.bundle.integration_seconds = time.monotonic() - started
         _phase(self.bundle, "integrate", self.bundle.integration_seconds)

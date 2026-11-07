@@ -49,6 +49,7 @@ def run(label: str, cmd: list[str]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the TreeFleet gate for a phase and every earlier phase.")
     parser.add_argument("--phase", type=int, required=True, choices=range(MAX_PHASE + 1))
+    parser.add_argument("--step", type=int, default=None, help="phase step being gated; reported in the result line")
     parser.add_argument("--live", action="store_true", help="include tests marked live (real model and network calls)")
     parser.add_argument("--skip", action="append", default=[], choices=["ruff", "pyright"], help="skip a tool")
     args = parser.parse_args()
@@ -66,7 +67,8 @@ def main() -> int:
     steps.append(("pytest", [py, "-m", "pytest", "-q", "-m", expression]))
 
     failed = [label for label, cmd in steps if not run(label, cmd)]
-    print("\n" + ("GATE GREEN" if not failed else f"GATE RED: {', '.join(failed)}") + f" (phase {args.phase})")
+    step = f" step {args.step}" if args.step is not None else ""
+    print("\n" + ("GATE GREEN" if not failed else f"GATE RED: {', '.join(failed)}") + f" (phase {args.phase}{step})")
     return 1 if failed else 0
 
 

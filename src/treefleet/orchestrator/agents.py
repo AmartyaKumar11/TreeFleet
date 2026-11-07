@@ -366,6 +366,7 @@ async def _plan_once(
     escalate: Any = None,
     model_name: str = "",
     escalate_name: str = "",
+    reactions: Any = None,
 ) -> Plan:
     """Parse Plan JSON. One JSON repair, then one re-plan when the guard rejects it."""
     from pydantic import ValidationError
@@ -399,7 +400,7 @@ async def _plan_once(
             agent = llm if chosen == primary else (escalate or llm)
             return await _complete(agent, user_text, sink=sink, run_id=run_id, usage=usage)
 
-        return await with_llm_retry(call, models=models, emit=_emit_llm, agent="planner")
+        return await with_llm_retry(call, models=models, emit=_emit_llm, agent="planner", reactions=reactions)
 
     text = await durable(prompt)
     try:
@@ -473,6 +474,7 @@ async def plan_goal(
     sink: EventSink | None = None,
     run_id: str = "",
     usage: Any = None,
+    reactions: Any = None,
 ) -> Plan:
     """Plan, one repair, then one deepseek-v4-pro retry when the planner was flash."""
     kwargs = {
@@ -483,6 +485,7 @@ async def plan_goal(
         "escalate": escalate,
         "model_name": model_name,
         "escalate_name": escalate_name or "deepseek/deepseek-v4-pro",
+        "reactions": reactions,
     }
     try:
         plan = await _plan_once(llm, goal, tree, checks, **kwargs)
@@ -784,6 +787,7 @@ class PlannerAgent(BaseAgent):
             sink=self.bundle.sink,
             run_id=self.bundle.run_id,
             usage=box,
+            reactions=self.bundle.settings.reactions,
         )
         self.bundle.planner_model = used[-1] if used else model_name
         self.bundle.planner_usage = box.usage

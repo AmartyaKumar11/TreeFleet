@@ -8,7 +8,9 @@ import tomllib
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from treefleet.reactions import ReactionConfigError, ReactionTable, default_table, load_reactions
 
 _SECRET_KEYS = ("deepseek_api_key", "typesafe_api_key", "cursor_api_key")
 
@@ -120,6 +122,7 @@ class Settings(_Strict):
     pricing: Pricing
     guards: Guards = Field(default_factory=Guards)
     revise: Revise = Field(default_factory=Revise)
+    reactions: ReactionTable = Field(default_factory=default_table)
     worktree_root: str
     orchestrator_python: str
     worker_python: str
@@ -149,6 +152,7 @@ def _python(venv: Path) -> Path:
 
 def load_settings(path: Path) -> Settings:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
+    reactions_raw = data.pop("reactions", None)
     leaked = [key for key in _SECRET_KEYS if key in data]
     if leaked:
         raise ConfigError(f"{leaked[0]} must be set with an environment variable, not treefleet.toml.")
@@ -165,4 +169,12 @@ def load_settings(path: Path) -> Settings:
     data["typesafe_api_key"] = _required("TYPESAFE_API_KEY")
     cursor = os.environ.get("CURSOR_API_KEY")
     data["cursor_api_key"] = cursor if cursor else None
-    return Settings.model_validate(data)
+    try:
+        settings = Settings.model_validate(data)
+    except ValidationError:
+        raise
+    try:
+        table = load_reactions(reactions_raw, review_rounds=settings.revise.max_rounds)
+    except ReactionConfigError as exc:
+        raise ConfigError(str(exc)) from exc
+    return settings.model_copy(update={"reactions": table})

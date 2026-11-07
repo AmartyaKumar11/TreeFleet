@@ -9,6 +9,7 @@ from pathlib import Path
 from treefleet.checks import run_command
 from treefleet.contracts import CheckResult, IntegrationConflict, IntegrationReport
 from treefleet.git.worktrees import GitError, branch_name, create_worktree, git_out, run_git
+from treefleet.reactions import Action, Decision, Event, ReactionTable, resolve
 
 _CONFLICT_FEEDBACK_CAP = 1800
 
@@ -94,6 +95,8 @@ def integrate(
     checks: dict[str, str] | None = None,
     reasons: dict[str, str] | None = None,
     resolve_once: Callable[[str, str, list[str]], bool] | None = None,
+    reactions: ReactionTable | None = None,
+    on_reaction: Callable[[str, Decision], None] | None = None,
 ) -> IntegrationReport:
     """Merge into tf/<run>/integrated in its own worktree. The caller's checkout is not moved.
 
@@ -112,7 +115,7 @@ def integrate(
     merged: list[str] = []
     conflicts: list[IntegrationConflict] = []
     conflicted: list[str] = []
-    resolved_once: set[str] = set()
+    conflict_tries: dict[str, int] = {}
     try:
         for task in approved:
             ok, paths, text = _try_merge(worktree, branches[task])
@@ -128,21 +131,31 @@ def integrate(
             conflict_paths = paths or ["unknown"]
             _abort_merge(worktree)
             tip = git_out(["rev-parse", "HEAD"], worktree).strip()
-            if resolve_once is not None and task not in resolved_once:
-                resolved_once.add(task)
-                if resolve_once(task, tip, conflict_paths):
-                    ok, paths, text = _try_merge(worktree, branches[task])
-                    if ok:
-                        merged.append(task)
-                        continue
-                    if not paths and "CONFLICT" not in text:
-                        raise GitError(text.strip() or "git merge failed after resolve")
-                    conflict_paths = paths or ["unknown"]
-                    between = list(dict.fromkeys([*merged, task]))
-                    if len(between) < 2:
-                        other = approved[0] if approved[0] != task else approved[-1]
-                        between = [other, task]
-                    _abort_merge(worktree)
+            while resolve_once is not None:
+                attempt = conflict_tries.get(task, 0) + 1
+                decision = resolve(Event.merge_conflict, attempt, reactions)
+                if on_reaction is not None:
+                    on_reaction(task, decision)
+                if decision.action != Action.send_to_agent:
+                    break
+                conflict_tries[task] = attempt
+                if not resolve_once(task, tip, conflict_paths):
+                    break
+                ok, paths, text = _try_merge(worktree, branches[task])
+                if ok:
+                    merged.append(task)
+                    break
+                if not paths and "CONFLICT" not in text:
+                    raise GitError(text.strip() or "git merge failed after resolve")
+                conflict_paths = paths or ["unknown"]
+                between = list(dict.fromkeys([*merged, task]))
+                if len(between) < 2:
+                    other = approved[0] if approved[0] != task else approved[-1]
+                    between = [other, task]
+                _abort_merge(worktree)
+                tip = git_out(["rev-parse", "HEAD"], worktree).strip()
+            if task in merged:
+                continue
             for path in conflict_paths:
                 conflicts.append(IntegrationConflict(path=path, between=between))  # type: ignore[arg-type]
             conflicted.append(task)
