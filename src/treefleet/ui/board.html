@@ -31,6 +31,7 @@ select { background: var(--raised); border: 1px solid var(--line-strong); border
 .bar { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .bar h1 { font-size: 15px; font-weight: 600; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--muted); }
+.pill.attention { border-color: var(--yellow); color: var(--yellow); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; display: inline-block; }
 .dot.green { background: var(--green); } .dot.red { background: var(--red); }
 .dot.yellow { background: var(--yellow); } .dot.blue { background: var(--blue); }
@@ -83,6 +84,7 @@ th { color: var(--muted); }
       <span class="pill" id="clean"></span>
       <span class="pill" id="stage">Stage: guard</span>
       <span class="pill mono" id="elapsed">0:00</span>
+      <span class="pill attention" id="attention" hidden>Needs you</span>
       <span class="spacer"></span>
       <button class="switch" id="auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval">
         <span class="track"></span><span>Auto-run without plan approval</span>
@@ -156,6 +158,8 @@ th { color: var(--muted); }
   var pinned = false;
   var state = {};
   var streamFor = "";
+  var lastNeedsHuman = false;
+  var baseTitle = "TreeFleet";
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
       return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[ch];
@@ -172,6 +176,25 @@ th { color: var(--muted); }
   }
   function lane(task) {
     return task.lane || "working";
+  }
+  function notifyHuman(needs) {
+    var badge = document.getElementById("attention");
+    if (needs) {
+      badge.hidden = false;
+      document.title = "(1) " + baseTitle;
+      if (!lastNeedsHuman && "Notification" in window) {
+        var show = function () {
+          try { new Notification("TreeFleet needs you", { body: "A plan or task is waiting on the board." }); }
+          catch (err) {}
+        };
+        if (Notification.permission === "granted") show();
+        else if (Notification.permission !== "denied") Notification.requestPermission().then(function (p) { if (p === "granted") show(); });
+      }
+    } else {
+      badge.hidden = true;
+      document.title = baseTitle;
+    }
+    lastNeedsHuman = !!needs;
   }
   function tasksFrom(data) {
     var byId = {};
@@ -235,7 +258,7 @@ th { color: var(--muted); }
     state = data;
     if (data.replay || replay) {
       document.getElementById("replay").hidden = false;
-      document.title = "TreeFleet replay";
+      baseTitle = "TreeFleet replay";
       var liveTab = document.querySelector('[data-pane="live"]');
       if (liveTab) liveTab.textContent = "Recorded output";
       document.getElementById("run").disabled = true;
@@ -245,6 +268,7 @@ th { color: var(--muted); }
     document.getElementById("ref").textContent = (data.branch || "") + (data.head ? " @ " + data.head : "");
     document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
     document.getElementById("stage").textContent = "Stage: " + (data.stage || "guard");
+    notifyHuman(!!data.needs_human || !!data.awaiting);
     if (data.started_at) started = data.started_at;
     if (data.finished_at) finished = data.finished_at;
     else if (data.stage === "done" && !finished) finished = Date.now() / 1000;

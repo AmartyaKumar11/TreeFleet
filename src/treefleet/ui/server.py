@@ -328,6 +328,8 @@ def create_app(
                     "stage": "guard",
                     "stages": list(_STAGES),
                     "events": list(board.replay_events),
+                    "tasks": [],
+                    "needs_human": False,
                     "worktrees": worktree_rows(repo, board.base_sha),
                     "awaiting": None,
                     "report": None,
