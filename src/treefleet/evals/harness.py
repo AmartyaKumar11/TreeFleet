@@ -236,6 +236,24 @@ def run_live(
                 rows.append(_failed_row(scenario, label, index, str(exc)))
                 os.environ.pop("TREEFLEET_FORCE_PLAN", None)
                 continue
+            if scenario.mode == "deterministic_conflict":
+                from treefleet.config import load_settings
+                from treefleet.evals.conflict_run import run_deterministic_conflict
+
+                try:
+                    row = run_deterministic_conflict(root, repo, load_settings(root / "treefleet.toml"))
+                except Exception as exc:
+                    row = _failed_row(scenario, label, index, f"{type(exc).__name__}: {exc}")
+                counts[label] = counts.get(label, 0) + 1
+                row["label"] = f"{label}#{counts[label]}"
+                if scenario.nondeterministic:
+                    row["nondeterministic"] = True
+                rows.append(row)
+                os.environ.pop("TREEFLEET_FORCE_PLAN", None)
+                print(f"eval {row['label']} {row['expectation']}", flush=True)
+                if on_row is not None:
+                    on_row(rows)
+                continue
             known = {path.name for path in runs.iterdir() if path.is_dir()} if runs.is_dir() else set()
             code = 1
             note = ""
@@ -252,6 +270,8 @@ def run_live(
             row = score(scenario, report, message)
             if scenario.force_plan:
                 row["planner_model"] = "forced"
+            if scenario.nondeterministic:
+                row["nondeterministic"] = True
             if report is None and newest is not None:
                 row["jev_calls"] = _jev_calls(newest)
             counts[label] = counts.get(label, 0) + 1

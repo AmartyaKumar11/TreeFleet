@@ -94,9 +94,13 @@ def _report(ok: bool) -> FinalReport:
 
 def test_scenarios_file_lists_e1_through_e7() -> None:
     found = load_scenarios(ROOT / "eval" / "scenarios.toml")
-    assert [item.id for item in found] == ["E1", "E2", "E3", "E4", "E5", "E6", "E7"]
+    assert [item.id for item in found] == ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E7-natural"]
     assert found[1].repeat == 2
     assert [item.name for item in found[5].variant] == ["auto", "router"]
+    e7 = next(item for item in found if item.id == "E7")
+    assert e7.mode == "deterministic_conflict"
+    natural = next(item for item in found if item.id == "E7-natural")
+    assert natural.nondeterministic is True
 
 
 def test_offline_report_is_schema_valid_and_cost_matches_the_rows() -> None:

@@ -35,6 +35,8 @@ class Scenario(BaseModel):
     goal: str
     flags: list[str] = Field(default_factory=list)
     force_plan: str = ""
+    mode: str = ""
+    nondeterministic: bool = False
     repeat: int = 1
     variant: list[Variant] = Field(default_factory=list)
     expect: Expectation = Field(default_factory=Expectation)
