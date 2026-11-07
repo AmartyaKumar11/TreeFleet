@@ -99,3 +99,19 @@ statuses = ["done"]
 verdicts = ["approve"]
 isolation = "PASS"
 checks = "pass"
+
+[[scenario]]
+id = "E7"
+goal = "Two tasks edit the same lines of README.md so integration must resolve a conflict."
+flags = ["--yes", "--no-approval"]
+force_plan = '{"goal":"Two tasks edit the same lines of README.md so integration must resolve a conflict.","rationale":"Forced same-file same-hunk conflict for the feedback-loop eval.","tasks":[{"id":"alpha","title":"Alpha owns README line","instructions":"Edit README.md only. Replace the sentence that starts with Small Python app so it reads exactly: Alpha owns this sentence about the PR Sentinel demo app. Do not change any other file.","allowed_paths":["README.md"]},{"id":"beta","title":"Beta owns README line","instructions":"Edit README.md only. Replace the sentence that starts with Small Python app so it reads exactly: Beta owns this sentence about the PR Sentinel demo app. Do not change any other file.","allowed_paths":["README.md"]}]}'
+repeat = 1
+
+[scenario.expect]
+guard = "allow"
+task_min = 2
+task_max = 2
+statuses = ["done"]
+verdicts = ["approve"]
+isolation = "PASS"
+checks = "pass"

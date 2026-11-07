@@ -182,13 +182,14 @@ th { color: var(--muted); }
     if (needs) {
       badge.hidden = false;
       document.title = "(1) " + baseTitle;
-      if (!lastNeedsHuman && "Notification" in window) {
-        var show = function () {
-          try { new Notification("TreeFleet needs you", { body: "A plan or task is waiting on the board." }); }
-          catch (err) {}
-        };
-        if (Notification.permission === "granted") show();
-        else if (Notification.permission !== "denied") Notification.requestPermission().then(function (p) { if (p === "granted") show(); });
+      if (!lastNeedsHuman && typeof Notification !== "undefined") {
+        try {
+          if (Notification.permission === "granted") {
+            new Notification("TreeFleet needs you", { body: "A plan or task is waiting on the board." });
+          } else if (Notification.permission === "default") {
+            Notification.requestPermission();
+          }
+        } catch (err) {}
       }
     } else {
       badge.hidden = true;

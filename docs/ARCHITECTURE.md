@@ -170,7 +170,7 @@ Validation: an id matches `^[A-Za-z0-9._:/\-]{1,100}$` and, at run start, appear
 | Orchestrator-workers | Planner decomposes, FleetAgent delegates over A2A |
 | Parallelization | Tasks in one wave run concurrently with `asyncio.gather` |
 | Routing | Jev complexity score selects the Cursor model per task through the tier table |
-| Evaluator-optimizer | Reviewer verdict `revise` sends feedback back to the same worker, max 2 revisions (`LoopAgent` semantics) |
+| Evaluator-optimizer | Reviewer verdict `revise`, failed local checks, and one integrate conflict each send `revision_feedback` back to the same worker (`LoopAgent` semantics). Conflict resolve is Cursor in the owning worktree, never an LLM merge outside Cursor |
 | Guardrail / validation | Layered guards at six stages, see section 8 |
 | Human-in-the-loop hook | Worker `InputRequired` and Jev low confidence surface as `needs_human` cards |
 
@@ -207,6 +207,7 @@ sequenceDiagram
     O-->>W: A2A envelope with revision_feedback
   end
   O->>G: merge approved branches into tf/<run>/integrated in its own worktree
+  Note over O,W: On conflict: merge tip into owning worktree, one Cursor revise, retry once
   O->>U: FinalReport (JSON + Markdown), SSE throughout
 ```
 

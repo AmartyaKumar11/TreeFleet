@@ -92,9 +92,9 @@ def _report(ok: bool) -> FinalReport:
     )
 
 
-def test_scenarios_file_lists_e1_through_e6() -> None:
+def test_scenarios_file_lists_e1_through_e7() -> None:
     found = load_scenarios(ROOT / "eval" / "scenarios.toml")
-    assert [item.id for item in found] == ["E1", "E2", "E3", "E4", "E5", "E6"]
+    assert [item.id for item in found] == ["E1", "E2", "E3", "E4", "E5", "E6", "E7"]
     assert found[1].repeat == 2
     assert [item.name for item in found[5].variant] == ["auto", "router"]
 

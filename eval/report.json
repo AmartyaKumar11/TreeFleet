@@ -329,18 +329,65 @@
         "revise": 0.0,
         "integrate": 2.14
       }
+    },
+    {
+      "scenario": "E7",
+      "guard": "allow",
+      "task_count": 2,
+      "wall_s": 636.4220000000205,
+      "fleet_wall_s": 605.3910000000615,
+      "review_s": 45.78099999995902,
+      "sequential_s": 434.5309999999795,
+      "cost_usd": 0.051521,
+      "cost_text": "27483 tokens",
+      "expectation": "fail: statuses ['done', 'failed']; verdicts ['reject', 'reject']",
+      "isolation": "PASS",
+      "isolation_violation": false,
+      "statuses": [
+        "done",
+        "failed"
+      ],
+      "verdicts": [
+        "reject",
+        "reject"
+      ],
+      "planner_model": "forced",
+      "tokens": {
+        "planner": 0,
+        "worker": 0,
+        "cursor": 25902,
+        "jev": 1581
+      },
+      "unreported": [
+        "worker",
+        "cursor"
+      ],
+      "jev_calls": 4,
+      "message": "# TreeFleet run 08396b8f\n\n**Goal:** Two tasks edit the same lines of README.md so integration must resolve a conflict.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| alpha | done | reject | 0 | `tf/08396b8f/alpha` | 1 | none |\n| beta ",
+      "label": "E7#1",
+      "run_id": "08396b8f",
+      "checkout": "",
+      "timing": {
+        "scan": 0.047,
+        "baseline": 5.063,
+        "planner": 0.266,
+        "fleet": 605.391,
+        "review": 45.781,
+        "revise": 0.0,
+        "integrate": 1.938
+      }
     }
   ],
   "concurrency_cap": 3,
   "estimates": [
     "This section is an extrapolation, not a measurement.",
     "Formula: projected sequential = tasks * (measured sequential time / measured task count). Projected wall = ceil(tasks / 3) * that same per-task time. The cap 3 is workers.max_workers. Slots run together, so wall grows by batches of 3.",
-    "Average cost per task: $0.0411.",
+    "Average cost per task: $0.0389.",
     "",
     "| Tasks | Projected wall | Projected sequential |",
     "|---|---|---|",
-    "| 5 | 314.3s | 785.8s |",
-    "| 10 | 628.6s | 1571.5s |",
-    "| 20 | 1100.1s | 3143.0s |"
+    "| 5 | 331.5s | 828.7s |",
+    "| 10 | 663.0s | 1657.4s |",
+    "| 20 | 1160.2s | 3314.8s |"
   ]
 }

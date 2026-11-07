@@ -41,12 +41,7 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
         return "needs"
     if facts.verdict == "approve" and (facts.integrated or facts.ready_to_merge):
         return "ready"
-    if (
-        facts.review_started
-        or facts.awaiting_verdict
-        or facts.status == "done"
-        or facts.verdict == "approve"
-    ):
+    if facts.review_started or facts.awaiting_verdict or facts.status == "done" or facts.verdict == "approve":
         return "review"
     if facts.worker_active or facts.output_seen or facts.fleet_in_progress:
         return "working"
@@ -97,7 +92,8 @@ def tasks_from_snapshot(
     fleet_in_progress = False
     for event in events:
         kind = str(event.get("type") or "")
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        raw_payload = event.get("payload")
+        payload: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else {}
         if kind == "guard.decision" and payload.get("allowed") is False:
             guard_blocked = True
         if kind == "phase" and payload.get("name") == "fleet":
@@ -137,6 +133,17 @@ def tasks_from_snapshot(
                 task["lines"].append(line)
         if kind in {"cursor.tool_start", "cursor.tool_finish"}:
             task["worker_active"] = True
+            tool = str(payload.get("tool") or "tool")
+            verb = "editing" if tool == "edit" else tool
+            path = str(payload.get("path") or "")
+            done = ""
+            if kind == "cursor.tool_finish":
+                done = " done" if payload.get("ok") else " failed"
+            line = f"{verb} {path}{done}".strip()
+            if line:
+                task["lines"].append(line)
+            if kind == "cursor.tool_start" and path:
+                task["action"] = f"{verb} {path}"
         if kind == "worker.exited":
             task["worker_active"] = False
             task["status"] = str(payload.get("status") or task["status"])
@@ -203,7 +210,9 @@ def tasks_from_snapshot(
             integrated=_integrated(task_id, report),
             ready_to_merge=_integrated(task_id, report),
         )
-        card = {key: value for key, value in task.items() if key not in {"worker_active", "output_seen", "checks_failed"}}
+        card = {
+            key: value for key, value in task.items() if key not in {"worker_active", "output_seen", "checks_failed"}
+        }
         card["lane"] = derive_lane(facts)
         tasks.append(card)
     return tasks

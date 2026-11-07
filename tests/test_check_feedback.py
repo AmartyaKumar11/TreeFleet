@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from treefleet.contracts import CheckResult, ReviewVerdict, SelfReportedIsolation, WorkerResult
 from treefleet.guards.text import redact
 from treefleet.orchestrator.review import check_failure_feedback, review_loop
-
-import pytest
 
 pytestmark = pytest.mark.phase6
 
@@ -54,9 +54,7 @@ def test_check_failure_feedback_names_the_check_and_redacts() -> None:
 @pytest.mark.asyncio
 async def test_failed_checks_revise_before_reviewer() -> None:
     failed = _result(
-        checks=[
-            CheckResult(name="pytest", command="pytest -q", exit_code=1, passed=False, stdout_tail="boom\n")
-        ]
+        checks=[CheckResult(name="pytest", command="pytest -q", exit_code=1, passed=False, stdout_tail="boom\n")]
     )
     fixed = failed.model_copy(
         update={

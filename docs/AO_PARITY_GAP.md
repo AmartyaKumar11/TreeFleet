@@ -55,9 +55,9 @@ Cite:
 Gates matter: CI/review nudges wait while the agent is at ambiguous `waiting_input`; merge-conflict can be **urgent** for harnesses that surface permissions as `blocked`.
 
 ### What TreeFleet does today
-**In-process review only.** `ReviewerAgent` / `review_loop` (`orchestrator/review.py`) returns `approve` | `revise` | `reject`. A `revise` re-runs the **same worktree/branch** with `revision_feedback` in the envelope (cap from `treefleet.toml` `[revise] max_rounds`). Failed **local** checks influence the reviewer / status.
+**In-process review only.** `ReviewerAgent` / `review_loop` (`orchestrator/review.py`) returns `approve` | `revise` | `reject`. A `revise` re-runs the **same worktree/branch** with `revision_feedback` in the envelope (cap from `treefleet.toml` `[revise] max_rounds`). Failed **local** checks now revise with a redacted check tail **before** the reviewer. Integration conflicts merge the integrated tip into the owning worktree and give that worker **one** Cursor resolve attempt, then exclude on a second conflict.
 
-There is **no** GitHub/GitLab observer, **no** auto-inject of remote review comments or CI into the worker, and **integration merge conflicts** are recorded and skipped (`conflict`), not sent back to the owning worker as a rebase task.
+There is **no** GitHub/GitLab observer and **no** auto-inject of remote review comments or CI into the worker.
 
 ### Smallest ADK/CrewAI change
 Stay hub-and-spoke on the orchestrator:
@@ -84,14 +84,7 @@ Two related layers:
 README L77–82 states the product meaning of those four lanes.
 
 ### What TreeFleet does today
-The lite board already uses the **same four lane titles** (`ui/board.html` L101–105). Placement is a **simple client heuristic** (`lane()` L173–179):
-
-- `needs_review` / `revise` / `reject` / `failed` → Needs you  
-- `approve` → Ready to merge  
-- `done` → In review  
-- else → Working  
-
-No PR/CI/activity derivation. Plan approval and “agent waiting for human” are only partially reflected (Approve plan card + stages), not as durable AO-style `needs_input`.
+The lite board uses the **same four lane titles**. Lanes are derived in Python (`ui/lanes.py`) from events and report fields and shipped over SSE as `task.lane`; the page does not guess. `/api/board` also carries `needs_human` for refresh, with a browser Notification and badge when attention is required.
 
 ### Smallest ADK/CrewAI change
 Keep the four lanes. Replace `lane()` with a pure function over **existing events + report fields** (still no Electron):

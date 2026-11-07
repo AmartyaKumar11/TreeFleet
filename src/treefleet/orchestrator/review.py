@@ -790,7 +790,5 @@ class IntegratorAgent(BaseAgent):
         _phase(self.bundle, "integrate", self.bundle.integration_seconds)
         delta: dict[str, Any] = {StateKey.INTEGRATION: report.model_dump(mode="json")}
         if results:
-            delta[StateKey.WORKER_RESULTS] = {
-                key: value.model_dump(mode="json") for key, value in results.items()
-            }
+            delta[StateKey.WORKER_RESULTS] = {key: value.model_dump(mode="json") for key, value in results.items()}
         yield _adk_event(ctx, self.name, delta)
