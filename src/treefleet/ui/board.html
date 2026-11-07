@@ -171,12 +171,7 @@ th { color: var(--muted); }
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
   function lane(task) {
-    var verdict = task.verdict || "";
-    if (task.status === "needs_review") return "needs";
-    if (verdict === "approve") return "ready";
-    if (verdict === "revise" || verdict === "reject" || task.status === "failed") return "needs";
-    if (task.status === "done") return "review";
-    return "working";
+    return task.lane || "working";
   }
   function tasksFrom(data) {
     var byId = {};
@@ -278,7 +273,7 @@ th { color: var(--muted); }
       card.appendChild(actions);
       document.getElementById("needs").appendChild(card);
     }
-    var tasks = data.tasks || tasksFrom(data);
+    var tasks = data.tasks || [];
     tasks.forEach(function (task) {
       var button = document.createElement("button");
       button.className = "card";

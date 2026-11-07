@@ -1,0 +1,216 @@
+"""Board lane derivation. The page renders the lane field; it does not guess."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Lane = Literal["needs", "working", "review", "ready"]
+
+
+@dataclass(frozen=True)
+class TaskLaneFacts:
+    """Facts the board helper reads. All optional defaults are false or empty."""
+
+    awaiting_approval: bool = False
+    status: str = ""
+    verdict: str = ""
+    checks_failed: bool = False
+    conflict: bool = False
+    guard_blocked: bool = False
+    worker_active: bool = False
+    output_seen: bool = False
+    fleet_in_progress: bool = False
+    review_started: bool = False
+    awaiting_verdict: bool = False
+    integrated: bool = False
+    ready_to_merge: bool = False
+
+
+def derive_lane(facts: TaskLaneFacts) -> Lane:
+    """Map facts to a board lane id. Needs you outranks every other signal."""
+    if (
+        facts.awaiting_approval
+        or facts.status == "needs_review"
+        or facts.checks_failed
+        or facts.conflict
+        or facts.guard_blocked
+        or facts.verdict in {"revise", "reject"}
+        or facts.status == "failed"
+    ):
+        return "needs"
+    if facts.verdict == "approve" and (facts.integrated or facts.ready_to_merge):
+        return "ready"
+    if (
+        facts.review_started
+        or facts.awaiting_verdict
+        or facts.status == "done"
+        or facts.verdict == "approve"
+    ):
+        return "review"
+    if facts.worker_active or facts.output_seen or facts.fleet_in_progress:
+        return "working"
+    return "working"
+
+
+def _checks_failed(result: dict[str, Any]) -> bool:
+    checks = result.get("checks") or []
+    if not isinstance(checks, list):
+        return False
+    return any(isinstance(item, dict) and item.get("passed") is False for item in checks)
+
+
+def _conflicted(task_id: str, report: dict[str, Any] | None) -> bool:
+    if not report:
+        return False
+    integration = report.get("integration") or {}
+    if not isinstance(integration, dict):
+        return False
+    for item in integration.get("conflicts") or []:
+        if isinstance(item, dict) and task_id in (item.get("between") or []):
+            return True
+    for line in integration.get("excluded") or []:
+        if isinstance(line, str) and line.startswith(f"{task_id}:") and "conflict" in line:
+            return True
+    return False
+
+
+def _integrated(task_id: str, report: dict[str, Any] | None) -> bool:
+    if not report:
+        return False
+    integration = report.get("integration") or {}
+    if not isinstance(integration, dict):
+        return False
+    merged = integration.get("merged") or []
+    return isinstance(merged, list) and task_id in merged
+
+
+def tasks_from_snapshot(
+    events: list[dict[str, Any]],
+    report: dict[str, Any] | None,
+    *,
+    awaiting: bool = False,
+) -> list[dict[str, Any]]:
+    """Build task cards with a server-computed lane for each known task id."""
+    by_id: dict[str, dict[str, Any]] = {}
+    guard_blocked = False
+    fleet_in_progress = False
+    for event in events:
+        kind = str(event.get("type") or "")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if kind == "guard.decision" and payload.get("allowed") is False:
+            guard_blocked = True
+        if kind == "phase" and payload.get("name") == "fleet":
+            fleet_in_progress = True
+        if kind in {"worker.spawned", "output_line", "cursor.tool_start"}:
+            fleet_in_progress = True
+        if kind == "phase" and payload.get("name") in {"review", "revise", "integrate", "report"}:
+            fleet_in_progress = False
+        task_id = event.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        task = by_id.setdefault(
+            task_id,
+            {
+                "id": task_id,
+                "title": task_id,
+                "status": "",
+                "verdict": "",
+                "model": "",
+                "round": 0,
+                "lines": [],
+                "worker_active": False,
+                "output_seen": False,
+                "review_started": False,
+                "awaiting_verdict": False,
+            },
+        )
+        if kind == "model_selected":
+            task["model"] = str(payload.get("model") or task["model"])
+        if kind == "worker.spawned":
+            task["worker_active"] = True
+        if kind == "output_line":
+            task["output_seen"] = True
+            task["worker_active"] = True
+            line = payload.get("line")
+            if isinstance(line, str) and line:
+                task["lines"].append(line)
+        if kind in {"cursor.tool_start", "cursor.tool_finish"}:
+            task["worker_active"] = True
+        if kind == "worker.exited":
+            task["worker_active"] = False
+            task["status"] = str(payload.get("status") or task["status"])
+            if payload.get("error"):
+                task["error"] = payload["error"]
+            if payload.get("files"):
+                task["files"] = payload["files"]
+        if kind == "review_started":
+            task["review_started"] = True
+            task["awaiting_verdict"] = True
+        if kind == "review_verdict":
+            task["awaiting_verdict"] = False
+            task["verdict"] = str(payload.get("verdict") or task["verdict"])
+            if payload.get("status"):
+                task["status"] = str(payload["status"])
+            if payload.get("reason"):
+                task["reason"] = payload["reason"]
+        if kind == "revise_started":
+            task["round"] = int(payload.get("round") or task["round"] or 0)
+            task["worker_active"] = True
+
+    if report and isinstance(report.get("results"), list):
+        for result in report["results"]:
+            if not isinstance(result, dict):
+                continue
+            task_id = result.get("task_id")
+            if not isinstance(task_id, str):
+                continue
+            task = by_id.setdefault(
+                task_id,
+                {
+                    "id": task_id,
+                    "title": task_id,
+                    "status": "",
+                    "verdict": "",
+                    "model": "",
+                    "round": 0,
+                    "lines": [],
+                    "worker_active": False,
+                    "output_seen": False,
+                    "review_started": False,
+                    "awaiting_verdict": False,
+                },
+            )
+            task["status"] = str(result.get("status") or task["status"])
+            task["checks_failed"] = _checks_failed(result)
+            if result.get("error"):
+                task["error"] = result["error"]
+
+    tasks: list[dict[str, Any]] = []
+    for task_id, task in by_id.items():
+        facts = TaskLaneFacts(
+            awaiting_approval=awaiting,
+            status=str(task.get("status") or ""),
+            verdict=str(task.get("verdict") or ""),
+            checks_failed=bool(task.get("checks_failed")),
+            conflict=_conflicted(task_id, report),
+            guard_blocked=guard_blocked,
+            worker_active=bool(task.get("worker_active")),
+            output_seen=bool(task.get("output_seen")),
+            fleet_in_progress=fleet_in_progress and not task.get("status"),
+            review_started=bool(task.get("review_started")),
+            awaiting_verdict=bool(task.get("awaiting_verdict")),
+            integrated=_integrated(task_id, report),
+            ready_to_merge=_integrated(task_id, report),
+        )
+        card = {key: value for key, value in task.items() if key not in {"worker_active", "output_seen", "checks_failed"}}
+        card["lane"] = derive_lane(facts)
+        tasks.append(card)
+    return tasks
+
+
+def run_needs_human(events: list[dict[str, Any]], report: dict[str, Any] | None, *, awaiting: bool) -> bool:
+    """True when the human must act: plan approval or any Needs you lane."""
+    if awaiting:
+        return True
+    return any(task.get("lane") == "needs" for task in tasks_from_snapshot(events, report, awaiting=False))

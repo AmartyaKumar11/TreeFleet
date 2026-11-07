@@ -18,6 +18,7 @@ from treefleet.contracts import Plan, RunRequest
 from treefleet.git.worktrees import run_git
 from treefleet.guards.input import deterministic_reasons, screen_goal
 from treefleet.guards.text import redact_payload
+from treefleet.ui.lanes import run_needs_human, tasks_from_snapshot
 
 _PAGE = Path(__file__).with_name("board.html")
 _STAGES = ("guard", "plan", "approve", "fleet", "review", "integrate", "done")
@@ -217,6 +218,7 @@ class Board:
             except json.JSONDecodeError:
                 report = None
         branch, head, clean = _head(self.repo)
+        tasks = tasks_from_snapshot(events, report, awaiting=waiting)
         body = {
             "repo": str(self.repo),
             "branch": branch,
@@ -229,6 +231,8 @@ class Board:
             "finished_at": self.ended.get(run_id),
             "awaiting": plan if waiting else None,
             "events": events[-400:],
+            "tasks": tasks,
+            "needs_human": run_needs_human(events, report, awaiting=waiting),
             "worktrees": worktree_rows(self.repo, self.base_sha),
             "report": report,
             "message": self.messages.get(run_id, ""),
