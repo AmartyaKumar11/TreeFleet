@@ -727,7 +727,11 @@ class IntegratorAgent(BaseAgent):
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
         if not self.bundle.approved:
             return
-        from treefleet.git.merge import integrate
+        import asyncio
+        import concurrent.futures
+        import time
+
+        from treefleet.git.merge import conflict_revision_feedback, integrate, merge_tip_into_task
 
         plan = read_plan(ctx.session.state)
         results = read_results(ctx.session.state)
@@ -742,7 +746,33 @@ class IntegratorAgent(BaseAgent):
             verdicts,
             include_needs_review=bool(getattr(self.bundle.request, "include_needs_review", False)),
         )
-        import time
+
+        def resolve_once(task_id: str, tip: str, paths: list[str]) -> bool:
+            worktree = self.bundle.worktree_root / self.bundle.run_id / task_id
+            if not worktree.is_dir():
+                return False
+            try:
+                merge_tip_into_task(worktree, tip)
+            except Exception:
+                return False
+            feedback = conflict_revision_feedback(paths, tip)
+            result = results.get(task_id)
+            attempt = (result.attempt + 1) if result is not None else 2
+            _emit(self.bundle, "revise_started", task_id, attempt, {"reason": "merge_conflict"})
+
+            def _run() -> WorkerResult:
+                return asyncio.run(_redispatch(self.bundle, task_id, feedback, attempt))
+
+            # integrate() is sync; redispatch is async. One worker thread, one attempt.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                try:
+                    fresh = pool.submit(_run).result(timeout=self.bundle.settings.revise.round_budget_s + 60)
+                except Exception:
+                    return False
+            if fresh.status not in {"done", "needs_review"} or not fresh.commit_made:
+                return False
+            results[task_id] = fresh
+            return True
 
         started = time.monotonic()
         report = integrate(
@@ -754,7 +784,13 @@ class IntegratorAgent(BaseAgent):
             worktree_root=self.bundle.worktree_root,
             checks=dict(self.bundle.request.checks) or None,
             reasons=reasons,
+            resolve_once=resolve_once,
         )
         self.bundle.integration_seconds = time.monotonic() - started
         _phase(self.bundle, "integrate", self.bundle.integration_seconds)
-        yield _adk_event(ctx, self.name, {StateKey.INTEGRATION: report.model_dump(mode="json")})
+        delta: dict[str, Any] = {StateKey.INTEGRATION: report.model_dump(mode="json")}
+        if results:
+            delta[StateKey.WORKER_RESULTS] = {
+                key: value.model_dump(mode="json") for key, value in results.items()
+            }
+        yield _adk_event(ctx, self.name, delta)
