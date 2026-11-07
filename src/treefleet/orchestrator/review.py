@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from treefleet.contracts import Plan, ReviewVerdict, RunEvent, StateKey, WorkerResult
+from treefleet.contracts import CheckResult, Plan, ReviewVerdict, RunEvent, StateKey, WorkerResult
 from treefleet.git.worktrees import GitError, git_out
 from treefleet.guards.paths import path_violation
 from treefleet.guards.text import redact
@@ -28,6 +28,22 @@ from treefleet.orchestrator.agents import (
 
 # One re-dispatch by default. treefleet.toml [revise] max_rounds is the live value.
 MAX_REVISIONS = 1
+_CHECK_FEEDBACK_CAP = 1800
+
+
+def check_failure_feedback(checks: list[CheckResult]) -> str:
+    """Name each failing check and a redacted, size-capped output tail for revision_feedback."""
+    chunks: list[str] = []
+    for item in checks:
+        if item.passed:
+            continue
+        raw = (item.stdout_tail or item.stderr_tail or "").strip()
+        cleaned, _count = redact(raw)
+        tail = cleaned[-800:] if cleaned else "no output"
+        chunks.append(f"Check {item.name} failed (exit {item.exit_code}). Output:\n{tail}")
+    text = "Fix the failing checks, then leave a clean diff.\n\n" + "\n\n".join(chunks)
+    return text[:_CHECK_FEEDBACK_CAP]
+
 
 REVIEW_INSTRUCTION = (
     "You are a reviewer. You have no write tool and no mutating git tool. "
@@ -282,6 +298,29 @@ async def review_loop(
             )
             _emit("review_verdict", task_id, 1, {"verdict": "reject", "reason": error[:300]})
             return task_id, result, verdict
+        if any(not item.passed for item in result.checks):
+            feedback = check_failure_feedback(result.checks)
+            _emit("revise_started", task_id, 0, {"reason": "checks_failed"})
+            revise_started = time.monotonic()
+            try:
+                fresh = await rerun(task_id, result, feedback, result.attempt + 1)
+            except Exception as exc:
+                verdict = _forced_reject(task_id, str(exc))
+                _emit("review_verdict", task_id, 0, {"verdict": "reject", "reason": verdict_reason(verdict)})
+                return task_id, result, verdict
+            if timings is not None:
+                timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
+            result = fresh.model_copy(
+                update={
+                    "cursor_calls": [*list(result.cursor_calls), *fresh.cursor_calls],
+                    "duration_s": result.duration_s + fresh.duration_s,
+                    "reverted_scope": [*list(result.reverted_scope), *fresh.reverted_scope],
+                }
+            )
+            if prove is not None:
+                snapshot = dict(results)
+                snapshot[task_id] = result
+                prove(snapshot)
         verdict: ReviewVerdict | None = None
         for round_no in range(1, max_revisions + 2):
             _emit("review_started", task_id, round_no, {})
