@@ -14,6 +14,7 @@ from treefleet.contracts import CheckResult, Plan, ReviewVerdict, RunEvent, Stat
 from treefleet.git.worktrees import GitError, git_out
 from treefleet.guards.paths import path_violation
 from treefleet.guards.text import redact
+from treefleet.llm_retry import ModelUnavailableError, with_llm_retry
 from treefleet.mcp_servers.gitops_server import READ_ONLY_TOOLS
 from treefleet.orchestrator.agents import (
     RunBundle,
@@ -327,6 +328,32 @@ async def review_loop(
             started = time.monotonic()
             try:
                 verdict = await review(task_id, result, round_no)
+            except ModelUnavailableError as exc:
+                reason = f"reviewer unavailable: {exc.error_class}"
+                if result.status in {"done", "needs_review"} and result.commit_made and result.head_sha:
+                    result = result.model_copy(update={"status": "needs_review", "error": reason[:500]})
+                    status = "needs_review"
+                else:
+                    result = result.model_copy(update={"error": reason[:500]})
+                    status = result.status
+                verdict = ReviewVerdict(
+                    task_id=task_id,  # type: ignore[arg-type]
+                    verdict="revise",
+                    confidence=0,
+                    reasons=[reason],
+                    issues=[reason],
+                    required_changes=["Retry review when the model is available"],
+                    revision_instructions="Retry review when the model is available",
+                )
+                _emit(
+                    "review_verdict",
+                    task_id,
+                    round_no,
+                    {"verdict": "revise", "reason": reason, "status": status},
+                )
+                if timings is not None:
+                    timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
+                break
             except Exception as exc:
                 verdict = _forced_reject(task_id, type(exc).__name__)
                 _emit("review_verdict", task_id, round_no, {"verdict": "reject", "reason": verdict_reason(verdict)})
@@ -613,11 +640,15 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
     prompt = _prompt(task, result, round_no, snapshot, _jev_note(bundle, task, snapshot))
     box = UsageBox()
     models = [bundle.settings.models.fast, bundle.settings.models.strong]
+    used = models[0]
 
-    async def complete_for(model: str, text: str) -> str:
+    def _emit_llm(kind: str, payload: dict[str, Any]) -> None:
+        _emit(bundle, kind, result.task_id, round_no, payload)
+
+    async def complete_once(model: str) -> str:
         return await _complete(
             LiteLlm(model=model),
-            text,
+            prompt,
             sink=bundle.sink,
             run_id=bundle.run_id,
             usage=box,
@@ -627,7 +658,54 @@ async def _live_verdict(bundle: RunBundle, task: Any, result: WorkerResult, roun
             tool_guard=screen_review_call,
         )
 
-    verdict, used = await review_or_escalate(complete_for, models, result.task_id, prompt)
+    async def complete_for(model: str, text: str) -> str:
+        nonlocal used
+        used = model
+
+        async def _call(chosen: str) -> str:
+            nonlocal used
+            used = chosen
+            return await _complete(
+                LiteLlm(model=chosen),
+                text,
+                sink=bundle.sink,
+                run_id=bundle.run_id,
+                usage=box,
+                agent_name="reviewer",
+                instruction=REVIEW_INSTRUCTION,
+                output_key="verdict",
+                tool_guard=screen_review_call,
+            )
+
+        return await with_llm_retry(
+            _call,
+            models=[model, models[-1]] if model != models[-1] else [model],
+            emit=_emit_llm,
+            agent="reviewer",
+            task_id=result.task_id,
+        )
+
+    # First attempt through retry helper; parse/repair still uses review_or_escalate on success path.
+    try:
+        first = await with_llm_retry(
+            complete_once,
+            models=models,
+            emit=_emit_llm,
+            agent="reviewer",
+            task_id=result.task_id,
+        )
+    except ModelUnavailableError:
+        raise
+    verdict = verdict_from_text(first, result.task_id)
+    if verdict_unparseable(verdict) and len(models) > 1:
+
+        async def complete_strong(text: str) -> str:
+            return await complete_for(models[1], text)
+
+        verdict = await verdict_with_repair(complete_strong, result.task_id, prompt)
+        used = models[1]
+    elif verdict_unparseable(verdict):
+        verdict = await verdict_with_repair(lambda text: complete_for(models[0], text), result.task_id, prompt)
     reported = box.usage.input_tokens + box.usage.output_tokens > 0
     bundle.reviewer_usages.append(
         ReviewerUsage(

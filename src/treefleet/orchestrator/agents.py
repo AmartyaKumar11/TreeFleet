@@ -363,14 +363,45 @@ async def _plan_once(
     sink: EventSink | None,
     run_id: str,
     usage: Any,
+    escalate: Any = None,
+    model_name: str = "",
+    escalate_name: str = "",
 ) -> Plan:
     """Parse Plan JSON. One JSON repair, then one re-plan when the guard rejects it."""
     from pydantic import ValidationError
 
+    from treefleet.contracts import RunEvent
+    from treefleet.llm_retry import with_llm_retry
+
     available = checks or {}
     listed = "\n".join(f"{name}: {command}" for name, command in available.items()) or "none"
     prompt = f"Goal:\n{goal}\n\nRepository files:\n{tree}\n\nChecks:\n{listed}\n"
-    text = await _complete(llm, prompt, sink=sink, run_id=run_id, usage=usage)
+    primary = model_name or str(getattr(llm, "model", "planner") or "planner")
+    models = [primary]
+    if escalate is not None and escalate_name and escalate_name != primary:
+        models.append(escalate_name)
+
+    def _emit_llm(kind: str, payload: dict[str, Any]) -> None:
+        if sink is None or not run_id:
+            return
+        sink.emit_sync(
+            RunEvent(
+                run_id=run_id,
+                seq=0,
+                source="orchestrator",
+                type=kind,  # type: ignore[arg-type]
+                payload=payload,
+            )
+        )
+
+    async def durable(user_text: str) -> str:
+        async def call(chosen: str) -> str:
+            agent = llm if chosen == primary else (escalate or llm)
+            return await _complete(agent, user_text, sink=sink, run_id=run_id, usage=usage)
+
+        return await with_llm_retry(call, models=models, emit=_emit_llm, agent="planner")
+
+    text = await durable(prompt)
     try:
         plan = Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
@@ -382,7 +413,7 @@ async def _plan_once(
             "complexity is trivial, moderate, or complex. Return only the corrected JSON object.\n\n"
             f"{prompt}"
         )
-        text = await _complete(llm, repair[:4000], sink=sink, run_id=run_id, usage=usage)
+        text = await durable(repair[:4000])
         try:
             plan = Plan.model_validate_json(_normalize_plan(text))
         except (ValidationError, json.JSONDecodeError) as again:
@@ -399,7 +430,7 @@ async def _plan_once(
         f"{prompt}"
     )
     try:
-        text = await _complete(llm, replan[:8000], sink=sink, run_id=run_id, usage=usage)
+        text = await durable(replan[:8000])
         plan = Plan.model_validate_json(_normalize_plan(text))
     except (ValidationError, json.JSONDecodeError) as exc:
         raise PlanRejected(f"plan rejected: {_path_hint(text) or exc}") from None
@@ -444,7 +475,15 @@ async def plan_goal(
     usage: Any = None,
 ) -> Plan:
     """Plan, one repair, then one deepseek-v4-pro retry when the planner was flash."""
-    kwargs = {"max_tasks": max_tasks, "sink": sink, "run_id": run_id, "usage": usage}
+    kwargs = {
+        "max_tasks": max_tasks,
+        "sink": sink,
+        "run_id": run_id,
+        "usage": usage,
+        "escalate": escalate,
+        "model_name": model_name,
+        "escalate_name": escalate_name or "deepseek/deepseek-v4-pro",
+    }
     try:
         plan = await _plan_once(llm, goal, tree, checks, **kwargs)
         if used is not None:
@@ -454,7 +493,17 @@ async def plan_goal(
         if escalate is None or "flash" not in model_name.lower():
             raise
         try:
-            plan = await _plan_once(escalate, goal, tree, checks, **kwargs)
+            plan = await _plan_once(
+                escalate,
+                goal,
+                tree,
+                checks,
+                max_tasks=max_tasks,
+                sink=sink,
+                run_id=run_id,
+                usage=usage,
+                model_name=escalate_name or "deepseek/deepseek-v4-pro",
+            )
             if used is not None:
                 used.append(escalate_name or "deepseek/deepseek-v4-pro")
         except PlanRejected as second:

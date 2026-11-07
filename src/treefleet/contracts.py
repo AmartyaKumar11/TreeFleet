@@ -764,6 +764,8 @@ class FinalReport(_Model):
             verdict = verdicts.get(result.task_id)
             if verdict is not None and verdict.suggestions:
                 lines.append(f"- {result.task_id} suggestions: {'; '.join(verdict.suggestions)}")
+            if result.error:
+                lines.append(f"- {result.task_id} error: {result.error}")
             if result.status == "needs_review":
                 why = "; ".join(verdict.reasons) if verdict is not None and verdict.reasons else "needs review"
                 root = self.integration.repo if self.integration is not None and self.integration.repo else ""

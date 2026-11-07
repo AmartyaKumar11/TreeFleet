@@ -226,6 +226,7 @@ def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:
 def _timed(inner: Any, run_id: str, task_id: str) -> BaseLLM:
     global _current_llm
     _current_llm = inner
+    model_name = str(getattr(inner, "model", "deepseek/deepseek-flash"))
 
     class TimingLLM(BaseLLM):
         def supports_function_calling(self) -> bool:
@@ -242,8 +243,27 @@ def _timed(inner: Any, run_id: str, task_id: str) -> BaseLLM:
             from_agent=None,
             response_model=None,
         ):
+            from treefleet.contracts import RunEvent
+            from treefleet.llm_retry import with_llm_retry_sync
+
             started = time.monotonic()
-            try:
+
+            def _emit(kind: str, payload: dict[str, Any]) -> None:
+                sink = _sink()
+                if sink is None:
+                    return
+                sink.emit_sync(
+                    RunEvent(
+                        run_id=run_id,
+                        seq=0,
+                        source="worker",
+                        type=kind,  # type: ignore[arg-type]
+                        task_id=task_id,  # type: ignore[arg-type]
+                        payload=payload,
+                    )
+                )
+
+            def once(_model: str) -> Any:
                 return inner.call(
                     messages,
                     tools,
@@ -252,6 +272,15 @@ def _timed(inner: Any, run_id: str, task_id: str) -> BaseLLM:
                     from_task,
                     from_agent,
                     response_model,
+                )
+
+            try:
+                return with_llm_retry_sync(
+                    once,
+                    models=[model_name],
+                    emit=_emit,
+                    agent="worker",
+                    task_id=task_id,
                 )
             finally:
                 record_step(
@@ -283,7 +312,7 @@ def _timed(inner: Any, run_id: str, task_id: str) -> BaseLLM:
                 response_model,
             )
 
-    return TimingLLM(model=str(getattr(inner, "model", "deepseek/deepseek-flash")))
+    return TimingLLM(model=model_name)
 
 
 def build_agent(
@@ -533,6 +562,8 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     feedback = envelope.revision_feedback or ""
 
     def produce(error: str | None) -> str:
+        from treefleet.llm_retry import ModelUnavailableError
+
         description = (
             f"{envelope.task.instructions}\nAllowed: {envelope.task.allowed_paths}. "
             f"Denied: {envelope.task.denied_paths}. Revision: {feedback}. "
@@ -562,10 +593,23 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
             ).kickoff()
             remember_crew(getattr(output, "token_usage", None))
             return str(output)
+        except ModelUnavailableError:
+            raise
         except Exception as exc:
             return str(exc)
 
-    text = produce(None)
+    try:
+        text = produce(None)
+    except Exception as exc:
+        from treefleet.llm_retry import ModelUnavailableError, is_transient_provider_error
+
+        if isinstance(exc, ModelUnavailableError) or is_transient_provider_error(exc):
+            cls = getattr(exc, "error_class", type(exc).__name__)
+            return _with_usage(
+                _result(envelope, worktree, "failed", f"model unavailable: {cls}"[:2000], None, [], started),
+                cursor_usages,
+            )
+        raise
     revert_out_of_scope(worktree, list(envelope.task.allowed_paths), list(envelope.task.denied_paths))
     if _main_changed(main, before):
         return _with_usage(
