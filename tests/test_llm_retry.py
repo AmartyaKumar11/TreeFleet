@@ -20,20 +20,10 @@ pytestmark = pytest.mark.phase6
 SHA = "a" * 40
 
 
-class _FakeInternal(Exception):
-    pass
-
-
-class _FakeRateLimit(Exception):
-    pass
-
-
-class _FakeUnavailable(Exception):
-    pass
-
-
-class _FakeConnection(Exception):
-    pass
+class _HttpErr(Exception):
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def test_classifies_transient_error_classes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,7 +50,10 @@ def test_classifies_transient_error_classes(monkeypatch: pytest.MonkeyPatch) -> 
         },
     )
     monkeypatch.setitem(__import__("sys").modules, "litellm.exceptions", fake)  # type: ignore[arg-type]
-    monkeypatch.setattr("treefleet.llm_retry._litellm_exc_types", lambda: (InternalServerError, ServiceUnavailableError, RateLimitError, APIConnectionError))
+    monkeypatch.setattr(
+        "treefleet.llm_retry._litellm_exc_types",
+        lambda: (InternalServerError, ServiceUnavailableError, RateLimitError, APIConnectionError),
+    )
 
     assert is_transient_provider_error(InternalServerError("boom"))
     assert is_transient_provider_error(ServiceUnavailableError("down"))
@@ -74,13 +67,9 @@ def test_classifies_transient_error_classes(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_classifies_http_status_on_exception() -> None:
-    err = Exception("provider failed")
-    setattr(err, "status_code", 503)
-    assert is_transient_provider_error(err)
-    setattr(err, "status_code", 429)
-    assert is_transient_provider_error(err)
-    setattr(err, "status_code", 400)
-    assert not is_transient_provider_error(err)
+    assert is_transient_provider_error(_HttpErr("provider failed", 503))
+    assert is_transient_provider_error(_HttpErr("slow", 429))
+    assert not is_transient_provider_error(_HttpErr("bad", 400))
 
 
 def test_redacts_error_bodies() -> None:
@@ -104,9 +93,7 @@ async def test_with_llm_retry_backoff_then_escalate(monkeypatch: pytest.MonkeyPa
     async def call(model: str) -> str:
         calls.append(model)
         if len(calls) < 4:
-            err = Exception("provider 503")
-            setattr(err, "status_code", 503)
-            raise err
+            raise _HttpErr("provider 503", 503)
         return f"ok:{model}"
 
     text = await with_llm_retry(
@@ -131,9 +118,7 @@ async def test_with_llm_retry_raises_model_unavailable(monkeypatch: pytest.Monke
     events: list[str] = []
 
     async def call(model: str) -> str:
-        err = Exception("still down")
-        setattr(err, "status_code", 500)
-        raise err
+        raise _HttpErr("still down", 500)
 
     with pytest.raises(ModelUnavailableError) as raised:
         await with_llm_retry(
@@ -142,7 +127,7 @@ async def test_with_llm_retry_raises_model_unavailable(monkeypatch: pytest.Monke
             emit=lambda kind, payload: events.append(kind),
             agent="planner",
         )
-    assert "ModelUnavailableError" not in str(raised.value) or raised.value.error_class
+    assert raised.value.error_class
     assert "llm_unavailable" in events
 
 
@@ -166,8 +151,6 @@ def _result(**update: object) -> WorkerResult:
 
 @pytest.mark.asyncio
 async def test_reviewer_unavailable_becomes_needs_review_not_reject() -> None:
-    from treefleet.llm_retry import ModelUnavailableError
-
     seen: list[str] = []
 
     async def review(task_id: str, result: WorkerResult, round_no: int) -> ReviewVerdict:

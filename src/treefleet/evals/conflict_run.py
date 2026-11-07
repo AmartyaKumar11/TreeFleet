@@ -87,7 +87,7 @@ def run_deterministic_conflict(
     runs = runs_root or root / "runs"
     run_dir = runs / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    sink = EventSink(run_dir / "events.jsonl")
+    sink = EventSink(runs)
     wt_root = worktree_root or Path(settings.worktree_root)
     write_canary(repo, run_id)
     before = snapshot_main(repo)

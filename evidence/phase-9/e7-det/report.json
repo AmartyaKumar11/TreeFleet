@@ -1,0 +1,276 @@
+{
+  "schema_id": "treefleet.final_report.v1",
+  "run_id": "0bf210cd",
+  "goal": "Deterministic same-hunk conflict for integration feedback.",
+  "plan": {
+    "goal": "Deterministic same-hunk conflict for integration feedback.",
+    "rationale": "Harness-seeded conflict. Workers did not create these branches.",
+    "tasks": [
+      {
+        "id": "alpha",
+        "title": "Alpha same-hunk edit",
+        "instructions": "Harness seeded Alpha's edit of the shared file lines.",
+        "allowed_paths": [
+          "README.md"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "beta",
+        "title": "Beta same-hunk edit",
+        "instructions": "Harness seeded Beta's edit of the shared file lines.",
+        "allowed_paths": [
+          "README.md"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [],
+        "complexity": "moderate",
+        "model_override": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "0bf210cd",
+      "task_id": "alpha",
+      "attempt": 1,
+      "status": "done",
+      "summary": "",
+      "notes": "",
+      "branch": "tf/0bf210cd/alpha",
+      "head_sha": "09f8f3d984f32dfb76a61050a0d72717d4b44589",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "README.md",
+          "additions": 1,
+          "deletions": 1
+        }
+      ],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage_reported": false,
+      "cursor_model": null,
+      "cursor_usage_reported": false,
+      "cursor_calls": [],
+      "reverted_scope": [],
+      "model": "harness",
+      "isolation": {
+        "pid": 1,
+        "cwd": "C:\\wt\\0bf210cd\\alpha",
+        "toplevel": "C:\\wt\\0bf210cd\\alpha",
+        "branch": "tf/0bf210cd/alpha",
+        "mcp_root": "C:\\wt\\0bf210cd\\alpha"
+      },
+      "error": null,
+      "cursor_message": "",
+      "reverted_generated": []
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "0bf210cd",
+      "task_id": "beta",
+      "attempt": 1,
+      "status": "done",
+      "summary": "",
+      "notes": "",
+      "branch": "tf/0bf210cd/beta",
+      "head_sha": "2450844af8fc62cf1aee7306543875a756f58fe8",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "README.md",
+          "additions": 1,
+          "deletions": 1
+        }
+      ],
+      "checks": [],
+      "steps_used": 0,
+      "duration_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage_reported": false,
+      "cursor_model": null,
+      "cursor_usage_reported": false,
+      "cursor_calls": [],
+      "reverted_scope": [],
+      "model": "harness",
+      "isolation": {
+        "pid": 1,
+        "cwd": "C:\\wt\\0bf210cd\\beta",
+        "toplevel": "C:\\wt\\0bf210cd\\beta",
+        "branch": "tf/0bf210cd/beta",
+        "mcp_root": "C:\\wt\\0bf210cd\\beta"
+      },
+      "error": null,
+      "cursor_message": "",
+      "reverted_generated": []
+    }
+  ],
+  "verdicts": [
+    {
+      "task_id": "alpha",
+      "verdict": "approve",
+      "confidence": 1.0,
+      "issues": [
+        "harness seeded"
+      ],
+      "reasons": [
+        "harness seeded"
+      ],
+      "required_changes": [],
+      "scope_violation": false,
+      "revision_instructions": null,
+      "suggestions": []
+    },
+    {
+      "task_id": "beta",
+      "verdict": "approve",
+      "confidence": 1.0,
+      "issues": [
+        "harness seeded"
+      ],
+      "reasons": [
+        "harness seeded"
+      ],
+      "required_changes": [],
+      "scope_violation": false,
+      "revision_instructions": null,
+      "suggestions": []
+    }
+  ],
+  "isolation": {
+    "tasks": [
+      {
+        "task_id": "alpha",
+        "worktree_path": "C:\\wt\\0bf210cd\\alpha",
+        "branch": "tf/0bf210cd/alpha",
+        "pid": null,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "beta",
+        "worktree_path": "C:\\wt\\0bf210cd\\beta",
+        "branch": "tf/0bf210cd/beta",
+        "pid": null,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      }
+    ],
+    "main": {
+      "status_before": [],
+      "status_after": [],
+      "head_before": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "head_after": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "canary_present": true,
+      "ok": true
+    },
+    "ok": true
+  },
+  "integration": {
+    "branch": "tf/0bf210cd/integrated",
+    "head_sha": "2a51e6f0d1a1c49d029947610261a5b094a68cc8",
+    "merged": [
+      "alpha",
+      "beta"
+    ],
+    "conflicts": [],
+    "skipped": [],
+    "checks": [
+      {
+        "name": "pytest",
+        "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "............................                                             [100%]\n28 passed in 0.14s",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      },
+      {
+        "name": "npm-test",
+        "command": "npm test",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "> test\n> node --experimental-strip-types --test tests/client.test.ts\n\nTAP version 13\n# (node:48308) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 26.052\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 0.5405\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 1.1416\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 29.0007\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 231.8929",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      },
+      {
+        "name": "test",
+        "command": "node --experimental-strip-types --test tests/client.test.ts",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "TAP version 13\n# (node:51068) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 21.9715\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 0.5115\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 0.3861\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 24.1698\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 175.4463",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      }
+    ],
+    "excluded": [],
+    "merge_command": "git -C D:\\pr-sentinel-demo merge tf/0bf210cd/integrated",
+    "user_branch": "demo-base",
+    "repo": "D:\\pr-sentinel-demo"
+  },
+  "routing": [],
+  "metrics": {
+    "wall_seconds": 37.953000000095926,
+    "sequential_seconds": 37.203000000095926,
+    "fleet_wall_seconds": 0.0,
+    "task_seconds": 0.0,
+    "costs": [],
+    "jev_calls": 0,
+    "task_count": 2,
+    "review_seconds": 0.0,
+    "integration_seconds": 37.203000000095926,
+    "speedup": 0.98,
+    "fleet_speedup": 0.0,
+    "total_usd": 0.0
+  },
+  "guard_decisions": [],
+  "notes": [
+    "deterministic conflict resolve calls: beta",
+    "integrate 37.2s"
+  ]
+}

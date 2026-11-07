@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, TypeVar
+from typing import Any
 
 from treefleet.guards.text import redact
-
-T = TypeVar("T")
 
 _BACKOFF_S = (2.0, 6.0)
 _RETRY_ATTEMPTS = 2  # after the first try: two more = three flash attempts, then escalate once
@@ -94,7 +92,7 @@ def error_class_name(exc: BaseException) -> str:
 EmitFn = Callable[[str, dict[str, Any]], None]
 
 
-async def with_llm_retry(
+async def with_llm_retry[T](
     call: Callable[[str], Awaitable[T]],
     *,
     models: Sequence[str],
@@ -150,7 +148,7 @@ async def with_llm_retry(
     raise ModelUnavailableError(error_class_name(last), redact_error(last)) from last
 
 
-def with_llm_retry_sync(
+def with_llm_retry_sync[T](
     call: Callable[[str], T],
     *,
     models: Sequence[str],

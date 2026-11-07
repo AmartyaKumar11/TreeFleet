@@ -334,60 +334,52 @@
       "scenario": "E7",
       "guard": "allow",
       "task_count": 2,
-      "wall_s": 636.4220000000205,
-      "fleet_wall_s": 605.3910000000615,
-      "review_s": 45.78099999995902,
-      "sequential_s": 434.5309999999795,
-      "cost_usd": 0.051521,
-      "cost_text": "27483 tokens",
-      "expectation": "fail: statuses ['done', 'failed']; verdicts ['reject', 'reject']",
+      "wall_s": 37.953000000095926,
+      "fleet_wall_s": 0.0,
+      "review_s": 0.0,
+      "sequential_s": 37.203000000095926,
+      "cost_usd": 0,
+      "cost_text": "$0.0000",
+      "expectation": "pass",
       "isolation": "PASS",
       "isolation_violation": false,
       "statuses": [
         "done",
-        "failed"
+        "done"
       ],
       "verdicts": [
-        "reject",
-        "reject"
+        "approve",
+        "approve"
       ],
-      "planner_model": "forced",
-      "tokens": {
-        "planner": 0,
-        "worker": 0,
-        "cursor": 25902,
-        "jev": 1581
-      },
-      "unreported": [
-        "worker",
-        "cursor"
-      ],
-      "jev_calls": 4,
-      "message": "# TreeFleet run 08396b8f\n\n**Goal:** Two tasks edit the same lines of README.md so integration must resolve a conflict.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| alpha | done | reject | 0 | `tf/08396b8f/alpha` | 1 | none |\n| beta ",
+      "planner_model": "",
+      "tokens": {},
+      "unreported": [],
+      "jev_calls": 0,
+      "message": "# TreeFleet run 0bf210cd\n\n**Goal:** Deterministic same-hunk conflict for integration feedback.\n\n## Tasks\n\n| Task | Status | Verdict | Revise rounds | Branch | Files | Checks |\n|---|---|---|---|---|---|---|\n| alpha | done | approve | 0 | `tf/0bf210cd/alpha` | 1 | none |\n| beta | done | approve | 0 | ",
       "label": "E7#1",
-      "run_id": "08396b8f",
-      "checkout": "",
-      "timing": {
-        "scan": 0.047,
-        "baseline": 5.063,
-        "planner": 0.266,
-        "fleet": 605.391,
-        "review": 45.781,
-        "revise": 0.0,
-        "integrate": 1.938
-      }
+      "run_id": "0bf210cd",
+      "mode": "deterministic_conflict",
+      "resolve_calls": [
+        "beta"
+      ],
+      "merged": [
+        "alpha",
+        "beta"
+      ],
+      "conflict_paths": [],
+      "checkout": ""
     }
   ],
   "concurrency_cap": 3,
   "estimates": [
     "This section is an extrapolation, not a measurement.",
     "Formula: projected sequential = tasks * (measured sequential time / measured task count). Projected wall = ceil(tasks / 3) * that same per-task time. The cap 3 is workers.max_workers. Slots run together, so wall grows by batches of 3.",
-    "Average cost per task: $0.0389.",
+    "Average cost per task: $0.0352.",
     "",
     "| Tasks | Projected wall | Projected sequential |",
     "|---|---|---|",
-    "| 5 | 331.5s | 828.7s |",
-    "| 10 | 663.0s | 1657.4s |",
-    "| 20 | 1160.2s | 3314.8s |"
+    "| 5 | 274.7s | 686.8s |",
+    "| 10 | 549.4s | 1373.6s |",
+    "| 20 | 961.5s | 2747.1s |"
   ]
 }
