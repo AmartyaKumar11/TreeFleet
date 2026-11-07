@@ -1,5 +1,6 @@
 const token = document.querySelector('meta[name="tf-token"]').content;
 const replay = document.documentElement.dataset.replay === "true";
+const STAGES = ["guard", "plan", "approve", "fleet", "review", "integrate"];
 let started = 0;
 let finished = 0;
 let selected = null;
@@ -31,6 +32,10 @@ function clock(seconds) {
 
 function lane(task) {
   return task.lane || "working";
+}
+
+function isRunning(task) {
+  return lane(task) === "working" && !!task.action && task.status !== "done" && task.status !== "failed";
 }
 
 function notifyHuman(needs) {
@@ -157,6 +162,20 @@ function gitGlyph() {
   return `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4" r="2" fill="currentColor"/><circle cx="8" cy="12" r="2" fill="currentColor"/><path d="M8 6v4" stroke="currentColor" stroke-width="1.5"/></svg>`;
 }
 
+function middleTruncate(text, max = 32) {
+  const value = String(text || "");
+  if (value.length <= max) return value;
+  const keep = Math.max(4, Math.floor((max - 1) / 2));
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+}
+
+function taskAge(task) {
+  if (task.age_s != null) return clock(task.age_s);
+  if (!started) return "";
+  const end = finished || Date.now() / 1000;
+  return clock(end - started);
+}
+
 function setLaneCounts(tasks, awaiting) {
   const counts = { working: 0, needs: awaiting ? 1 : 0, review: 0, ready: 0 };
   tasks.forEach((task) => {
@@ -168,6 +187,32 @@ function setLaneCounts(tasks, awaiting) {
     const tab = document.querySelector(`.mobile-lane-tabs [data-lane="${id}"]`);
     if (tab) tab.textContent = `${tab.dataset.label} ${counts[id]}`;
   });
+  return counts;
+}
+
+function updateRunStrip(data, counts) {
+  const stage = data.stage || "guard";
+  const total = (data.tasks || []).length;
+  const done = (counts.review || 0) + (counts.ready || 0);
+  const active = counts.working || 0;
+  const elapsed = started ? clock((finished || Date.now() / 1000) - started) : "0:00";
+  let line = "Idle";
+  if (stage === "done") line = `Run finished · ${elapsed}`;
+  else if (stage === "fleet" || active) {
+    const fleet = `Fleet running, ${active} of ${total || active} tasks, ${elapsed}`;
+    line = data.awaiting ? `Needs plan approval · ${fleet}` : fleet;
+  } else if (data.awaiting) line = `Waiting for plan approval · ${elapsed}`;
+  else if (stage === "review") line = `In review · ${elapsed}`;
+  else if (stage === "integrate") line = `Integrating · ${elapsed}`;
+  else if (stage === "plan") line = `Planning · ${elapsed}`;
+  else if (stage === "guard") line = `Guarding input · ${elapsed}`;
+  document.getElementById("run-status").textContent = line;
+  const idx = STAGES.indexOf(stage === "done" ? "integrate" : stage);
+  document.querySelectorAll("#stage-stepper li").forEach((item) => {
+    const i = STAGES.indexOf(item.dataset.stage);
+    item.classList.toggle("is-current", i === idx || (stage === "done" && item.dataset.stage === "integrate"));
+    item.classList.toggle("is-done", i >= 0 && i < idx);
+  });
 }
 
 function renderCard(task) {
@@ -176,66 +221,58 @@ function renderCard(task) {
   button.type = "button";
   button.dataset.taskId = task.id;
   const files = filesFor(task);
-  const fileLine = files
-    .map((file) => {
-      const name = typeof file === "string" ? file : file.path;
-      const plus = typeof file === "string" ? "" : ` +${file.additions || 0} -${file.deletions || 0}`;
-      return esc(name) + plus;
-    })
-    .join(", ");
   const counts = lineCounts(files);
-  const label = task.status === "needs_review" ? "needs_review" : task.verdict || task.status || "working";
-  const merge =
-    task.status === "needs_review"
-      ? `git -C ${state.repo || ""} merge ${task.branch || task.id}`
-      : "";
-  const detail = [task.reason, task.cursor_message, task.suggestions, merge, task.error]
-    .filter(Boolean)
-    .join(" · ");
-  const action = task.action || "";
-  const spinning = lane(task) === "working" && action;
+  const running = isRunning(task);
+  const verdictLabel =
+    task.status === "needs_review" ? "needs_review" : task.verdict || (task.status === "failed" ? "failed" : "");
   const chips = [];
-  if (task.checks) {
-    task.checks.forEach((check) => {
-      const name = typeof check === "string" ? check : check.name || "check";
-      const passed = typeof check === "string" ? true : check.passed !== false;
-      chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
-    });
-  }
-  if (task.verdict || task.status === "needs_review") {
-    chips.push(`<span class="chip verdict">${esc(label)}</span>`);
-  } else if (task.status) {
-    chips.push(`<span class="chip">${esc(label)}</span>`);
+  (task.checks || []).forEach((check) => {
+    const name = typeof check === "string" ? check : check.name || "check";
+    const passed = typeof check === "string" ? true : check.passed !== false;
+    chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
+  });
+  if (counts.count) {
+    chips.push(
+      `<span class="chip lines"><span class="add">+${counts.added}</span> <span class="del">-${counts.removed}</span></span>`,
+    );
   }
   if (task.round) chips.push(`<span class="chip round">revise ${esc(task.round)}</span>`);
-  if (counts.count) {
-    chips.push(`<span class="chip lines">+${counts.added} −${counts.removed}</span>`);
+  const reasonBits = [];
+  if (task.status === "needs_review" || task.status === "failed" || lane(task) === "needs") {
+    if (task.reason) reasonBits.push(task.reason);
+    if (task.cursor_message) reasonBits.push(task.cursor_message);
+    if (task.error && task.error !== task.reason) reasonBits.push(task.error);
   }
-  const detailBlock = detail
-    ? `<div class="${lane(task) === "needs" ? "reason" : "mono"}" style="margin-top:8px${
-        lane(task) === "needs" ? "" : ";color:var(--muted)"
-      }">${esc(detail)}</div>`
-    : "";
+  if (task.status === "needs_review") {
+    reasonBits.push(`git -C ${state.repo || ""} merge ${task.branch || task.id}`);
+  }
+  const reason = reasonBits.filter(Boolean).join(" · ");
+  const age = taskAge(task);
+  const row4 = running
+    ? `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
+        task.action,
+      )}</span></div>`
+    : verdictLabel
+      ? `<div class="verdict-row"><span class="chip verdict">${esc(verdictLabel)}</span></div>`
+      : "";
   const mergeBtn =
     lane(task) === "ready"
-      ? `<div class="merge-row"><button class="btn" type="button" data-merge="${esc(
+      ? `<div class="merge-row"><button class="btn ghost" type="button" data-merge="${esc(
           `git -C ${state.repo || ""} merge ${task.branch || task.id}`,
         )}">Copy merge command</button></div>`
       : "";
   button.innerHTML = `
-    <div class="model-row">${modelIcon()}<span>${esc(task.model || "model")}</span></div>
+    <div class="model-row">
+      <span class="model">${modelIcon()}<span>${esc(task.model || "model")}</span></span>
+      <span class="age">${esc(age)}</span>
+    </div>
     <div class="title">${esc(task.title)}</div>
-    <span class="branch mono">${gitGlyph()}${esc(task.branch || task.id)}</span>
-    <div class="status">${esc(label)}${task.round ? ` · round ${esc(task.round)}` : ""}</div>
-    ${
-      action
-        ? `<div class="action-line mono">${spinning ? '<span class="spinner" aria-hidden="true"></span>' : ""}${esc(action)}</div>`
-        : ""
-    }
-    <div class="chips">${chips.join("")}</div>
-    <div class="mono" style="margin-top:8px;color:var(--muted)">${fileLine}</div>
-    ${detailBlock}
-    <div class="mono">${esc(task.model || "")}</div>
+    <span class="branch mono" title="${esc(task.branch || task.id)}">${gitGlyph()}<span>${esc(
+      middleTruncate(task.branch || task.id),
+    )}</span></span>
+    ${row4}
+    ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
+    ${reason ? `<div class="reason">${esc(reason)}</div>` : ""}
     ${mergeBtn}
   `;
   button.addEventListener("click", (event) => {
@@ -271,6 +308,14 @@ function drawMap(rows) {
     `<text x="24" y="16" fill="#c6c7cc" font-size="13">main</text>${paths}`;
 }
 
+function setEmpty(tableId, emptyId, count) {
+  const table = document.getElementById(tableId);
+  const empty = document.getElementById(emptyId);
+  if (!table || !empty) return;
+  table.hidden = count === 0;
+  empty.hidden = count !== 0;
+}
+
 function select(task, fromUser) {
   if (fromUser) pinned = true;
   if (selected && selected.id === task.id && !fromUser) {
@@ -279,7 +324,7 @@ function select(task, fromUser) {
   }
   selected = task;
   document.getElementById("task-title").textContent = task.title;
-  document.getElementById("task-meta").textContent = `${task.model || ""} ${task.branch || ""}`;
+  document.getElementById("task-meta").textContent = task.branch || "";
   document.getElementById("live").textContent = (task.lines || []).join("\n");
   const proof = (
     (state.report && state.report.isolation && state.report.isolation.tasks) ||
@@ -313,21 +358,24 @@ function openEvents(runId) {
       const decoder = new TextDecoder();
       let buf = "";
       function pump() {
-        reader.read().then((chunk) => {
-          if (chunk.done) return;
-          buf += decoder.decode(chunk.value, { stream: true });
-          const parts = buf.split("\n\n");
-          buf = parts.pop();
-          parts.forEach((block) => {
-            const line = block.split("\n").find((item) => item.startsWith("data: "));
-            if (!line) return;
-            const event = JSON.parse(line.slice(6));
-            state.events = state.events || [];
-            if (!state.events.some((item) => item.seq === event.seq)) state.events.push(event);
-            render(state);
-          });
-          pump();
-        }).catch(() => {});
+        reader
+          .read()
+          .then((chunk) => {
+            if (chunk.done) return;
+            buf += decoder.decode(chunk.value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop();
+            parts.forEach((block) => {
+              const line = block.split("\n").find((item) => item.startsWith("data: "));
+              if (!line) return;
+              const event = JSON.parse(line.slice(6));
+              state.events = state.events || [];
+              if (!state.events.some((item) => item.seq === event.seq)) state.events.push(event);
+              render(state);
+            });
+            pump();
+          })
+          .catch(() => {});
       }
       pump();
     })
@@ -366,9 +414,7 @@ function render(data) {
   document.getElementById("title").textContent = project;
   document.getElementById("side-project").textContent = project;
   document.getElementById("ref").textContent = `${data.branch || ""}${data.head ? ` @ ${data.head}` : ""}`;
-  document.getElementById("clean").textContent = data.clean
-    ? "Main checkout clean"
-    : "Main checkout dirty";
+  document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
   document.getElementById("stage").textContent = `Stage: ${data.stage || "guard"}`;
   notifyHuman(!!data.needs_human || !!data.awaiting);
   if (data.started_at) started = data.started_at;
@@ -382,15 +428,8 @@ function render(data) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.setAttribute("aria-current", "true");
-    const statusDot =
-      data.needs_human || data.awaiting
-        ? "orange"
-        : data.stage === "done"
-          ? "green"
-          : "blue";
-    btn.innerHTML = `<span class="dot ${statusDot}"></span><span class="mono">${esc(
-      data.run_id || "idle",
-    )}</span>`;
+    const statusDot = data.needs_human || data.awaiting ? "orange" : data.stage === "done" ? "green" : "blue";
+    btn.innerHTML = `<span class="dot ${statusDot}"></span><span class="mono">${esc(data.run_id || "idle")}</span>`;
     li.appendChild(btn);
     runList.appendChild(li);
   }
@@ -405,16 +444,16 @@ function render(data) {
     const items = data.awaiting
       .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
       .join("");
-    card.innerHTML = `<div class="title">Plan ready: ${data.awaiting.length} tasks</div><ul>${items}</ul>`;
+    card.innerHTML = `<div class="plan-head"><span class="dot orange"></span>Plan ready</div><ul>${items}</ul>`;
     const actions = document.createElement("div");
     actions.className = "actions";
     const ok = document.createElement("button");
-    ok.className = "btn go";
+    ok.className = "btn primary";
     ok.type = "button";
     ok.textContent = "Approve plan";
     ok.addEventListener("click", () => post(`/api/runs/${data.run_id}/approve`));
     const cancel = document.createElement("button");
-    cancel.className = "btn";
+    cancel.className = "btn ghost";
     cancel.type = "button";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", () => post(`/api/runs/${data.run_id}/cancel`));
@@ -425,7 +464,8 @@ function render(data) {
   }
 
   const tasks = data.tasks || [];
-  setLaneCounts(tasks, !!data.awaiting);
+  const counts = setLaneCounts(tasks, !!data.awaiting);
+  updateRunStrip(data, counts);
   tasks.forEach((task) => {
     document.getElementById(lane(task)).appendChild(renderCard(task));
   });
@@ -445,31 +485,36 @@ function render(data) {
 
   const body = document.querySelector("#worktrees tbody");
   body.innerHTML = "";
-  (data.worktrees || []).forEach((row) => {
+  const worktrees = data.worktrees || [];
+  worktrees.forEach((row) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td class='mono'>${esc(row.path)}</td><td class='mono'>${esc(
       row.branch,
     )}</td><td>${esc(changedLabel(row))}</td>`;
     body.appendChild(tr);
   });
-  drawMap(data.worktrees || []);
+  document.getElementById("count-worktrees").textContent = String(worktrees.length);
+  setEmpty("worktrees", "empty-worktrees", worktrees.length);
+  drawMap(worktrees);
   if (data.run_id) openEvents(data.run_id);
 
   const guards = document.getElementById("guards");
   guards.innerHTML = "";
-  (data.events || [])
-    .filter((event) => event.type === "guard.decision")
-    .forEach((event) => {
-      const payload = event.payload || {};
-      const p = document.createElement("p");
-      const reasons = (payload.reasons || []).join("; ");
-      const scores = payload.scores || {};
-      const scoreText = Object.keys(scores).length ? JSON.stringify(scores) : "";
-      p.textContent = [payload.stage || "", payload.allowed ? "allowed" : "blocked", reasons, scoreText]
-        .filter(Boolean)
-        .join(" ");
-      guards.appendChild(p);
-    });
+  const guardEvents = (data.events || []).filter((event) => event.type === "guard.decision");
+  guardEvents.forEach((event) => {
+    const payload = event.payload || {};
+    const p = document.createElement("p");
+    const reasons = (payload.reasons || []).join("; ");
+    const scores = payload.scores || {};
+    const scoreText = Object.keys(scores).length ? JSON.stringify(scores) : "";
+    p.textContent = [payload.stage || "", payload.allowed ? "allowed" : "blocked", reasons, scoreText]
+      .filter(Boolean)
+      .join(" ");
+    guards.appendChild(p);
+  });
+  document.getElementById("count-guards").textContent = String(guardEvents.length);
+  document.getElementById("empty-guards").hidden = guardEvents.length !== 0;
+  guards.hidden = guardEvents.length === 0;
 
   const proofBody = document.querySelector("#proof tbody");
   proofBody.innerHTML = "";
@@ -484,6 +529,8 @@ function render(data) {
     )}</td>`;
     proofBody.appendChild(tr);
   });
+  document.getElementById("count-proof").textContent = String(proofs.length);
+  setEmpty("proof", "empty-proof", proofs.length);
 
   const integration = document.getElementById("integration");
   const merged = data.report && data.report.integration;
@@ -492,6 +539,7 @@ function render(data) {
         .map((c) => `${c.name}${c.passed ? " pass" : " fail"}`)
         .join(", ") || "none"}`
     : "No merge yet.";
+  document.getElementById("count-integration").textContent = merged ? "1" : "0";
 
   const costBody = document.querySelector("#metrics tbody");
   costBody.innerHTML = "";
@@ -501,6 +549,8 @@ function render(data) {
     tr.innerHTML = `<td>${esc(row.component)}</td><td>${esc(row.model)}</td><td>${moneyCell(row)}</td>`;
     costBody.appendChild(tr);
   });
+  document.getElementById("count-metrics").textContent = String(costs.length);
+  setEmpty("metrics", "empty-metrics", costs.length);
 
   if (data.message) {
     document.getElementById("error").hidden = false;
@@ -514,6 +564,14 @@ function tick() {
   const shown = clock(end - started);
   document.getElementById("elapsed").textContent = shown;
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
+  if (state && Object.keys(state).length) {
+    const counts = { working: 0, needs: 0, review: 0, ready: 0 };
+    (state.tasks || []).forEach((task) => {
+      counts[lane(task)] = (counts[lane(task)] || 0) + 1;
+    });
+    if (state.awaiting) counts.needs += 1;
+    updateRunStrip(state, counts);
+  }
 }
 
 function refresh() {
@@ -535,6 +593,8 @@ function refresh() {
         )}</td><td>${esc(changedLabel(row))}</td>`;
         body.appendChild(tr);
       });
+      document.getElementById("count-worktrees").textContent = String(state.worktrees.length);
+      setEmpty("worktrees", "empty-worktrees", state.worktrees.length);
       drawMap(state.worktrees);
     })
     .catch(() => {});
@@ -554,6 +614,21 @@ document.getElementById("auto").addEventListener("click", () => {
   button.setAttribute("aria-checked", String(button.getAttribute("aria-checked") !== "true"));
 });
 
+document.getElementById("run-settings").addEventListener("click", () => {
+  const pop = document.getElementById("settings-popover");
+  const open = pop.hidden;
+  pop.hidden = !open;
+  document.getElementById("run-settings").setAttribute("aria-expanded", String(open));
+});
+
+document.addEventListener("click", (event) => {
+  const wrap = document.querySelector(".settings-wrap");
+  if (wrap && !wrap.contains(event.target)) {
+    document.getElementById("settings-popover").hidden = true;
+    document.getElementById("run-settings").setAttribute("aria-expanded", "false");
+  }
+});
+
 document.querySelectorAll(".drawer .tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".drawer .tab").forEach((item) => {
@@ -561,6 +636,17 @@ document.querySelectorAll(".drawer .tab").forEach((tab) => {
     });
     document.querySelectorAll(".drawer .pane").forEach((pane) => {
       pane.hidden = pane.id !== tab.dataset.pane;
+    });
+  });
+});
+
+document.querySelectorAll(".details-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".details-tab").forEach((item) => {
+      item.setAttribute("aria-selected", String(item === tab));
+    });
+    document.querySelectorAll(".details-pane").forEach((pane) => {
+      pane.hidden = pane.id !== `pane-${tab.dataset.details}`;
     });
   });
 });

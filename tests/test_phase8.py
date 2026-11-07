@@ -444,25 +444,31 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             page.get_by_role("heading", name="Needs you").wait_for()
             page.get_by_role("heading", name="Working").wait_for()
             page.get_by_role("button", name="Approve plan").wait_for()
+            details = page.get_by_role("region", name="Run details")
+            details.locator("summary").click()
+            details.get_by_role("tab", name="Worktrees").click()
             page.get_by_label("Worktrees").wait_for()
             assert r"C:\wt\abcd1234\beta" in page.get_by_label("Worktrees").inner_text()
+            details.get_by_role("tab", name="Proof").click()
             proof = page.get_by_label("Isolation proof")
             assert "Within scope" in proof.inner_text()
             assert "yes" in proof.inner_text()
             assert page.locator("#live").get_attribute("aria-readonly") == "true"
             assert "editing README.md" in page.locator("#working").inner_text()
-            assert "README.md +6 -0" in page.locator("#working").inner_text()
+            assert "+6" in page.locator("#working").inner_text()
+            assert "-0" in page.locator("#working").inner_text()
             assert "needs_review" in page.locator("#needs").inner_text()
             assert "merge tf/abcd1234/delta" in page.locator("#needs").inner_text()
             assert "no new diff" in page.locator("#needs").inner_text()
             assert "94 lines" in page.locator("#needs").inner_text()
             assert "worker made no changes" in page.locator("#needs").inner_text()
+            details.get_by_role("tab", name="Guards").click()
             guards = page.locator("#guards").inner_text()
             assert "malformed tool result" in guards
             assert "[]" not in guards
             assert page.locator("#task-title").inner_text() == "Notifier"
             assert "Reading tests" in page.locator("#live").inner_text()
-            page.get_by_role("tab", name="Proof").click()
+            page.locator(".drawer").get_by_role("tab", name="Proof").click()
             proof_pane = page.locator("#proofpane").inner_text()
             assert "Within scope" in proof_pane
             assert "yes" in proof_pane
@@ -471,6 +477,7 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             page.wait_for_timeout(1200)
             assert page.locator("#task-title").inner_text() == "Parser"
             assert page.locator("#elapsed").inner_text() == "0:12"
+            details.get_by_role("tab", name="Cost").click()
             costs = page.locator("#metrics").inner_text()
             assert "usage not reported" in costs
             assert "unpriced" in costs
