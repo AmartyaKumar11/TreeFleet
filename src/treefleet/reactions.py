@@ -23,11 +23,12 @@ FROZEN_KEYS = {
     "merge_exclusion": "a reaction cannot include failed or needs_review tasks in the merge",
 }
 
-_NO_IGNORE = frozenset({"needs_review", "task_failed", "provider_error"})
+_NO_IGNORE = frozenset({"needs_review", "task_failed", "provider_error", "review_rejected"})
 
 
 class Event(StrEnum):
     checks_failed = "checks_failed"
+    review_revise = "review_revise"
     review_rejected = "review_rejected"
     merge_conflict = "merge_conflict"
     provider_error = "provider_error"
@@ -80,11 +81,12 @@ def _reaction(action: Action, retries: int, escalate_after: int | None = None) -
     return Reaction(action=action, retries=retries, escalate_after=escalate_after, auto=True)
 
 
-# Built-in defaults. review_rejected.retries is replaced with [revise] max_rounds at load
-# when that event is not set in [reactions].
+# Built-in defaults. review_revise.retries is replaced with [revise] max_rounds at load
+# when that event is not set in [reactions]. review_rejected is the hard reject.
 DEFAULTS: dict[Event, Reaction] = {
     Event.checks_failed: _reaction(Action.send_to_agent, 1),
-    Event.review_rejected: _reaction(Action.send_to_agent, 1),
+    Event.review_revise: _reaction(Action.send_to_agent, 1),
+    Event.review_rejected: _reaction(Action.needs_human, 0),
     Event.merge_conflict: _reaction(Action.send_to_agent, 1),
     Event.provider_error: _reaction(Action.send_to_agent, 3, 2),
     Event.task_failed: _reaction(Action.needs_human, 0),
@@ -98,7 +100,7 @@ def default_table(*, review_rounds: int | None = None) -> ReactionTable:
     events = {event: spec.model_copy() for event, spec in DEFAULTS.items()}
     if review_rounds is not None:
         capped = min(max(int(review_rounds), 0), HARD_CAP)
-        events[Event.review_rejected] = events[Event.review_rejected].model_copy(update={"retries": capped})
+        events[Event.review_revise] = events[Event.review_revise].model_copy(update={"retries": capped})
     return ReactionTable(events=events, defaults=tuple(event.value for event in Event))
 
 
@@ -113,6 +115,8 @@ def _allowed_actions() -> str:
 def _check_safety(event: Event, spec: Reaction) -> None:
     if event.value in _NO_IGNORE and spec.action == Action.ignore:
         raise ReactionConfigError(f"reactions.{event.value}.action cannot be ignore. Allowed: {_allowed_actions()}.")
+    if event == Event.review_rejected and spec.retries > 0:
+        raise ReactionConfigError("reactions.review_rejected.retries must be 0.")
     if spec.retries > HARD_CAP:
         raise ReactionConfigError(f"reactions.{event.value}.retries must be from 0 to {HARD_CAP}.")
 
@@ -188,6 +192,10 @@ def resolve(event: Event, attempt: int, table: ReactionTable | None = None) -> D
     spec = (table or default_table()).get(event)
     if event.value in _NO_IGNORE and spec.action == Action.ignore:
         raise ReactionConfigError(f"reactions.{event.value}.action cannot be ignore. Allowed: {_allowed_actions()}.")
+    if event == Event.review_rejected:
+        if spec.retries > 0:
+            raise ReactionConfigError("reactions.review_rejected.retries must be 0.")
+        return Decision(action=spec.action, attempt=attempt, max_attempts=0, escalate=False)
     max_attempts = min(spec.retries, HARD_CAP)
     if spec.action in {Action.notify, Action.needs_human, Action.ignore}:
         return Decision(action=spec.action, attempt=attempt, max_attempts=max_attempts, escalate=False)

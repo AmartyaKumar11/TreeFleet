@@ -14,12 +14,12 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 7 | Observability | not started | |
 | 8 | Web UI | lite board | `evidence/phase-8/` |
 | 9 | Evaluation, cost, time | done | `eval/report.md` |
-| 10 | Cloud deployment | step 1 reactions config | `docs/REACTIONS.md` |
+| 10 | Cloud deployment | step 1b review events split | `docs/REACTIONS.md` |
 | 11 | Demo hardening | not started | |
 
 ## 2026-11-07 — Reactions config
 
-`[reactions.<event>]` in `treefleet.toml` is optional. Defaults match the inventory in `docs/REACTIONS.md`. `resolve()` is pure. Each production call writes `reaction.fired`. `needs_review`, `task_failed`, and `provider_error` cannot be `ignore`. Retries cap at 5. Guards, isolation proofs, scope revert, and merge exclusion are not reaction keys.
+`[reactions.<event>]` in `treefleet.toml` is optional. Defaults match the inventory in `docs/REACTIONS.md`. `resolve()` is pure. Each production call writes `reaction.fired`. `needs_review`, `task_failed`, `provider_error`, and `review_rejected` cannot be `ignore`. `review_rejected` does not retry. `review_revise` carries `[revise] max_rounds`. Check failures and review revises are separate budgets. Retries cap at 5. Guards, isolation proofs, scope revert, and merge exclusion are not reaction keys.
 
 ## 2026-10-28 — Revise budget
 

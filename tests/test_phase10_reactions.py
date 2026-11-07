@@ -9,7 +9,7 @@ import pytest
 
 from treefleet.config import ConfigError, load_settings
 from treefleet.contracts import CheckResult, Plan, ReviewVerdict, SelfReportedIsolation, TaskSpec, WorkerResult
-from treefleet.orchestrator.review import review_loop, selected_branches
+from treefleet.orchestrator.review import MAX_REVISIONS, review_loop, selected_branches
 from treefleet.reactions import (
     HARD_CAP,
     Action,
@@ -22,6 +22,7 @@ from treefleet.reactions import (
     load_reactions,
     resolve,
 )
+from treefleet.ui.lanes import TaskLaneFacts, derive_lane
 
 pytestmark = pytest.mark.phase10
 
@@ -67,8 +68,15 @@ def test_defaults_match_the_inventory() -> None:
     specs = {event: table.get(event) for event in Event}
     assert specs[Event.checks_failed].action == Action.send_to_agent
     assert specs[Event.checks_failed].retries == 1
-    assert specs[Event.review_rejected].action == Action.send_to_agent
-    assert specs[Event.review_rejected].retries == 1
+    assert specs[Event.review_revise].action == Action.send_to_agent
+    assert specs[Event.review_revise].retries == 1
+    assert specs[Event.review_revise].escalate_after is None
+    assert resolve(Event.review_revise, 1, table).action == Action.send_to_agent
+    assert resolve(Event.review_revise, 2, table).action == Action.ignore
+    assert specs[Event.review_rejected].action == Action.needs_human
+    assert specs[Event.review_rejected].retries == 0
+    assert specs[Event.review_rejected].escalate_after is None
+    assert resolve(Event.review_rejected, 1, table).action == Action.needs_human
     assert specs[Event.merge_conflict].action == Action.send_to_agent
     assert specs[Event.merge_conflict].retries == 1
     assert specs[Event.provider_error].retries == 3
@@ -126,6 +134,8 @@ def test_invalid_config_names_the_key() -> None:
         ({"needs_review": {"action": "ignore", "retries": 0}}, "reactions.needs_review.action"),
         ({"task_failed": {"action": "ignore", "retries": 0}}, "reactions.task_failed.action"),
         ({"provider_error": {"action": "ignore", "retries": 0}}, "reactions.provider_error.action"),
+        ({"review_rejected": {"action": "ignore", "retries": 0}}, "reactions.review_rejected.action"),
+        ({"review_rejected": {"action": "needs_human", "retries": 1}}, "reactions.review_rejected.retries"),
     ]
     for raw, key in cases:
         with pytest.raises(Exception) as caught:
@@ -203,6 +213,64 @@ async def test_reaction_fired_fields() -> None:
         ]
     )
     assert text.startswith("checks_failed task=alpha")
+
+
+def test_rejected_verdict_lands_in_needs_you() -> None:
+    assert derive_lane(TaskLaneFacts(verdict="reject")) == "needs"
+
+
+def test_review_rejected_is_terminal() -> None:
+    with pytest.raises(Exception) as ignored:
+        load_reactions({"review_rejected": {"action": "ignore", "retries": 0}}, review_rounds=1)
+    assert "reactions.review_rejected.action" in str(ignored.value)
+    with pytest.raises(Exception) as retried:
+        load_reactions({"review_rejected": {"action": "needs_human", "retries": 1}}, review_rounds=1)
+    assert "reactions.review_rejected.retries" in str(retried.value)
+
+
+@pytest.mark.asyncio
+async def test_check_and_review_revisions_are_separate() -> None:
+    """MAX_REVISIONS counts review_revise only. A check rerun does not spend it."""
+    assert MAX_REVISIONS == 1
+
+    async def review(task_id: str, _result: WorkerResult, round_no: int) -> ReviewVerdict:
+        if round_no == 1:
+            return ReviewVerdict(
+                task_id=task_id,
+                verdict="revise",
+                confidence=0.5,
+                reasons=["gap"],
+                required_changes=["cover the branch"],
+            )
+        return ReviewVerdict(task_id=task_id, verdict="approve", confidence=1, reasons=["ok"])
+
+    feedbacks: list[str] = []
+
+    async def rerun(_task_id: str, result: WorkerResult, feedback: str, attempt: int) -> WorkerResult:
+        feedbacks.append(feedback)
+        return result.model_copy(
+            update={
+                "attempt": attempt,
+                "status": "done",
+                "checks": [CheckResult(name="pytest", command="pytest", exit_code=0, passed=True)],
+                "commit_made": True,
+                "head_sha": SHA,
+            }
+        )
+
+    table = default_table(review_rounds=1)
+    await review_loop(["alpha"], {"alpha": _check_failed()}, review=review, rerun=rerun, reactions=table)
+    assert len(feedbacks) == 2
+    assert feedbacks[0].startswith("Fix the failing checks")
+    assert feedbacks[1] == "cover the branch"
+
+    feedbacks.clear()
+    events = dict(table.events)
+    events[Event.checks_failed] = Reaction(action=Action.send_to_agent, retries=2, auto=True)
+    wider = ReactionTable(events=events, defaults=())
+    await review_loop(["alpha"], {"alpha": _check_failed()}, review=review, rerun=rerun, reactions=wider)
+    assert [item.startswith("Fix the failing checks") for item in feedbacks] == [True, True, False]
+    assert feedbacks[-1] == "cover the branch"
 
 
 def test_startup_rejects_a_bad_reactions_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

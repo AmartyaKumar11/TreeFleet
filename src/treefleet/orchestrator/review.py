@@ -284,16 +284,19 @@ async def review_loop(
     import asyncio
 
     table = reactions if reactions is not None else default_table(review_rounds=max_revisions)
-    bound = table.get(Event.review_rejected).retries
-
-    def _emit(kind: str, task_id: str, round_no: int, payload: dict[str, Any]) -> None:
-        if emit is not None:
-            emit(kind, task_id, round_no, payload)
+    bound = table.get(Event.review_revise).retries
 
     def _fired(event: Event, task_id: str, attempt: int) -> Decision:
         decision = resolve(event, attempt, table)
-        _emit("reaction.fired", task_id, attempt, reaction_payload(event, decision, task_id))
+        if emit is not None:
+            emit("reaction.fired", task_id, attempt, reaction_payload(event, decision, task_id))
         return decision
+
+    def _emit(kind: str, task_id: str, round_no: int, payload: dict[str, Any]) -> None:
+        if kind == "review_verdict" and payload.get("verdict") == "reject":
+            _fired(Event.review_rejected, task_id, 1)
+        if emit is not None:
+            emit(kind, task_id, round_no, payload)
 
     async def _one(task_id: str) -> tuple[str, WorkerResult, ReviewVerdict]:
         import time
@@ -383,7 +386,7 @@ async def review_loop(
                 timings["review"] = timings.get("review", 0.0) + (time.monotonic() - started)
             if (
                 verdict.verdict == "revise"
-                and _fired(Event.review_rejected, task_id, round_no).action != Action.send_to_agent
+                and _fired(Event.review_revise, task_id, round_no).action != Action.send_to_agent
             ):
                 if _holdable(result):
                     _fired(Event.needs_review, task_id, 1)
@@ -458,6 +461,7 @@ async def review_loop(
                 break
             except Exception as exc:
                 verdict = _forced_reject(task_id, str(exc))
+                _fired(Event.review_rejected, task_id, 1)
                 if timings is not None:
                     timings["revise"] = timings.get("revise", 0.0) + (time.monotonic() - revise_started)
                 break
