@@ -1,8 +1,15 @@
 /** Orchestrator thread built from the board snapshot and SSE events. */
 
-export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
+export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanApproved }) {
   let planChoice = null;
   let stickToBottom = true;
+  let startingIds = null;
+
+  function routingLabel(model) {
+    if (!model || model === "router") return "Smart routing";
+    if (model === "auto") return "Cursor Auto";
+    return model;
+  }
 
   function guardEvents(data) {
     return (data.events || []).filter((event) => event.type === "guard.decision");
@@ -20,34 +27,59 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
       if (event.type === "repo_scan" && Array.isArray(payload.files)) return payload.files;
       if (event.type === "phase" && payload.name === "scan") {
         if (Array.isArray(payload.files)) return payload.files;
-        if (payload.file_count) return Array.from({ length: Number(payload.file_count) }, (_, i) => `file-${i + 1}`);
+        if (payload.file_count) {
+          return Array.from({ length: Number(payload.file_count) }, (_, i) => `file-${i + 1}`);
+        }
       }
     }
     return [];
   }
 
+  function conflictLabel(task) {
+    if (task.conflict_state) return task.conflict_state;
+    const reason = `${task.reason || ""} ${task.error || ""}`.toLowerCase();
+    if (task.status === "conflict" || /conflict/.test(reason) || task.conflict) {
+      if (task.conflict_resolved) return "conflict resolved";
+      if (task.conflict_resolving) return "conflict, resolving";
+      return "conflict, excluded";
+    }
+    return "";
+  }
+
   function workerRows(data) {
+    if (startingIds && startingIds.length) {
+      return startingIds.map((task) => ({
+        id: task.id,
+        title: task.title,
+        branch: task.branch || `tf/${data.run_id || "run"}/${task.id}`,
+        model: routingLabel(task.model || data.worker_model || "router"),
+        state: "starting",
+        spinning: true,
+        action: "",
+      }));
+    }
     if (data.awaiting && data.awaiting.length) {
       return data.awaiting.map((task) => ({
         id: task.id,
         title: task.title,
         branch: `tf/${data.run_id || "run"}/${task.id}`,
-        model: data.worker_model || "router",
+        model: routingLabel(data.worker_model || "router"),
         state: "queued",
         spinning: false,
+        action: "",
       }));
     }
     return (data.tasks || []).map((task) => {
       const running = task.lane === "working" && !!task.action;
-      let state = task.verdict || task.status || task.lane || "pending";
+      let state = conflictLabel(task) || task.verdict || task.status || task.lane || "pending";
       if (running) state = "running";
       return {
         id: task.id,
         title: task.title,
         branch: task.branch || task.id,
-        model: task.model || data.worker_model || "model",
+        model: routingLabel(task.model || data.worker_model || "model"),
         state,
-        spinning: running,
+        spinning: running || state === "starting" || state === "conflict, resolving",
         action: task.action || "",
       };
     });
@@ -61,12 +93,19 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
     return [...reasons, ...scoreLines].join("\n") || "No score details";
   }
 
+  function verdictDot(label) {
+    if (/conflict|reject|fail|excluded/.test(label)) return "red";
+    if (/needs_review|revise|resolving/.test(label)) return "orange";
+    if (/approve|resolved|ready/.test(label)) return "green";
+    return "yellow";
+  }
+
   function renderThread(data) {
     const root = document.getElementById("orch-thread");
     if (!root) return;
     const nearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 80;
     const goal = data.goal || (data.report && data.report.goal) || "";
-    const model = data.worker_model || "router";
+    const model = routingLabel(data.worker_model || "router");
     const guard = inputGuard(data);
     const explored = exploredFiles(data);
     const workers = workerRows(data);
@@ -141,7 +180,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
       );
     }
 
-    if (data.awaiting) {
+    if (data.awaiting && !startingIds) {
       const disabled = planChoice ? "disabled" : "";
       const note = planChoice ? `<div class="choice-note">${esc(planChoice)}</div>` : "";
       parts.push(
@@ -161,19 +200,24 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
 
     const stage = data.stage || "";
     const tasks = data.tasks || [];
-    if (stage === "review" || tasks.some((task) => task.lane === "review" || task.verdict)) {
+    if (stage === "review" || stage === "done" || tasks.some((task) => task.lane === "review" || task.verdict)) {
       const reviewing = tasks.filter((task) => task.lane === "review" || task.verdict || task.status === "done");
       parts.push(
         `<div class="bubble-row"><div class="sys-line">Reviewing ${reviewing.length || tasks.length} branches</div></div>`,
       );
       tasks.forEach((task) => {
-        if (!task.verdict && task.status !== "needs_review") return;
-        const label = task.status === "needs_review" ? "needs_review" : task.verdict;
-        const why = task.reason || task.error || "";
+        if (!task.verdict && task.status !== "needs_review" && !conflictLabel(task)) return;
+        const label =
+          conflictLabel(task) ||
+          (task.status === "needs_review" ? "needs_review" : task.verdict || task.status);
+        const why = /conflict/.test(label) ? "" : task.reason || task.error || "";
         parts.push(
-          `<div class="bubble-row"><div class="sys-line verdict-line"><strong>${esc(
-            task.title,
-          )}</strong> · ${esc(label)}${why ? ` · ${esc(why)}` : ""}</div></div>`,
+          `<div class="bubble-row"><div class="verdict-row">
+            <span class="dot ${verdictDot(label)}"></span>
+            <strong>${esc(task.title)}</strong>
+            <span class="chip verdict">${esc(label)}</span>
+            ${why ? `<span class="reason-chip">${esc(why)}</span>` : ""}
+          </div></div>`,
         );
       });
     }
@@ -249,19 +293,39 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
     if (approve) {
       approve.addEventListener("click", () => {
         planChoice = "Approved";
-        post(`/api/runs/${data.run_id}/approve`).finally(() => renderThread(data));
+        startingIds = (data.awaiting || []).map((task) => ({
+          id: task.id,
+          title: task.title,
+          branch: `tf/${data.run_id || "run"}/${task.id}`,
+          model: data.worker_model || "router",
+        }));
+        if (onPlanApproved) onPlanApproved();
+        post(`/api/runs/${data.run_id}/approve`).finally(() => renderThread({ ...data, awaiting: null, stage: "fleet" }));
       });
     }
     if (cancel) {
       cancel.addEventListener("click", () => {
         planChoice = "Cancelled";
+        startingIds = null;
         post(`/api/runs/${data.run_id}/cancel`).finally(() => renderThread(data));
       });
     }
     root.querySelectorAll("[data-merge]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const cmd = button.getAttribute("data-merge");
-        if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+        if (cmd && navigator.clipboard) {
+          try {
+            await navigator.clipboard.writeText(cmd);
+          } catch (_err) {
+            /* ignore */
+          }
+        }
+        button.textContent = "Copied";
+        button.classList.add("copied");
+        setTimeout(() => {
+          button.textContent = "Copy merge command";
+          button.classList.remove("copied");
+        }, 1600);
       });
     });
 
@@ -292,11 +356,14 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
       const auto = document.getElementById("auto").getAttribute("aria-checked") === "true";
       const goal = document.getElementById("follow-goal").value;
       const model = document.getElementById("follow-model").value;
-      post("/api/runs", { goal, worker_model: model, plan_approval: !auto }).then((res) => res.json()).then(() => {
-        planChoice = null;
-        stickToBottom = true;
-        document.getElementById("follow-goal").value = "";
-      });
+      post("/api/runs", { goal, worker_model: model, plan_approval: !auto })
+        .then((res) => res.json())
+        .then(() => {
+          planChoice = null;
+          startingIds = null;
+          stickToBottom = true;
+          document.getElementById("follow-goal").value = "";
+        });
     });
   }
 
@@ -313,6 +380,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth }) {
 
   function resetPlanChoice() {
     planChoice = null;
+    startingIds = null;
   }
 
   return { renderThread, bind, syncModels, resetPlanChoice, clock, auth };

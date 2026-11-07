@@ -122,15 +122,17 @@
         <section class="view orch-view" id="view-orchestrator" aria-label="Orchestrator" hidden>
           <div class="orch-scroll">
             <div class="orch-thread" id="orch-thread" role="log" aria-label="Orchestrator thread" aria-live="polite"></div>
-            <button class="jump-latest" id="jump-latest" type="button" hidden>Jump to latest</button>
           </div>
-          <footer class="orch-composer" aria-label="Follow-up run">
-            <textarea id="follow-goal" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
-            <div class="composer-tools">
-              <select id="follow-model" aria-label="Follow-up worker model"></select>
-              <button class="btn primary" id="follow-run" type="button">Run</button>
-            </div>
-          </footer>
+          <div class="orch-footer">
+            <button class="jump-latest" id="jump-latest" type="button" hidden>Jump to latest</button>
+            <footer class="orch-composer" aria-label="Follow-up run">
+              <textarea id="follow-goal" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
+              <div class="composer-tools">
+                <select id="follow-model" aria-label="Follow-up worker model"></select>
+                <button class="btn primary" id="follow-run" type="button">Run</button>
+              </div>
+            </footer>
+          </div>
         </section>
 
         <section class="map" aria-label="Branch map" hidden>
@@ -177,17 +179,30 @@
           <h3 id="task-title">No task selected</h3>
           <div class="mono muted" id="task-meta"></div>
         </header>
-        <div class="tabs" role="tablist">
-          <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button">Live output</button>
-          <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button">Diff</button>
-          <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button">Proof</button>
-          <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button" disabled>Feedback</button>
+        <div id="drawer-empty" class="drawer-empty">
+          <p class="empty-line">Select a task on the board to inspect live output, diffs and proofs.</p>
+          <dl class="run-summary" id="run-summary">
+            <div><dt>Stage</dt><dd id="summary-stage">guard</dd></div>
+            <div><dt>Working</dt><dd id="summary-working">0</dd></div>
+            <div><dt>Needs you</dt><dd id="summary-needs">0</dd></div>
+            <div><dt>In review</dt><dd id="summary-review">0</dd></div>
+            <div><dt>Ready</dt><dd id="summary-ready">0</dd></div>
+            <div><dt>Elapsed</dt><dd class="mono" id="summary-elapsed">0:00</dd></div>
+          </dl>
         </div>
-        <div class="pane log" id="live" role="tabpanel" aria-readonly="true"></div>
-        <div class="pane" id="diff" role="tabpanel" hidden></div>
-        <div class="pane" id="proofpane" role="tabpanel" hidden></div>
-        <div class="pane" id="fb" role="tabpanel" hidden>
-          <p class="note">Feedback is off. This board does not start a revise.</p>
+        <div id="drawer-task" hidden>
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button">Live output</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button">Diff</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button">Proof</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button" disabled>Feedback</button>
+          </div>
+          <div class="pane log" id="live" role="tabpanel" aria-readonly="true"></div>
+          <div class="pane" id="diff" role="tabpanel" hidden></div>
+          <div class="pane" id="proofpane" role="tabpanel" hidden></div>
+          <div class="pane" id="fb" role="tabpanel" hidden>
+            <p class="note">Feedback is off. This board does not start a revise.</p>
+          </div>
         </div>
       </aside>
     </div>

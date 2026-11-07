@@ -15,6 +15,8 @@ let view = "kanban";
 let mobileLane = "working";
 const flipPrev = new Map();
 let orch = null;
+let optimistic = null;
+let lastCounts = { working: 0, needs: 0, review: 0, ready: 0 };
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) =>
@@ -41,13 +43,24 @@ function isRunning(task) {
   return lane(task) === "working" && !!task.action && task.status !== "done" && task.status !== "failed";
 }
 
-function notifyHuman(needs) {
+function needsCount(counts, awaiting) {
+  return (counts.needs || 0) + (awaiting ? 1 : 0);
+}
+
+function notifyHuman(count) {
   const badge = document.getElementById("attention-badge");
   const legacy = document.getElementById("attention");
+  const needs = count > 0;
   if (needs) {
-    if (badge) badge.hidden = false;
-    if (legacy) legacy.hidden = false;
-    document.title = `(1) ${baseTitle}`;
+    if (badge) {
+      badge.hidden = false;
+      badge.textContent = String(count);
+    }
+    if (legacy) {
+      legacy.hidden = false;
+      legacy.textContent = `Needs you · ${count}`;
+    }
+    document.title = `(${count}) ${baseTitle}`;
     if (!lastNeedsHuman && typeof Notification !== "undefined") {
       try {
         if (Notification.permission === "granted") {
@@ -64,8 +77,30 @@ function notifyHuman(needs) {
     if (legacy) legacy.hidden = true;
     document.title = baseTitle;
   }
-  lastNeedsHuman = !!needs;
+  lastNeedsHuman = needs;
 }
+
+function elapsedText() {
+  if (!started) return "0:00";
+  return clock((finished || Date.now() / 1000) - started);
+}
+
+function showDrawerEmpty() {
+  selected = null;
+  pinned = false;
+  document.getElementById("task-title").textContent = "No task selected";
+  document.getElementById("task-meta").textContent = "";
+  document.getElementById("drawer-empty").hidden = false;
+  document.getElementById("drawer-task").hidden = true;
+  document.getElementById("summary-stage").textContent = (optimistic && optimistic.stage) || state.stage || "guard";
+  document.getElementById("summary-working").textContent = String(lastCounts.working || 0);
+  document.getElementById("summary-needs").textContent = String(lastCounts.needs || 0);
+  document.getElementById("summary-review").textContent = String(lastCounts.review || 0);
+  document.getElementById("summary-ready").textContent = String(lastCounts.ready || 0);
+  document.getElementById("summary-elapsed").textContent = elapsedText();
+}
+
+window.__tfClearSelection = showDrawerEmpty;
 
 function filesFor(task) {
   const rows = state.worktrees || [];
@@ -194,28 +229,30 @@ function setLaneCounts(tasks, awaiting) {
 }
 
 function runStripState(data, counts) {
-  const stage = data.stage || "guard";
-  const total = (data.tasks || []).length;
-  const active = counts.working || 0;
-  const elapsed = started ? clock((finished || Date.now() / 1000) - started) : "0:00";
+  const stage = (optimistic && optimistic.stage) || data.stage || "guard";
+  const awaiting = optimistic && optimistic.awaiting === null ? null : data.awaiting;
+  const total = (data.tasks || []).length || (awaiting ? awaiting.length : 0);
+  const active = counts.working || (optimistic && optimistic.starting ? total : 0);
+  const elapsed = elapsedText();
   const blocked =
-    (data.message && /blocked/i.test(data.message)) ||
-    (data.events || []).some(
-      (event) =>
-        event.type === "guard.decision" &&
-        (event.payload || {}).stage === "input" &&
-        (event.payload || {}).allowed === false,
-    );
+    !(optimistic && optimistic.stage === "fleet") &&
+    ((data.message && /blocked/i.test(data.message)) ||
+      (data.events || []).some(
+        (event) =>
+          event.type === "guard.decision" &&
+          (event.payload || {}).stage === "input" &&
+          (event.payload || {}).allowed === false,
+      ));
   if (blocked) {
     const why = (data.message || "").replace(/^input blocked:\s*/i, "") || "input blocked";
     return { line: `Blocked · ${why}`, stage: "guard" };
   }
-  if (data.awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
+  if (awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
   if (stage === "done") return { line: `Done · ${elapsed}`, stage: "integrate" };
   if (stage === "integrate") return { line: `Integrating · ${elapsed}`, stage: "integrate" };
   if (stage === "review") return { line: `Reviewing · ${elapsed}`, stage: "review" };
-  if (stage === "fleet" || active) {
-    return { line: `Running · ${active} of ${total || active} tasks · ${elapsed}`, stage: "fleet" };
+  if (stage === "fleet" || active || (optimistic && optimistic.starting)) {
+    return { line: `Running · ${active || total || 0} of ${total || active || 0} tasks · ${elapsed}`, stage: "fleet" };
   }
   if (stage === "plan") return { line: `Planning · ${elapsed}`, stage: "plan" };
   if (stage === "approve") return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
@@ -226,6 +263,11 @@ function runStripState(data, counts) {
 function updateRunStrip(data, counts) {
   const info = runStripState(data, counts);
   document.getElementById("run-status").textContent = info.line;
+  const shown = elapsedText();
+  document.getElementById("elapsed").textContent = shown;
+  document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
+  const summary = document.getElementById("summary-elapsed");
+  if (summary) summary.textContent = shown;
   const idx = STAGES.indexOf(info.stage);
   document.querySelectorAll("#stage-stepper li").forEach((item) => {
     const i = STAGES.indexOf(item.dataset.stage);
@@ -337,6 +379,8 @@ function setEmpty(tableId, emptyId, count) {
 
 function select(task, fromUser) {
   if (fromUser) pinned = true;
+  document.getElementById("drawer-empty").hidden = true;
+  document.getElementById("drawer-task").hidden = false;
   if (selected && selected.id === task.id && !fromUser) {
     document.getElementById("live").textContent = (task.lines || []).join("\n");
     return;
@@ -434,11 +478,11 @@ function render(data) {
   document.getElementById("side-project").textContent = project;
   document.getElementById("ref").textContent = `${data.branch || ""}${data.head ? ` @ ${data.head}` : ""}`;
   document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
-  document.getElementById("stage").textContent = `Stage: ${data.stage || "guard"}`;
-  notifyHuman(!!data.needs_human || !!data.awaiting);
+  document.getElementById("stage").textContent = `Stage: ${(optimistic && optimistic.stage) || data.stage || "guard"}`;
   if (data.started_at) started = data.started_at;
   if (data.finished_at) finished = data.finished_at;
   else if (data.stage === "done" && !finished) finished = Date.now() / 1000;
+  if (optimistic && data.stage === "fleet" && !data.awaiting) optimistic = null;
 
   const runList = document.getElementById("run-history");
   if (runList) {
@@ -469,13 +513,17 @@ function render(data) {
     const ok = document.createElement("button");
     ok.className = "btn primary";
     ok.type = "button";
-    ok.textContent = "Approve plan";
-    ok.addEventListener("click", () => post(`/api/runs/${data.run_id}/approve`));
-    const cancel = document.createElement("button");
-    cancel.className = "btn ghost";
-    cancel.type = "button";
-    cancel.textContent = "Cancel";
-    cancel.addEventListener("click", () => post(`/api/runs/${data.run_id}/cancel`));
+      ok.textContent = "Approve plan";
+      ok.addEventListener("click", () => {
+        optimistic = { stage: "fleet", awaiting: null, starting: true };
+        post(`/api/runs/${data.run_id}/approve`);
+        updateRunStrip(data, lastCounts);
+      });
+      const cancel = document.createElement("button");
+      cancel.className = "btn ghost";
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => post(`/api/runs/${data.run_id}/cancel`));
     actions.appendChild(ok);
     actions.appendChild(cancel);
     card.appendChild(actions);
@@ -483,7 +531,9 @@ function render(data) {
   }
 
   const tasks = data.tasks || [];
-  const counts = setLaneCounts(tasks, !!data.awaiting);
+  const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
+  lastCounts = counts;
+  notifyHuman(needsCount(counts, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting)));
   updateRunStrip(data, counts);
   tasks.forEach((task) => {
     document.getElementById(lane(task)).appendChild(renderCard(task));
@@ -497,9 +547,13 @@ function render(data) {
       if (!current && lane(task) === "working") current = task;
     });
     if (current) select(current, false);
+    else showDrawerEmpty();
   } else if (selected) {
     const held = tasks.find((task) => task.id === selected.id);
     if (held) select(held, false);
+    else showDrawerEmpty();
+  } else {
+    showDrawerEmpty();
   }
 
   const body = document.querySelector("#worktrees tbody");
@@ -580,17 +634,13 @@ function render(data) {
 
 function tick() {
   if (!started) return;
-  const end = finished || Date.now() / 1000;
-  const shown = clock(end - started);
+  const shown = elapsedText();
   document.getElementById("elapsed").textContent = shown;
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
+  const summary = document.getElementById("summary-elapsed");
+  if (summary) summary.textContent = shown;
   if (state && Object.keys(state).length) {
-    const counts = { working: 0, needs: 0, review: 0, ready: 0 };
-    (state.tasks || []).forEach((task) => {
-      counts[lane(task)] = (counts[lane(task)] || 0) + 1;
-    });
-    if (state.awaiting) counts.needs += 1;
-    updateRunStrip(state, counts);
+    updateRunStrip(state, lastCounts);
   }
 }
 
@@ -714,8 +764,21 @@ orch = createOrchestrator({
   post,
   selectTask: select,
   auth,
+  onPlanApproved: () => {
+    optimistic = { stage: "fleet", awaiting: null, starting: true };
+    if (state) {
+      state.awaiting = null;
+      state.stage = "fleet";
+      updateRunStrip(state, lastCounts);
+      if (view === "orchestrator") orch.renderThread(state);
+    }
+  },
 });
 orch.bind();
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") showDrawerEmpty();
+});
 
 fetch("/api/models", { headers: auth() })
   .then((res) => res.json())

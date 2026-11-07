@@ -440,8 +440,9 @@ def test_orchestrator_thread_states_and_screenshots(
             if name == "awaiting":
                 page.get_by_role("button", name="Approve plan").first.click()
                 page.wait_for_timeout(100)
-                assert page.get_by_role("button", name="Approve plan").first.is_disabled()
-                assert "Approved" in thread_el.inner_text()
+                assert "Running" in page.locator("#run-status").inner_text()
+                assert "starting" in thread_el.inner_text().lower()
+                assert page.get_by_role("button", name="Approve plan").count() == 0
             if name == "running":
                 page.locator(".worker-row", has_text="Parser tests").first.click()
                 assert page.locator("#task-title").inner_text() == "Parser tests"
