@@ -580,7 +580,7 @@ def test_stubbed_stream_shows_work_while_the_run_is_open(tmp_path: Path, monkeyp
                 "review_verdict",
                 {"verdict": "reject", "reason": "the tests do not cover the notifier"},
             )
-            page.get_by_text("the tests do not cover the notifier").wait_for(timeout=8000)
+            page.locator("#needs").get_by_text("the tests do not cover the notifier").wait_for(timeout=8000)
             assert "abcd1234" not in board.finished
             browser.close()
     finally:

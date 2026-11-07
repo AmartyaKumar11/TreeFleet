@@ -157,6 +157,8 @@ class Board:
         self.finished: set[str] = set()
         self.ended: dict[str, float] = {}
         self.messages: dict[str, str] = {}
+        self.goals: dict[str, str] = {}
+        self.worker_models: dict[str, str] = {}
         self.replay = False
         self.replay_events: list[dict[str, Any]] = []
         self.base_sha = run_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip() or "HEAD"
@@ -169,6 +171,8 @@ class Board:
         with self._lock:
             self.approvals[run_id] = approval
             self.started[run_id] = time.time()
+            self.goals[run_id] = goal
+            self.worker_models[run_id] = worker_model
 
         def work() -> None:
             from treefleet.checks import detect_checks, select_checks
@@ -221,6 +225,9 @@ class Board:
                 report = None
         branch, head, clean = _head(self.repo)
         tasks = tasks_from_snapshot(events, report, awaiting=waiting)
+        goal = self.goals.get(run_id, "")
+        if not goal and isinstance(report, dict):
+            goal = str(report.get("goal") or "")
         body = {
             "repo": str(self.repo),
             "branch": branch,
@@ -228,6 +235,8 @@ class Board:
             "clean": clean,
             "replay": self.replay,
             "run_id": run_id,
+            "goal": goal,
+            "worker_model": self.worker_models.get(run_id, "router"),
             "stage": _stage(events, waiting, run_id in self.finished or report is not None),
             "started_at": self.started.get(run_id, time.time()),
             "finished_at": self.ended.get(run_id),

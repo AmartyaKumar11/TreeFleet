@@ -314,7 +314,8 @@ def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
 
             strip = page.locator("#run-strip")
             strip.wait_for()
-            assert "Fleet running" in strip.inner_text()
+            assert "Awaiting approval" in strip.inner_text()
+            assert "Fleet running" not in strip.inner_text()
             for stage in ("guard", "plan", "approve", "fleet", "review", "integrate"):
                 assert stage in strip.inner_text().lower()
 

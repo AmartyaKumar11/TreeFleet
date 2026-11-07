@@ -1,3 +1,5 @@
+import { createOrchestrator } from "./orchestrator.js";
+
 const token = document.querySelector('meta[name="tf-token"]').content;
 const replay = document.documentElement.dataset.replay === "true";
 const STAGES = ["guard", "plan", "approve", "fleet", "review", "integrate"];
@@ -12,6 +14,7 @@ let baseTitle = "TreeFleet";
 let view = "kanban";
 let mobileLane = "working";
 const flipPrev = new Map();
+let orch = null;
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) =>
@@ -190,27 +193,43 @@ function setLaneCounts(tasks, awaiting) {
   return counts;
 }
 
-function updateRunStrip(data, counts) {
+function runStripState(data, counts) {
   const stage = data.stage || "guard";
   const total = (data.tasks || []).length;
-  const done = (counts.review || 0) + (counts.ready || 0);
   const active = counts.working || 0;
   const elapsed = started ? clock((finished || Date.now() / 1000) - started) : "0:00";
-  let line = "Idle";
-  if (stage === "done") line = `Run finished · ${elapsed}`;
-  else if (stage === "fleet" || active) {
-    const fleet = `Fleet running, ${active} of ${total || active} tasks, ${elapsed}`;
-    line = data.awaiting ? `Needs plan approval · ${fleet}` : fleet;
-  } else if (data.awaiting) line = `Waiting for plan approval · ${elapsed}`;
-  else if (stage === "review") line = `In review · ${elapsed}`;
-  else if (stage === "integrate") line = `Integrating · ${elapsed}`;
-  else if (stage === "plan") line = `Planning · ${elapsed}`;
-  else if (stage === "guard") line = `Guarding input · ${elapsed}`;
-  document.getElementById("run-status").textContent = line;
-  const idx = STAGES.indexOf(stage === "done" ? "integrate" : stage);
+  const blocked =
+    (data.message && /blocked/i.test(data.message)) ||
+    (data.events || []).some(
+      (event) =>
+        event.type === "guard.decision" &&
+        (event.payload || {}).stage === "input" &&
+        (event.payload || {}).allowed === false,
+    );
+  if (blocked) {
+    const why = (data.message || "").replace(/^input blocked:\s*/i, "") || "input blocked";
+    return { line: `Blocked · ${why}`, stage: "guard" };
+  }
+  if (data.awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
+  if (stage === "done") return { line: `Done · ${elapsed}`, stage: "integrate" };
+  if (stage === "integrate") return { line: `Integrating · ${elapsed}`, stage: "integrate" };
+  if (stage === "review") return { line: `Reviewing · ${elapsed}`, stage: "review" };
+  if (stage === "fleet" || active) {
+    return { line: `Running · ${active} of ${total || active} tasks · ${elapsed}`, stage: "fleet" };
+  }
+  if (stage === "plan") return { line: `Planning · ${elapsed}`, stage: "plan" };
+  if (stage === "approve") return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
+  if (stage === "guard") return { line: `Guarding · ${elapsed}`, stage: "guard" };
+  return { line: `Idle · ${elapsed}`, stage };
+}
+
+function updateRunStrip(data, counts) {
+  const info = runStripState(data, counts);
+  document.getElementById("run-status").textContent = info.line;
+  const idx = STAGES.indexOf(info.stage);
   document.querySelectorAll("#stage-stepper li").forEach((item) => {
     const i = STAGES.indexOf(item.dataset.stage);
-    item.classList.toggle("is-current", i === idx || (stage === "done" && item.dataset.stage === "integrate"));
+    item.classList.toggle("is-current", i === idx);
     item.classList.toggle("is-done", i >= 0 && i < idx);
   });
 }
@@ -556,6 +575,7 @@ function render(data) {
     document.getElementById("error").hidden = false;
     document.getElementById("error").textContent = data.message;
   }
+  if (orch && view === "orchestrator") orch.renderThread(data);
 }
 
 function tick() {
@@ -604,9 +624,11 @@ function setView(next) {
   view = next;
   document.getElementById("view-kanban").hidden = next !== "kanban";
   document.getElementById("view-orchestrator").hidden = next !== "orchestrator";
+  document.getElementById("new-run").hidden = next !== "kanban";
   document.querySelectorAll('.view-toggle [role="tab"]').forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.view === next));
   });
+  if (next === "orchestrator" && orch) orch.renderThread(state);
 }
 
 document.getElementById("auto").addEventListener("click", () => {
@@ -686,6 +708,15 @@ document.querySelectorAll(".mobile-lane-tabs button").forEach((btn) => {
   });
 });
 
+orch = createOrchestrator({
+  esc,
+  clock,
+  post,
+  selectTask: select,
+  auth,
+});
+orch.bind();
+
 fetch("/api/models", { headers: auth() })
   .then((res) => res.json())
   .then((models) => {
@@ -696,6 +727,7 @@ fetch("/api/models", { headers: auth() })
       option.textContent = item.label;
       select.appendChild(option);
     });
+    orch.syncModels(models);
   });
 
 if (replay) document.getElementById("replay").hidden = false;

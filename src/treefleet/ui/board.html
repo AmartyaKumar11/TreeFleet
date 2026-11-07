@@ -119,8 +119,18 @@
           </section>
         </section>
 
-        <section class="view" id="view-orchestrator" aria-label="Orchestrator" hidden>
-          <p class="empty-line">Orchestrator thread arrives in part 2.</p>
+        <section class="view orch-view" id="view-orchestrator" aria-label="Orchestrator" hidden>
+          <div class="orch-scroll">
+            <div class="orch-thread" id="orch-thread" role="log" aria-label="Orchestrator thread" aria-live="polite"></div>
+            <button class="jump-latest" id="jump-latest" type="button" hidden>Jump to latest</button>
+          </div>
+          <footer class="orch-composer" aria-label="Follow-up run">
+            <textarea id="follow-goal" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
+            <div class="composer-tools">
+              <select id="follow-model" aria-label="Follow-up worker model"></select>
+              <button class="btn primary" id="follow-run" type="button">Run</button>
+            </div>
+          </footer>
         </section>
 
         <section class="map" aria-label="Branch map" hidden>
