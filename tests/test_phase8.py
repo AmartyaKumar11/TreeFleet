@@ -483,14 +483,12 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "unpriced" in costs
             assert "$0" not in costs
             assert "0.005439" in costs
-            assert page.get_by_role("tab", name="Feedback").is_disabled()
-            labels = page.locator("#map text")
-            assert labels.nth(1).get_attribute("font-size") == "13"
-            assert labels.nth(2).get_attribute("font-size") == "13"
-            first = labels.nth(1).get_attribute("y")
-            second = labels.nth(2).get_attribute("y")
-            assert first is not None and second is not None
-            assert float(second) - float(first) >= 32
+            assert page.locator(".drawer").get_by_role("tab", name="Checks").count() == 1
+            assert page.locator(".drawer").get_by_role("tab", name="Cost").count() == 1
+            graph = page.locator("#git-graph svg")
+            assert graph.count() == 1
+            labels = graph.locator("text")
+            assert labels.count() >= 2
             browser.close()
     finally:
         server.should_exit = True

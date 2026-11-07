@@ -135,10 +135,7 @@
           </div>
         </section>
 
-        <section class="map" aria-label="Branch map" hidden>
-          <h2>Branch map</h2>
-          <svg id="map" viewBox="0 0 900 120" role="img" aria-label="Worktree branches"></svg>
-        </section>
+        <section class="git-graph" id="git-graph" aria-label="Git graph"></section>
 
         <section class="run-details" aria-label="Run details">
           <details>
@@ -191,21 +188,28 @@
           </dl>
         </div>
         <div id="drawer-task" hidden>
-          <div class="tabs" role="tablist">
-            <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button">Live output</button>
-            <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button">Diff</button>
-            <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button">Proof</button>
-            <button class="tab" role="tab" aria-selected="false" data-pane="fb" type="button" disabled>Feedback</button>
+          <div class="tabs" role="tablist" aria-label="Task detail tabs">
+            <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button" tabindex="0">Live output</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button" tabindex="-1">Diff</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="proofpane" type="button" tabindex="-1">Proof</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="checks" type="button" tabindex="-1">Checks</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="costpane" type="button" tabindex="-1">Cost</button>
           </div>
           <div class="pane log" id="live" role="tabpanel" aria-readonly="true"></div>
           <div class="pane" id="diff" role="tabpanel" hidden></div>
           <div class="pane" id="proofpane" role="tabpanel" hidden></div>
-          <div class="pane" id="fb" role="tabpanel" hidden>
-            <p class="note">Feedback is off. This board does not start a revise.</p>
-          </div>
+          <div class="pane" id="checks" role="tabpanel" hidden></div>
+          <div class="pane" id="costpane" role="tabpanel" hidden></div>
         </div>
       </aside>
     </div>
+  </div>
+</div>
+<div id="command-palette" class="command-palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="command-backdrop" id="command-backdrop"></div>
+  <div class="command-panel">
+    <input id="command-input" type="search" placeholder="Type a command" aria-label="Command" autocomplete="off" aria-controls="command-list">
+    <div id="command-list" role="listbox" aria-label="Commands"></div>
   </div>
 </div>
 <script type="module" src="/static/js/board.js"></script>

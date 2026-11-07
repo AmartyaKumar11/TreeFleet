@@ -1,4 +1,7 @@
 import { createOrchestrator } from "./orchestrator.js";
+import { createDrawer } from "./drawer.js";
+import { createGitGraph } from "./git-graph.js";
+import { createPalette } from "./palette.js";
 
 const token = document.querySelector('meta[name="tf-token"]').content;
 const replay = document.documentElement.dataset.replay === "true";
@@ -15,6 +18,9 @@ let view = "kanban";
 let mobileLane = "working";
 const flipPrev = new Map();
 let orch = null;
+let drawer = null;
+let graph = null;
+let palette = null;
 let optimistic = null;
 let lastCounts = { working: 0, needs: 0, review: 0, ready: 0 };
 
@@ -152,19 +158,6 @@ function moneyCell(row) {
   if (row.label === "usage not reported") return "<span class='pill'>usage not reported</span>";
   if (!row.usd) return "<span class='pill'>unpriced</span>";
   return esc(String(row.usd));
-}
-
-function proofTable(proof) {
-  const rows = [
-    ["Process cwd", proof.process_cwd_matches],
-    ["Toplevel", proof.toplevel_matches],
-    ["Registered", proof.registered_in_worktree_list],
-    ["Canary absent", proof.canary_absent],
-    ["Within scope", proof.changes_within_allowed_paths],
-  ];
-  return `<table><tbody>${rows
-    .map((row) => `<tr><th>${esc(row[0])}</th><td>${row[1] ? "yes" : "NO"}</td></tr>`)
-    .join("")}</tbody></table>`;
 }
 
 function captureFlip() {
@@ -348,27 +341,6 @@ function renderCard(task) {
   return button;
 }
 
-function drawMap(rows) {
-  const svg = document.getElementById("map");
-  if (!svg) return;
-  const height = Math.max(96, 48 + rows.length * 44);
-  svg.setAttribute("viewBox", `0 0 900 ${height}`);
-  const paths = rows
-    .map((row, index) => {
-      const y = 52 + index * 44;
-      let label = `${row.branch || row.path || ""}  ${changedLabel(row)}`;
-      if (label.length > 64) label = `${label.slice(0, 61)}...`;
-      return (
-        `<path class="draw" d="M40 20 C40 ${y} 80 ${y} 120 ${y} L860 ${y}" fill="none" stroke="#4c8dff" stroke-width="2" pathLength="1"/>` +
-        `<text x="130" y="${y - 10}" fill="#c6c7cc" font-size="13">${esc(label)}</text>`
-      );
-    })
-    .join("");
-  svg.innerHTML =
-    `<line x1="24" y1="20" x2="876" y2="20" stroke="rgba(255,255,255,.18)" stroke-width="2"/>` +
-    `<text x="24" y="16" fill="#c6c7cc" font-size="13">main</text>${paths}`;
-}
-
 function setEmpty(tableId, emptyId, count) {
   const table = document.getElementById(tableId);
   const empty = document.getElementById(emptyId);
@@ -379,36 +351,13 @@ function setEmpty(tableId, emptyId, count) {
 
 function select(task, fromUser) {
   if (fromUser) pinned = true;
-  document.getElementById("drawer-empty").hidden = true;
-  document.getElementById("drawer-task").hidden = false;
   if (selected && selected.id === task.id && !fromUser) {
-    document.getElementById("live").textContent = (task.lines || []).join("\n");
+    selected = task;
+    if (drawer) drawer.refresh(task, state);
     return;
   }
   selected = task;
-  document.getElementById("task-title").textContent = task.title;
-  document.getElementById("task-meta").textContent = task.branch || "";
-  document.getElementById("live").textContent = (task.lines || []).join("\n");
-  const proof = (
-    (state.report && state.report.isolation && state.report.isolation.tasks) ||
-    state.proof ||
-    []
-  ).filter((item) => item.task_id === task.id)[0];
-  document.getElementById("proofpane").innerHTML = proof
-    ? proofTable(proof)
-    : "Proof rows are in the isolation table.";
-  const path = worktreeFor(task);
-  document.getElementById("diff").textContent = path ? "Loading diff…" : "No worktree for this task yet.";
-  if (!path) return;
-  fetch(`/api/diff?path=${encodeURIComponent(path)}`, { headers: auth() })
-    .then((res) => res.json())
-    .then((data) => {
-      const files = (data.files || [])
-        .map((file) => `${file.path} +${file.additions || 0} -${file.deletions || 0}`)
-        .join("\n");
-      document.getElementById("diff").textContent =
-        `${files ? `${files}\n\n` : ""}${data.diff || data.error || "No diff."}`;
-    });
+  if (drawer) drawer.show(task, state);
 }
 
 function openEvents(runId) {
@@ -568,7 +517,7 @@ function render(data) {
   });
   document.getElementById("count-worktrees").textContent = String(worktrees.length);
   setEmpty("worktrees", "empty-worktrees", worktrees.length);
-  drawMap(worktrees);
+  if (graph) graph.draw(data);
   if (data.run_id) openEvents(data.run_id);
 
   const guards = document.getElementById("guards");
@@ -665,7 +614,7 @@ function refresh() {
       });
       document.getElementById("count-worktrees").textContent = String(state.worktrees.length);
       setEmpty("worktrees", "empty-worktrees", state.worktrees.length);
-      drawMap(state.worktrees);
+      if (graph) graph.draw(state);
     })
     .catch(() => {});
 }
@@ -699,17 +648,6 @@ document.addEventListener("click", (event) => {
     document.getElementById("settings-popover").hidden = true;
     document.getElementById("run-settings").setAttribute("aria-expanded", "false");
   }
-});
-
-document.querySelectorAll(".drawer .tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".drawer .tab").forEach((item) => {
-      item.setAttribute("aria-selected", String(item === tab));
-    });
-    document.querySelectorAll(".drawer .pane").forEach((pane) => {
-      pane.hidden = pane.id !== tab.dataset.pane;
-    });
-  });
 });
 
 document.querySelectorAll(".details-tab").forEach((tab) => {
@@ -758,6 +696,35 @@ document.querySelectorAll(".mobile-lane-tabs button").forEach((btn) => {
   });
 });
 
+drawer = createDrawer({ auth, worktreeFor });
+drawer.bind();
+
+graph = createGitGraph({
+  onSelect: (task) => select(task, true),
+});
+
+function mergeCommand() {
+  const integration = state.report && state.report.integration;
+  const branch = (integration && integration.branch) || "";
+  return branch ? `git merge ${branch}` : "";
+}
+
+palette = createPalette({
+  onNewRun: () => {
+    setView("kanban");
+    document.getElementById("goal").focus();
+  },
+  onJumpTask: (task) => select(task, true),
+  onSwitchView: () => setView(view === "kanban" ? "orchestrator" : "kanban"),
+  onToggleAuto: () => document.getElementById("auto").click(),
+  onCopyMerge: () => {
+    const cmd = mergeCommand();
+    if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+  },
+  getTasks: () => state.tasks || [],
+});
+palette.bind();
+
 orch = createOrchestrator({
   esc,
   clock,
@@ -777,7 +744,12 @@ orch = createOrchestrator({
 orch.bind();
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") showDrawerEmpty();
+  if (event.key !== "Escape") return;
+  if (palette && palette.isOpen()) {
+    palette.close();
+    return;
+  }
+  showDrawerEmpty();
 });
 
 fetch("/api/models", { headers: auth() })
