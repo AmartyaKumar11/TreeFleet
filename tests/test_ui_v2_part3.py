@@ -325,7 +325,7 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
             assert graph.is_visible()
             assert graph.locator("svg").count() == 1
             assert "tf/abcd1234" in graph.inner_text() or graph.locator("[data-task-id]").count() >= 1
-            graph.locator("[data-task-id='alpha']").first.click()
+            graph.locator("text[data-task-id='alpha']").click(force=True)
             assert page.locator("#task-title").inner_text() == "Parser tests"
 
             page.keyboard.press("Control+K")

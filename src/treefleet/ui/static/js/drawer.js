@@ -281,6 +281,17 @@ export function createDrawer({ auth, worktreeFor }) {
     });
   }
 
+  function formatUsd(value, label) {
+    const tag = String(label || "");
+    if (/usage not reported/i.test(tag)) return "usage not reported";
+    if (/unpriced|rate unknown/i.test(tag)) return "unpriced";
+    if (value == null || value === "" || Number.isNaN(Number(value))) return "unpriced";
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return "unpriced";
+    if (n < 0.0001) return "<$0.0001";
+    return `$${n.toFixed(4)}`;
+  }
+
   function renderCost(task) {
     const root = document.getElementById("costpane");
     clear(root);
@@ -299,23 +310,31 @@ export function createDrawer({ auth, worktreeFor }) {
     head.appendChild(hr);
     table.appendChild(head);
     const body = document.createElement("tbody");
+    let total = 0;
+    let priced = false;
     costs.forEach((row) => {
       const tr = document.createElement("tr");
       tr.appendChild(el("td", null, row.component || row.role || ""));
       tr.appendChild(el("td", "mono", row.tokens != null ? String(row.tokens) : "—"));
       const usd = document.createElement("td");
-      if (row.label === "usage not reported" || (row.tokens == null && row.usd == null)) {
-        usd.appendChild(el("span", "pill", "usage not reported"));
-      } else if (row.label === "unpriced" || row.usd == null || row.usd === "") {
-        usd.appendChild(el("span", "pill", "unpriced"));
+      const text = formatUsd(row.usd, row.label);
+      if (text === "unpriced" || text === "usage not reported") {
+        usd.appendChild(el("span", "pill", text));
       } else {
-        usd.textContent = String(row.usd);
+        usd.textContent = text;
+        if (row.usd != null && !Number.isNaN(Number(row.usd))) {
+          total += Number(row.usd);
+          priced = true;
+        }
       }
       tr.appendChild(usd);
       body.appendChild(tr);
     });
     table.appendChild(body);
     root.appendChild(table);
+    const foot = el("p", "cost-total mono");
+    foot.textContent = priced ? `Total ${formatUsd(total)}` : "Total unpriced";
+    root.appendChild(foot);
   }
 
   function show(task, boardState, opts) {

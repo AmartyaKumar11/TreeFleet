@@ -173,7 +173,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
         })
         .join("");
       parts.push(
-        `<div class="bubble-row"><div class="card plan-card">
+        `<div class="bubble-row"><div class="card orch-card plan-card">
           <div class="title">Started ${workers.length} workers, each in its own worktree</div>
           <div class="worker-list">${rows}</div>
         </div></div>`,
@@ -184,7 +184,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       const disabled = planChoice ? "disabled" : "";
       const note = planChoice ? `<div class="choice-note">${esc(planChoice)}</div>` : "";
       parts.push(
-        `<div class="bubble-row"><div class="card plan-card">
+        `<div class="bubble-row"><div class="card orch-card plan-card">
           <div class="plan-head"><span class="dot orange"></span>Plan ready</div>
           <ul>${data.awaiting
             .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
@@ -216,8 +216,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
             <span class="dot ${verdictDot(label)}"></span>
             <strong>${esc(task.title)}</strong>
             <span class="chip verdict">${esc(label)}</span>
-            ${why ? `<span class="reason-chip">${esc(why)}</span>` : ""}
-          </div></div>`,
+          </div>${why ? `<div class="reason">${esc(why)}</div>` : ""}</div>`,
         );
       });
     }
@@ -248,7 +247,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       const costText = typeof cost === "number" ? `$${cost.toFixed(4)}` : cost;
       const mergeCmd = `git -C ${data.repo || ""} merge ${integration.branch || ""}`;
       parts.push(
-        `<div class="bubble-row"><div class="card summary-card">
+        `<div class="bubble-row"><div class="card orch-card summary-card">
           <div class="title">Integration summary</div>
           <p><span class="muted">Branch</span> <span class="mono">${esc(integration.branch || "")}</span></p>
           <p><span class="muted">Checks</span> ${esc(checks || "none")}</p>
@@ -257,9 +256,9 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
           )} · <span class="muted">Speedup</span> ${esc(speedup)}x · <span class="muted">Fleet</span> ${esc(
             fleet,
           )}x</p>
-          <div class="actions"><button class="btn ghost" type="button" data-merge="${esc(
+          <div class="actions"><button class="btn ghost merge-btn" type="button" data-merge="${esc(
             mergeCmd,
-          )}">Copy merge command</button></div>
+          )}"><span class="merge-label">Copy merge command</span></button></div>
         </div></div>`,
       );
     }
@@ -320,12 +319,12 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
             /* ignore */
           }
         }
-        button.textContent = "Copied";
         button.classList.add("copied");
+        button.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="merge-label">Copied</span>`;
         setTimeout(() => {
-          button.textContent = "Copy merge command";
           button.classList.remove("copied");
-        }, 1600);
+          button.innerHTML = `<span class="merge-label">Copy merge command</span>`;
+        }, 2000);
       });
     });
 

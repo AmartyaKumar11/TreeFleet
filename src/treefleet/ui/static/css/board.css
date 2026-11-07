@@ -265,16 +265,34 @@ button {
 
 .btn.ghost {
   background: transparent;
-  border-color: transparent;
+  border: 1px solid var(--border);
   color: var(--muted);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .btn.ghost:hover {
   color: var(--text);
-  border-color: var(--border);
+  border-color: rgba(255, 255, 255, 0.2);
   background: var(--surface-2);
+}
+
+.btn.ghost.copied,
+.btn.ghost.merge-btn.copied {
+  color: var(--green);
+  border-color: rgba(62, 207, 142, 0.4);
+}
+
+.btn.ghost .check {
+  color: var(--green);
+  font-size: 14px;
+  line-height: 1;
 }
 
 .icon-btn {
@@ -570,14 +588,13 @@ select {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px 0;
+  padding: 10px 8px;
 }
 
 .card {
   background: var(--surface);
-  border: 1px solid transparent;
-  border-block: 1px solid var(--border);
-  border-radius: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 14px 12px;
   text-align: left;
   width: 100%;
@@ -586,11 +603,17 @@ select {
   color: inherit;
   display: block;
   flex: none;
-  transition: border-color var(--motion) ease, transform var(--motion) ease;
+  transition: border-color var(--motion) ease, background var(--motion) ease, transform var(--motion) ease;
 }
 
 .card:hover {
   border-color: rgba(255, 255, 255, 0.16);
+}
+
+.card.is-selected {
+  border: 1px solid var(--blue);
+  background: rgba(76, 141, 255, 0.08);
+  box-shadow: none;
 }
 
 .card.plan {
@@ -666,8 +689,20 @@ select {
   white-space: nowrap;
 }
 
-.card .verdict-row {
+.card .verdict-row,
+.verdict-row {
   margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.verdict-row .chip.verdict {
+  border-color: rgba(245, 215, 110, 0.35);
 }
 
 .spinner {
@@ -747,6 +782,13 @@ select {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
+}
+
+.pill[hidden],
+.badge[hidden],
+#attention[hidden],
+#attention-badge[hidden] {
+  display: none !important;
 }
 
 .pill.attention {
@@ -1085,9 +1127,14 @@ th {
   color: var(--muted);
 }
 
+.orch-card,
 .plan-card,
 .summary-card {
   max-width: 640px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--surface);
 }
 
 .worker-list {
@@ -1487,17 +1534,75 @@ th {
   color: var(--muted);
 }
 
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-grab {
+  display: none;
+}
+
+.drawer-close {
+  flex: none;
+}
+
+.graph-more {
+  margin-top: 8px;
+  background: none;
+  border: 0;
+  color: var(--blue);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.git-graph svg text {
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.cost-total {
+  margin-top: 12px;
+  color: var(--text);
+}
+
 @media (max-width: 1100px) {
-  .drawer.sheet,
   .drawer {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    top: 12vh;
+    top: auto;
+    height: min(92vh, 100%);
     z-index: 20;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4);
+    transform: translateY(110%);
+    transition: transform 180ms ease;
+    pointer-events: none;
+  }
+
+  .drawer.is-open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .drawer-grab {
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 0 auto 10px;
+  }
+
+  .drawer-close {
+    display: inline-flex;
   }
 
   .diff-layout {
@@ -1508,5 +1613,11 @@ th {
     flex: none;
     max-height: 120px;
     overflow: auto;
+  }
+}
+
+@media (min-width: 1101px) {
+  .drawer-close {
+    display: none;
   }
 }

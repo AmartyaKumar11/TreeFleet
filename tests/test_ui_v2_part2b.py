@@ -252,11 +252,12 @@ def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monk
                   const lanes = [...document.querySelectorAll('.lanes > .lane')];
                   const widths = lanes.map((lane) => lane.getBoundingClientRect().width);
                   const cards = [...document.querySelectorAll('.lane .card')].map((card) => {
-                    const lane = card.closest('.lane');
-                    // clientWidth is the lane content box (cards are width:100% of that)
+                    const stack = card.closest('.stack');
+                    const cs = getComputedStyle(stack);
+                    const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
                     return {
                       card: card.getBoundingClientRect().width,
-                      lane: lane.clientWidth,
+                      lane: stack.clientWidth - pad,
                     };
                   });
                   const headers = lanes.map((lane) => {

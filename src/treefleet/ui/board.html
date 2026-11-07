@@ -173,8 +173,14 @@
 
       <aside class="drawer" aria-label="Task details">
         <header>
-          <h3 id="task-title">No task selected</h3>
-          <div class="mono muted" id="task-meta"></div>
+          <div class="drawer-grab" aria-hidden="true"></div>
+          <div class="drawer-head">
+            <div>
+              <h3 id="task-title">No task selected</h3>
+              <div class="mono muted" id="task-meta"></div>
+            </div>
+            <button class="btn ghost drawer-close" id="drawer-close" type="button">Close</button>
+          </div>
         </header>
         <div id="drawer-empty" class="drawer-empty">
           <p class="empty-line">Select a task on the board to inspect live output, diffs and proofs.</p>

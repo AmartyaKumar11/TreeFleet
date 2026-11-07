@@ -49,8 +49,8 @@ function isRunning(task) {
   return lane(task) === "working" && !!task.action && task.status !== "done" && task.status !== "failed";
 }
 
-function needsCount(counts, awaiting) {
-  return (counts.needs || 0) + (awaiting ? 1 : 0);
+function needsCount(counts) {
+  return counts.needs || 0;
 }
 
 function notifyHuman(count) {
@@ -64,7 +64,7 @@ function notifyHuman(count) {
     }
     if (legacy) {
       legacy.hidden = false;
-      legacy.textContent = `Needs you · ${count}`;
+      legacy.textContent = `Needs you ${count}`;
     }
     document.title = `(${count}) ${baseTitle}`;
     if (!lastNeedsHuman && typeof Notification !== "undefined") {
@@ -91,9 +91,16 @@ function elapsedText() {
   return clock((finished || Date.now() / 1000) - started);
 }
 
+function isMobileBoard() {
+  return window.matchMedia("(max-width: 1100px)").matches;
+}
+
 function showDrawerEmpty() {
   selected = null;
   pinned = false;
+  document.querySelectorAll(".card.is-selected").forEach((el) => el.classList.remove("is-selected"));
+  const drawerEl = document.querySelector(".drawer");
+  if (drawerEl) drawerEl.classList.remove("is-open");
   document.getElementById("task-title").textContent = "No task selected";
   document.getElementById("task-meta").textContent = "";
   document.getElementById("drawer-empty").hidden = false;
@@ -154,10 +161,21 @@ function worktreeFor(task) {
   return "";
 }
 
+function formatUsd(value, label) {
+  const tag = String(label || "");
+  if (/usage not reported/i.test(tag)) return "usage not reported";
+  if (/unpriced|rate unknown/i.test(tag)) return "unpriced";
+  if (value == null || value === "" || Number.isNaN(Number(value))) return "unpriced";
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "unpriced";
+  if (n < 0.0001) return "<$0.0001";
+  return `$${n.toFixed(4)}`;
+}
+
 function moneyCell(row) {
-  if (row.label === "usage not reported") return "<span class='pill'>usage not reported</span>";
-  if (!row.usd) return "<span class='pill'>unpriced</span>";
-  return esc(String(row.usd));
+  const text = formatUsd(row.usd, row.label);
+  if (text === "unpriced" || text === "usage not reported") return `<span class='pill'>${esc(text)}</span>`;
+  return esc(text);
 }
 
 function captureFlip() {
@@ -302,18 +320,23 @@ function renderCard(task) {
   }
   const reason = reasonBits.filter(Boolean).join(" · ");
   const age = taskAge(task);
-  const row4 = running
+  const action = running
     ? `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
         task.action,
       )}</span></div>`
-    : verdictLabel
-      ? `<div class="verdict-row"><span class="chip verdict">${esc(verdictLabel)}</span></div>`
+    : "";
+  const verdict = verdictLabel
+    ? `<div class="verdict-row"><span class="chip verdict">${esc(verdictLabel)}</span></div>${
+        reason ? `<div class="reason">${esc(reason)}</div>` : ""
+      }`
+    : reason
+      ? `<div class="reason">${esc(reason)}</div>`
       : "";
   const mergeBtn =
     lane(task) === "ready"
-      ? `<div class="merge-row"><button class="btn ghost" type="button" data-merge="${esc(
+      ? `<div class="merge-row"><button class="btn ghost merge-btn" type="button" data-merge="${esc(
           `git -C ${state.repo || ""} merge ${task.branch || task.id}`,
-        )}">Copy merge command</button></div>`
+        )}"><span class="merge-label">Copy merge command</span></button></div>`
       : "";
   button.innerHTML = `
     <div class="model-row">
@@ -324,16 +347,23 @@ function renderCard(task) {
     <span class="branch mono" title="${esc(task.branch || task.id)}">${gitGlyph()}<span>${esc(
       middleTruncate(task.branch || task.id),
     )}</span></span>
-    ${row4}
+    ${action}
+    ${verdict}
     ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
-    ${reason ? `<div class="reason">${esc(reason)}</div>` : ""}
     ${mergeBtn}
   `;
   button.addEventListener("click", (event) => {
-    if (event.target.closest("[data-merge]")) {
+    const merge = event.target.closest("[data-merge]");
+    if (merge) {
       event.stopPropagation();
-      const cmd = event.target.getAttribute("data-merge");
+      const cmd = merge.getAttribute("data-merge");
       if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+      merge.classList.add("copied");
+      merge.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="merge-label">Copied</span>`;
+      setTimeout(() => {
+        merge.classList.remove("copied");
+        merge.innerHTML = `<span class="merge-label">Copy merge command</span>`;
+      }, 2000);
       return;
     }
     select(task, true);
@@ -351,12 +381,22 @@ function setEmpty(tableId, emptyId, count) {
 
 function select(task, fromUser) {
   if (fromUser) pinned = true;
+  if (isMobileBoard() && !fromUser) {
+    showDrawerEmpty();
+    return;
+  }
   if (selected && selected.id === task.id && !fromUser) {
     selected = task;
     if (drawer) drawer.refresh(task, state);
     return;
   }
   selected = task;
+  document.querySelectorAll(".card.is-selected").forEach((el) => el.classList.remove("is-selected"));
+  document.querySelectorAll(".card[data-task-id]").forEach((el) => {
+    if (el.dataset.taskId === task.id) el.classList.add("is-selected");
+  });
+  const drawerEl = document.querySelector(".drawer");
+  if (drawerEl && isMobileBoard() && fromUser) drawerEl.classList.add("is-open");
   if (drawer) drawer.show(task, state);
 }
 
@@ -482,7 +522,7 @@ function render(data) {
   const tasks = data.tasks || [];
   const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
   lastCounts = counts;
-  notifyHuman(needsCount(counts, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting)));
+  notifyHuman(needsCount(counts));
   updateRunStrip(data, counts);
   tasks.forEach((task) => {
     document.getElementById(lane(task)).appendChild(renderCard(task));
@@ -495,11 +535,11 @@ function render(data) {
     tasks.forEach((task) => {
       if (!current && lane(task) === "working") current = task;
     });
-    if (current) select(current, false);
+    if (current && !isMobileBoard()) select(current, false);
     else showDrawerEmpty();
   } else if (selected) {
     const held = tasks.find((task) => task.id === selected.id);
-    if (held) select(held, false);
+    if (held) select(held, !!document.querySelector(".drawer.is-open"));
     else showDrawerEmpty();
   } else {
     showDrawerEmpty();
@@ -742,6 +782,31 @@ orch = createOrchestrator({
   },
 });
 orch.bind();
+
+document.getElementById("drawer-close").addEventListener("click", () => showDrawerEmpty());
+
+(function bindDrawerSwipe() {
+  const drawerEl = document.querySelector(".drawer");
+  if (!drawerEl) return;
+  let startY = 0;
+  drawerEl.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!drawerEl.classList.contains("is-open")) return;
+      startY = event.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  drawerEl.addEventListener(
+    "touchend",
+    (event) => {
+      if (!drawerEl.classList.contains("is-open")) return;
+      const dy = event.changedTouches[0].clientY - startY;
+      if (dy > 64) showDrawerEmpty();
+    },
+    { passive: true },
+  );
+})();
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;

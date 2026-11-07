@@ -481,8 +481,8 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             costs = page.locator("#metrics").inner_text()
             assert "usage not reported" in costs
             assert "unpriced" in costs
-            assert "$0" not in costs
-            assert "0.005439" in costs
+            assert "$0.0000" not in costs
+            assert "$0.0054" in costs
             assert page.locator(".drawer").get_by_role("tab", name="Checks").count() == 1
             assert page.locator(".drawer").get_by_role("tab", name="Cost").count() == 1
             graph = page.locator("#git-graph svg")

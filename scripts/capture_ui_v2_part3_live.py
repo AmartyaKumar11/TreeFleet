@@ -13,10 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEMO_REPO = Path(r"D:\pr-sentinel-demo")
 OUT = ROOT / "evidence" / "phase-8" / "ui-v2" / "live"
 EVENTS = ROOT / "evidence" / "phase-8" / "events.jsonl"
-GOAL = (
-    "Add unit tests for src/notifications.py and, as a second task, "
-    "add unit tests for src/admin.py."
-)
+GOAL = "Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py."
 PORT = 8767
 
 
