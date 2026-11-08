@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -9,12 +10,25 @@ import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+import httpx
+
 from treefleet.config import MissingSecretError, load_settings
 from treefleet.cursor_models import UnknownModelError, discover
 from treefleet.cursor_run import launch_command
+from treefleet.evals.harness import dotenv_values
 from treefleet.git.worktrees import list_worktrees, remove_worktree
 
 _KEYS = ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY")
+_DEEPSEEK_MODELS = "https://api.deepseek.com/models"
+_JEV_URL = "https://api.typesafe.ai/v1/systemone"
+# A one-token classification. 401/403 means the key was rejected; 2xx means it was accepted.
+_JEV_BODY = json.dumps(
+    {"state": "ok", "model": "jev-latest", "questions": {"a": {"type": "noul", "instructions": "ok"}}}
+)
+_PROBES = (
+    ("DeepSeek", "GET", _DEEPSEEK_MODELS, "DEEPSEEK_API_KEY", b""),
+    ("Jev", "POST", _JEV_URL, "TYPESAFE_API_KEY", _JEV_BODY.encode()),
+)
 
 
 def login_ok(text: str, code: int) -> bool:
@@ -88,12 +102,88 @@ def _default_models(cli: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def _request_id(response: httpx.Response, key: str) -> str:
+    """A provider request id. Drop it when it overlaps the key, including a prefix or suffix."""
+    found: list[str] = []
+    for name in ("x-request-id", "request-id", "x-requestid"):
+        value = response.headers.get(name, "").strip()
+        if value:
+            found.append(value)
+    try:
+        body = response.json()
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        body = None
+    if isinstance(body, dict):
+        for name in ("request_id", "requestId"):
+            raw = body.get(name)
+            if isinstance(raw, str) and raw.strip():
+                found.append(raw.strip())
+    for item in found:
+        if len(item) < 8 or len(item) > 80 or not item.replace("-", "").isalnum():
+            continue
+        if key and (key in item or item in key):
+            continue
+        return item
+    return ""
+
+
+def _probe(client: httpx.Client, provider: str, method: str, url: str, key: str, body: bytes) -> tuple[bool, str]:
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        if method == "GET":
+            response = client.get(url, headers=headers)
+        else:
+            headers["Content-Type"] = "application/json"
+            response = client.post(url, content=body, headers=headers)
+    except httpx.TimeoutException:
+        return False, f"red    {provider} authentication check timed out"
+    except httpx.HTTPError:
+        return False, f"red    {provider} authentication check failed"
+    if response.status_code in {401, 403}:
+        ident = _request_id(response, key)
+        suffix = f" request {ident}" if ident else ""
+        return False, f"red    {provider} authentication failed{suffix}"
+    if 200 <= response.status_code < 300:
+        return True, f"green  {provider} authentication accepted"
+    return False, f"red    {provider} authentication check failed"
+
+
+def live_auth(env: Mapping[str, str], *, client: httpx.Client | None = None) -> list[tuple[bool, str]]:
+    """Cheapest authenticated call for each provider. Timeout is 5 seconds. The key is never printed."""
+    own = client is None
+    if client is None:
+        client = httpx.Client(timeout=5.0)
+    rows: list[tuple[bool, str]] = []
+    try:
+        for provider, method, url, name, body in _PROBES:
+            key = env.get(name) or ""
+            if not key:
+                continue
+            rows.append(_probe(client, provider, method, url, key, body))
+    finally:
+        if own:
+            client.close()
+    return rows
+
+
+def env_differs(env: Mapping[str, str], file_values: Mapping[str, str]) -> list[tuple[bool, str]]:
+    """Report keys whose process value and .env value both exist and are not the same. Values stay unprinted."""
+    rows: list[tuple[bool, str]] = []
+    for key in _KEYS:
+        process = env.get(key) or ""
+        filed = file_values.get(key) or ""
+        if process and filed and process != filed:
+            rows.append((False, f"red    {key}: process env differs from .env"))
+    return rows
+
+
 def preflight(
     repo: Path,
     *,
     env: Mapping[str, str] | None = None,
     login: Callable[[Path], tuple[bool, str]] | None = None,
     models: Callable[[Path], tuple[bool, str]] | None = None,
+    auth: Callable[[Mapping[str, str]], list[tuple[bool, str]]] | None = None,
 ) -> list[tuple[bool, str]]:
     """One line per check: ok, and the text to print. The text has no secret value."""
     found = env if env is not None else os.environ
@@ -103,11 +193,16 @@ def preflight(
             lines.append((True, f"green  {key} is set"))
         else:
             lines.append((False, f"red    {key} is unset\n       fix: set {key}"))
+    lines.extend(env_differs(found, dotenv_values(Path.cwd())))
+    if auth is not None:
+        lines.extend(auth(found))
+    elif env is None:
+        lines.extend(live_auth(found))
     cli = Path("cursor-agent")
     try:
         settings = load_settings(Path.cwd() / "treefleet.toml")
         cli = Path(settings.cursor.cli)
-    except MissingSecretError:
+    except (MissingSecretError, OSError):
         pass
     logged, login_fix = (login or _default_login)(cli)
     if logged:

@@ -11,17 +11,34 @@ from treefleet.contracts import FinalReport
 from treefleet.evals.scenarios import Scenario, load_scenarios
 from treefleet.orchestrator.pipeline import cleanup_run
 
+_SOURCE_KEYS = ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY", "CURSOR_API_KEY")
 
-def load_env(root: Path) -> None:
+
+def dotenv_values(root: Path) -> dict[str, str]:
+    """Names and values from a .env file. Callers compare or apply them; they do not print them."""
     env = root / ".env"
+    found: dict[str, str] = {}
     if not env.is_file():
-        return
+        return found
     for line in env.read_text(encoding="utf-8").splitlines():
         text = line.strip()
         if not text or text.startswith("#") or "=" not in text:
             continue
         key, value = text.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        found[key.strip()] = value.strip().strip('"').strip("'")
+    return found
+
+
+def load_env(root: Path) -> None:
+    """Process environment wins. Log the winning source by name, never the value."""
+    file_values = dotenv_values(root)
+    for key in _SOURCE_KEYS:
+        if key in os.environ:
+            print(f"{key} from process", flush=True)
+        elif key in file_values:
+            print(f"{key} from .env", flush=True)
+    for key, value in file_values.items():
+        os.environ.setdefault(key, value)
 
 
 def reset_demo(repo: Path) -> None:

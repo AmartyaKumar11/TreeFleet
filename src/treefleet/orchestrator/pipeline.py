@@ -20,6 +20,7 @@ from treefleet.git.canary import CANARY_NAME
 from treefleet.git.worktrees import GitError, kill_tree, list_worktrees, prepare_repo, remove_worktree
 from treefleet.orchestrator.agents import (
     PlannerAgent,
+    PlannerAuthError,
     PlanRejected,
     ReporterAgent,
     RepoScanAgent,
@@ -178,6 +179,10 @@ async def run_pipeline(
     except PlanRejected as exc:
         store.set_stage("failed")
         _write_blocked(root, run_id, request.goal, "Plan rejected", str(exc))
+        return RunOutcome(1, None, {}, run_id, str(exc))
+    except PlannerAuthError as exc:
+        print(str(exc), flush=True)
+        store.set_stage("failed")
         return RunOutcome(1, None, {}, run_id, str(exc))
     finally:
         for proc in bundle.procs:

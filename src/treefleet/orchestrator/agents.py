@@ -165,6 +165,46 @@ class PlanRejected(RuntimeError):
     """The planner returned a read-only task twice."""
 
 
+class PlannerAuthError(RuntimeError):
+    """The planner's provider rejected the key. The message is the only line a run prints."""
+
+    def __init__(self) -> None:
+        super().__init__("DeepSeek authentication failed: check the process environment variable; it overrides .env")
+
+
+def _auth_status(exc: BaseException) -> bool:
+    """True when an exception, or its cause, is an HTTP 401 or 403. The text is never read."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        for attr in ("status_code", "status", "http_status"):
+            raw = getattr(current, attr, None)
+            if isinstance(raw, int) and raw in {401, 403}:
+                return True
+        response = getattr(current, "response", None)
+        if response is not None:
+            code = getattr(response, "status_code", None)
+            if isinstance(code, int) and code in {401, 403}:
+                return True
+        if type(current).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+async def _plan_call(*args: Any, **kwargs: Any) -> Plan:
+    """One plan attempt. An auth failure becomes one safe line and drops the provider error."""
+    try:
+        return await _plan_once(*args, **kwargs)
+    except PlanRejected:
+        raise
+    except Exception as exc:
+        if _auth_status(exc):
+            raise PlannerAuthError() from None
+        raise
+
+
 def plan_problems(plan: Plan, *, max_tasks: int = 6) -> str | None:
     reasons: list[str] = []
     if len(plan.tasks) > max_tasks:
@@ -489,7 +529,7 @@ async def plan_goal(
         "reactions": reactions,
     }
     try:
-        plan = await _plan_once(llm, goal, tree, checks, **kwargs)
+        plan = await _plan_call(llm, goal, tree, checks, **kwargs)
         if used is not None:
             used.append(model_name)
     except PlanRejected as first:
@@ -497,7 +537,7 @@ async def plan_goal(
         if escalate is None or "flash" not in model_name.lower():
             raise
         try:
-            plan = await _plan_once(
+            plan = await _plan_call(
                 escalate,
                 goal,
                 tree,
