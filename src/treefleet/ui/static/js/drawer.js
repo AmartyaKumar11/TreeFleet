@@ -18,7 +18,8 @@ function proofFrom(state, task) {
   if (task.proof) return task.proof;
   const rows =
     (state.report && state.report.isolation && state.report.isolation.tasks) || state.proof || [];
-  return rows.find((item) => item.task_id === task.id) || null;
+  const list = Array.isArray(rows) ? rows : [];
+  return list.find((item) => item.task_id === task.id) || null;
 }
 
 export function createDrawer({ auth, worktreeFor }) {
@@ -89,17 +90,32 @@ export function createDrawer({ auth, worktreeFor }) {
     if (followTail) log.scrollTop = log.scrollHeight;
   }
 
-  function appendDiffLine(body, raw, index) {
+  function keepDiffLine(raw) {
+    const text = String(raw);
+    if (!text) return false;
+    if (text.startsWith("diff --git") || text.startsWith("index ") || text.startsWith("---") || text.startsWith("+++")) {
+      return false;
+    }
+    return true;
+  }
+
+  function appendDiffLine(body, raw, number) {
     const row = el("div", "diff-line");
     const text = String(raw);
-    if (text.startsWith("+") && !text.startsWith("+++")) row.classList.add("add");
-    else if (text.startsWith("-") && !text.startsWith("---")) row.classList.add("del");
+    if (text.startsWith("+")) row.classList.add("add");
+    else if (text.startsWith("-")) row.classList.add("del");
     else if (text.startsWith("@@")) row.classList.add("hunk");
-    const ln = el("span", "ln", String(index + 1));
-    const code = el("span", "code", text);
-    row.appendChild(ln);
-    row.appendChild(code);
+    row.appendChild(el("span", "ln", String(number)));
+    row.appendChild(el("span", "code", text));
     body.appendChild(row);
+  }
+
+  function paintDiff(body, lines) {
+    let number = 1;
+    lines.filter(keepDiffLine).forEach((line) => {
+      appendDiffLine(body, line, number);
+      number += 1;
+    });
   }
 
   function renderDiffBody(root, data) {
@@ -134,16 +150,16 @@ export function createDrawer({ auth, worktreeFor }) {
         chunk = next === -1 ? raw.slice(start) : raw.slice(start, next);
       }
       const lines = chunk.split("\n");
-      const capped = lines.length > DIFF_CAP;
+      const visible = lines.filter(keepDiffLine);
       const body = el("div", "diff-body");
-      lines.slice(0, DIFF_CAP).forEach((line, i) => appendDiffLine(body, line, i));
+      paintDiff(body, visible.slice(0, DIFF_CAP));
       view.appendChild(body);
-      if (capped) {
+      if (visible.length > DIFF_CAP) {
         const more = el("button", "btn ghost", "Show more");
         more.type = "button";
         more.addEventListener("click", () => {
           clear(body);
-          lines.forEach((line, i) => appendDiffLine(body, line, i));
+          paintDiff(body, visible);
           more.remove();
         });
         view.appendChild(more);
@@ -152,10 +168,7 @@ export function createDrawer({ auth, worktreeFor }) {
 
     if (!fileRows.length) {
       const body = el("div", "diff-body");
-      String(data.diff || data.error || "No diff.")
-        .split("\n")
-        .slice(0, DIFF_CAP)
-        .forEach((line, i) => appendDiffLine(body, line, i));
+      paintDiff(body, String(data.diff || data.error || "No diff.").split("\n").slice(0, DIFF_CAP));
       wrap.appendChild(body);
       root.appendChild(wrap);
       return;
@@ -249,7 +262,6 @@ export function createDrawer({ auth, worktreeFor }) {
     const checks = task.checks || [];
     if (!checks.length) {
       root.appendChild(el("p", "empty-line", "No checks for this task."));
-      return;
     }
     checks.forEach((check) => {
       const row = el("div", "check-row");
@@ -279,6 +291,20 @@ export function createDrawer({ auth, worktreeFor }) {
       }
       root.appendChild(row);
     });
+    const detail = [];
+    if (task.cursor_message) detail.push(String(task.cursor_message));
+    if (task.error) detail.push(String(task.error));
+    if (task.reason) detail.push(String(task.reason));
+    if (task.status === "needs_review") {
+      detail.push(`git -C ${state.repo || ""} merge ${task.branch || task.id}`);
+    }
+    if (detail.length) {
+      root.appendChild(el("p", "violation-title", "Detail"));
+      const block = el("pre", "check-output");
+      block.hidden = false;
+      block.textContent = detail.join("\n");
+      root.appendChild(block);
+    }
   }
 
   function formatUsd(value, label) {

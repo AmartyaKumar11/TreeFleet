@@ -148,9 +148,9 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
     if (explored.length) {
       const items = explored.map((file) => `<li class="mono">${esc(file)}</li>`).join("");
       parts.push(
-        `<div class="bubble-row"><details class="explored"><summary>Explored ${
-          explored.length
-        } files</summary><ul>${items}</ul></details></div>`,
+        `<div class="bubble-row"><details class="explored"><summary>Explored ${explored.length} file${
+          explored.length === 1 ? "" : "s"
+        }</summary><ul>${items}</ul></details></div>`,
       );
     }
 
@@ -166,7 +166,6 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
           return `<button class="worker-row" type="button" data-task-id="${esc(worker.id)}">
             <span class="worker-title">${esc(worker.title)}</span>
             <span class="mono muted">${esc(worker.branch)}</span>
-            <span class="muted">${esc(worker.model)}</span>
             ${chip}
             ${action}
           </button>`;
@@ -175,6 +174,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       parts.push(
         `<div class="bubble-row"><div class="card orch-card plan-card">
           <div class="title">Started ${workers.length} workers, each in its own worktree</div>
+          <div class="muted routed">Routed: ${esc(routingLabel(data.worker_model || (workers[0] && workers[0].model)))}</div>
           <div class="worker-list">${rows}</div>
         </div></div>`,
       );
@@ -211,11 +211,12 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
           conflictLabel(task) ||
           (task.status === "needs_review" ? "needs_review" : task.verdict || task.status);
         const why = /conflict/.test(label) ? "" : task.reason || task.error || "";
+        const chipClass = ["approve", "reject", "revise", "needs_review"].includes(label) ? label : "";
         parts.push(
           `<div class="bubble-row"><div class="verdict-row">
             <span class="dot ${verdictDot(label)}"></span>
             <strong>${esc(task.title)}</strong>
-            <span class="chip verdict">${esc(label)}</span>
+            <span class="chip verdict ${chipClass}">${esc(label)}</span>
           </div>${why ? `<div class="reason">${esc(why)}</div>` : ""}</div>`,
         );
       });

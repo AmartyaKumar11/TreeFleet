@@ -95,12 +95,21 @@ function isMobileBoard() {
   return window.matchMedia("(max-width: 1100px)").matches;
 }
 
+function syncSheet(taskOpen) {
+  const drawerEl = document.querySelector(".drawer");
+  const backdrop = document.getElementById("drawer-backdrop");
+  const close = document.getElementById("drawer-close");
+  const mobile = isMobileBoard();
+  if (drawerEl) drawerEl.classList.toggle("is-open", !!(taskOpen && mobile));
+  if (backdrop) backdrop.hidden = !(taskOpen && mobile);
+  if (close) close.hidden = !taskOpen;
+}
+
 function showDrawerEmpty() {
   selected = null;
   pinned = false;
   document.querySelectorAll(".card.is-selected").forEach((el) => el.classList.remove("is-selected"));
-  const drawerEl = document.querySelector(".drawer");
-  if (drawerEl) drawerEl.classList.remove("is-open");
+  syncSheet(false);
   document.getElementById("task-title").textContent = "No task selected";
   document.getElementById("task-meta").textContent = "";
   document.getElementById("drawer-empty").hidden = false;
@@ -287,6 +296,17 @@ function updateRunStrip(data, counts) {
   });
 }
 
+function humanReason(task) {
+  const raw = String(task.reason || "").trim();
+  const blob = `${raw} ${task.error || ""}`.toLowerCase();
+  if (/no new diff|no new change|no changes|unchanged/.test(blob)) return "No new changes since last review";
+  if (/conflict/.test(blob)) return "Merge conflict";
+  if (/git\s+-C|[A-Za-z]:\\/.test(raw) || /[/\\]/.test(raw)) {
+    return task.status === "failed" ? "A check failed" : "";
+  }
+  return raw;
+}
+
 function renderCard(task) {
   const button = document.createElement("button");
   button.className = "card";
@@ -296,7 +316,11 @@ function renderCard(task) {
   const counts = lineCounts(files);
   const running = isRunning(task);
   const verdictLabel =
-    task.status === "needs_review" ? "needs_review" : task.verdict || (task.status === "failed" ? "failed" : "");
+    task.status === "needs_review"
+      ? "needs_review"
+      : lane(task) === "working" && !task.verdict
+        ? ""
+        : task.verdict || "";
   const chips = [];
   (task.checks || []).forEach((check) => {
     const name = typeof check === "string" ? check : check.name || "check";
@@ -309,24 +333,16 @@ function renderCard(task) {
     );
   }
   if (task.round) chips.push(`<span class="chip round">revise ${esc(task.round)}</span>`);
-  const reasonBits = [];
-  if (task.status === "needs_review" || task.status === "failed" || lane(task) === "needs") {
-    if (task.reason) reasonBits.push(task.reason);
-    if (task.cursor_message) reasonBits.push(task.cursor_message);
-    if (task.error && task.error !== task.reason) reasonBits.push(task.error);
-  }
-  if (task.status === "needs_review") {
-    reasonBits.push(`git -C ${state.repo || ""} merge ${task.branch || task.id}`);
-  }
-  const reason = reasonBits.filter(Boolean).join(" · ");
+  const reason = humanReason(task);
   const age = taskAge(task);
   const action = running
     ? `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
         task.action,
       )}</span></div>`
     : "";
+  const verdictClass = ["approve", "reject", "revise", "needs_review"].includes(verdictLabel) ? verdictLabel : "";
   const verdict = verdictLabel
-    ? `<div class="verdict-row"><span class="chip verdict">${esc(verdictLabel)}</span></div>${
+    ? `<div class="verdict-row"><span class="chip verdict ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span></div>${
         reason ? `<div class="reason">${esc(reason)}</div>` : ""
       }`
     : reason
@@ -395,8 +411,7 @@ function select(task, fromUser) {
   document.querySelectorAll(".card[data-task-id]").forEach((el) => {
     if (el.dataset.taskId === task.id) el.classList.add("is-selected");
   });
-  const drawerEl = document.querySelector(".drawer");
-  if (drawerEl && isMobileBoard() && fromUser) drawerEl.classList.add("is-open");
+  syncSheet(true);
   if (drawer) drawer.show(task, state);
 }
 
@@ -654,7 +669,7 @@ function refresh() {
       });
       document.getElementById("count-worktrees").textContent = String(state.worktrees.length);
       setEmpty("worktrees", "empty-worktrees", state.worktrees.length);
-      if (graph) graph.draw(state);
+      if (graph && (state.tasks || state.head)) graph.draw(state);
     })
     .catch(() => {});
 }
@@ -784,6 +799,8 @@ orch = createOrchestrator({
 orch.bind();
 
 document.getElementById("drawer-close").addEventListener("click", () => showDrawerEmpty());
+document.getElementById("drawer-grab").addEventListener("click", () => showDrawerEmpty());
+document.getElementById("drawer-backdrop").addEventListener("click", () => showDrawerEmpty());
 
 (function bindDrawerSwipe() {
   const drawerEl = document.querySelector(".drawer");

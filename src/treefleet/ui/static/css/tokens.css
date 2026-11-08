@@ -50,5 +50,9 @@
   --motion: 160ms;
   --ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --verdict-approve: var(--green);
+  --verdict-reject: var(--red);
+  --verdict-revise: var(--yellow);
+  --verdict-needs-review: var(--orange);
   --dot-grid: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
 }

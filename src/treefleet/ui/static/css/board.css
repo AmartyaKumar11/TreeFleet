@@ -736,7 +736,10 @@ select {
 
 .chip.pass { color: var(--green); border-color: rgba(61, 220, 132, 0.35); }
 .chip.fail { color: var(--red); border-color: rgba(255, 92, 92, 0.35); }
-.chip.verdict { color: var(--yellow); }
+.chip.verdict.approve { color: var(--verdict-approve); border-color: var(--verdict-approve); }
+.chip.verdict.reject { color: var(--verdict-reject); border-color: var(--verdict-reject); }
+.chip.verdict.revise { color: var(--verdict-revise); border-color: var(--verdict-revise); }
+.chip.verdict.needs_review { color: var(--verdict-needs-review); border-color: var(--verdict-needs-review); }
 .chip.round { color: var(--blue); }
 .chip.lines { font-family: var(--mono); font-size: 12px; font-weight: 400; }
 .chip.lines .add { color: var(--green); }
@@ -758,6 +761,19 @@ select {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.card .merge-row {
+  width: 100%;
+  min-width: 0;
+}
+
+.card .merge-btn {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  justify-content: center;
 }
 
 .plan-head {
@@ -787,7 +803,10 @@ select {
 .pill[hidden],
 .badge[hidden],
 #attention[hidden],
-#attention-badge[hidden] {
+#attention-badge[hidden],
+.btn[hidden],
+#drawer-close[hidden],
+#drawer-backdrop[hidden] {
   display: none !important;
 }
 
@@ -1146,7 +1165,7 @@ th {
 
 .worker-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) max-content;
   gap: 8px;
   align-items: center;
   width: 100%;
@@ -1156,6 +1175,11 @@ th {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   color: inherit;
+}
+
+.worker-row .chip {
+  width: max-content;
+  justify-self: start;
 }
 
 .worker-title {
@@ -1387,12 +1411,18 @@ th {
 .diff-body {
   font-family: var(--mono);
   font-size: 12px;
+  overflow-x: auto;
 }
 
 .diff-line {
   display: grid;
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 40px max-content;
   gap: 8px;
+  white-space: pre;
+}
+
+.diff-line .code {
+  white-space: pre;
 }
 
 .diff-line .ln {
@@ -1401,8 +1431,8 @@ th {
   user-select: none;
 }
 
-.diff-line.add { background: rgba(62, 207, 142, 0.14); }
-.diff-line.del { background: rgba(240, 113, 120, 0.16); }
+.diff-line.add { background: color-mix(in srgb, var(--green) 16%, transparent); }
+.diff-line.del { background: color-mix(in srgb, var(--red) 16%, transparent); }
 .diff-line.hunk { color: var(--blue); }
 
 .proof-table td.ok { color: var(--green); }
@@ -1472,10 +1502,48 @@ th {
   color: var(--muted);
 }
 
-.git-graph svg {
+.git-graph svg,
+.graph-list {
+  width: 280px;
+  max-width: 100%;
+}
+
+.graph-list {
+  border-left: 2px solid #2a313c;
+  padding-left: 0;
+}
+
+.graph-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  gap: 8px;
+  min-width: 0;
+  margin-left: -6px;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0;
   width: 100%;
-  height: auto;
-  display: block;
+  text-align: left;
+}
+
+.graph-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.graph-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Geist Mono", var(--mono);
+  font-size: 12px;
+  color: #c6c7cc;
 }
 
 .command-palette {
@@ -1541,8 +1609,12 @@ th {
   gap: 12px;
 }
 
-.drawer-grab {
+.drawer-backdrop {
   display: none;
+}
+
+.drawer-backdrop[hidden] {
+  display: none !important;
 }
 
 .drawer-close {
@@ -1572,13 +1644,26 @@ th {
 }
 
 @media (max-width: 1100px) {
+  .drawer-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 85vh;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 19;
+  }
+
   .drawer {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     top: auto;
-    height: min(92vh, 100%);
+    height: 85vh;
+    max-height: 85vh;
+    min-height: 0;
     z-index: 20;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4);
@@ -1596,9 +1681,23 @@ th {
     display: block;
     width: 40px;
     height: 4px;
+    border: 0;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.2);
     margin: 0 auto 10px;
+    padding: 0;
+  }
+
+  .diff-file {
+    width: 100%;
+  }
+
+  .worker-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .worker-row .mono {
+    grid-column: 1 / -1;
   }
 
   .drawer-close {
@@ -1617,7 +1716,7 @@ th {
 }
 
 @media (min-width: 1101px) {
-  .drawer-close {
+  .drawer-grab {
     display: none;
   }
 }

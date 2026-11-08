@@ -163,7 +163,7 @@ def test_shell_and_kanban_layout_with_screenshots(tmp_path: Path, monkeypatch: p
             assert "Editing tests/test_admin.py" in working.inner_text()
             assert "tf/abcd1234/beta" in working.inner_text()
             needs = page.locator("#lane-needs")
-            assert "no new diff" in needs.inner_text() or "worker made no changes" in needs.inner_text()
+            assert "No new changes since last review" in needs.inner_text()
             ready = page.locator("#lane-ready")
             ready.get_by_role("button", name="Copy merge command", exact=True).wait_for()
             page.screenshot(path=str(SHOTS / "part1-desktop-1440.png"), full_page=True)

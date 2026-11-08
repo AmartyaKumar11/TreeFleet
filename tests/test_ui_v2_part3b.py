@@ -332,18 +332,17 @@ def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.
                 graph = page.locator("#git-graph")
                 metrics = graph.evaluate(
                     """el => {
-                      const svg = el.querySelector('svg');
-                      const vb = svg.viewBox.baseVal;
-                      const labels = [...svg.querySelectorAll('text[data-task-id]')];
+                      const labels = [...el.querySelectorAll('.graph-label[data-task-id]')];
                       const fonts = labels.map(t => ({
-                        size: getComputedStyle(t).fontSize || t.getAttribute('font-size'),
-                        family: getComputedStyle(t).fontFamily || t.getAttribute('font-family') || '',
+                        size: getComputedStyle(t).fontSize,
+                        family: getComputedStyle(t).fontFamily || '',
                       }));
+                      const box = el.querySelector('.graph-list').getBoundingClientRect();
                       return {
-                        vb: { w: vb.width, h: vb.height },
+                        vb: { w: box.width, h: box.height },
                         labelCount: labels.length,
                         fonts,
-                        more: !!el.querySelector('[data-graph-more]'),
+                        more: el.querySelectorAll('[data-graph-more]').length,
                         moreText: (el.querySelector('[data-graph-more]') || {}).textContent || '',
                       };
                     }"""
@@ -351,15 +350,17 @@ def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.
                 assert metrics["vb"]["w"] > 0 and metrics["vb"]["h"] > 0
                 if n <= 8:
                     assert metrics["labelCount"] == n
-                    assert not metrics["more"]
+                    assert metrics["more"] == 0
                 else:
                     assert metrics["labelCount"] == 8
-                    assert metrics["more"]
+                    assert metrics["more"] == 1
                     assert "+8 more" in metrics["moreText"] or "+8" in metrics["moreText"]
                     if expand:
                         page.locator("button[data-graph-more]").click()
                         page.wait_for_timeout(50)
-                        assert page.locator("#git-graph text[data-task-id]").count() == 16
+                        assert page.locator("#git-graph .graph-label[data-task-id]").count() == 16
+                        assert page.locator("[data-graph-more]").count() == 1
+                        assert "Show less" in page.locator("[data-graph-more]").inner_text()
                 for font in metrics["fonts"]:
                     assert "12" in str(font["size"])
                 if n == 16:
@@ -520,7 +521,7 @@ def test_mobile_drawer_sheet_open_close_reopen(tmp_path: Path, monkeypatch: pyte
             assert page.get_by_role("button", name="Close").count() >= 1
             page.screenshot(path=str(SHOTS / "part3b-mobile-open-390.png"), full_page=True)
 
-            page.get_by_role("button", name="Close").click()
+            page.get_by_role("button", name="Close", exact=True).click()
             page.wait_for_timeout(100)
             assert drawer.evaluate("el => el.classList.contains('is-open')") is False
 
