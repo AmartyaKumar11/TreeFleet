@@ -232,21 +232,24 @@ def format_list(table: ReactionTable) -> str:
 
 
 def explain_events(lines: list[str]) -> str:
-    """reaction.fired rows, in file order."""
-    import json
+    """reaction.fired rows, in file order. A corrupt line is counted, not parsed."""
+    from treefleet.events import read_event_lines, skip_message
 
+    rows, skipped = read_event_lines(lines)
     found: list[str] = []
-    for raw in lines:
-        if not raw.strip():
-            continue
-        item = json.loads(raw)
+    for item in rows:
         if item.get("type") != "reaction.fired":
             continue
-        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        raw_payload = item.get("payload")
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
         task = payload.get("task") or item.get("task_id") or "-"
         found.append(
             f"{payload.get('event')} task={task} action={payload.get('action')} "
             f"attempt={payload.get('attempt')} max_attempts={payload.get('max_attempts')} "
             f"escalate={payload.get('escalate')}"
         )
-    return "\n".join(found)
+    text = "\n".join(found)
+    if not skipped:
+        return text
+    note = skip_message(skipped)
+    return f"{note}\n{text}" if text else note

@@ -108,18 +108,9 @@ def _head(repo: Path) -> tuple[str, str, bool]:
 
 
 def _events(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(item, dict):
-            rows.append(item)
+    from treefleet.events import read_events
+
+    rows, _skipped = read_events(path)
     return rows
 
 
@@ -284,7 +275,11 @@ def create_app(
                 board.dead = run_state(load_run(record_path)) == "dead"
             except (OSError, ValueError):
                 board.dead = False
-        recorded = _events(replay)
+        from treefleet.events import read_events, skip_message
+
+        recorded, skipped = read_events(replay)
+        if skipped:
+            print(skip_message(skipped), flush=True)
 
         def play() -> None:
             previous: str | None = None
@@ -436,10 +431,19 @@ def create_app(
             path = board.runs / run_id / "events.jsonl"
             if not board.replay and run_id not in board.approvals and not path.is_file():
                 return
+            from treefleet.events import read_events, skip_message
+
             cursor = seen
             quiet = 0
+            announced = False
             while quiet < 3:
-                rows = board.replay_events if board.replay else _events(board.runs / run_id / "events.jsonl")
+                if board.replay:
+                    rows, skipped = list(board.replay_events), 0
+                else:
+                    rows, skipped = read_events(board.runs / run_id / "events.jsonl")
+                if skipped and not announced:
+                    print(skip_message(skipped), flush=True)
+                    announced = True
                 emitted = False
                 for item in rows:
                     seq = int(item.get("seq") or 0)

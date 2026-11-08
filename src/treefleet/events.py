@@ -3,11 +3,107 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import sys
 import threading
+import time
 from pathlib import Path
+from typing import Any
 
 from treefleet.contracts import RunEvent
 from treefleet.guards.text import redact_payload
+
+
+def skip_message(count: int) -> str:
+    return f"skipped {count} corrupt event lines"
+
+
+def read_event_lines(lines: list[str]) -> tuple[list[dict[str, Any]], int]:
+    """Parse JSONL. A line that is not a JSON object is counted and dropped."""
+    rows: list[dict[str, Any]] = []
+    skipped = 0
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError:
+            skipped += 1
+            continue
+        if isinstance(item, dict):
+            rows.append(item)
+        else:
+            skipped += 1
+    return rows, skipped
+
+
+def read_events(path: Path) -> tuple[list[dict[str, Any]], int]:
+    if not path.is_file():
+        return [], 0
+    return read_event_lines(path.read_text(encoding="utf-8").splitlines())
+
+
+def _lock(fd: int) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        while True:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                time.sleep(0.001)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+
+def _unlock(fd: int) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def append_lines(path: Path, lines: list[str]) -> None:
+    """One O_APPEND write per line, under a cross-process lock.
+
+    Workers are separate processes, so the in-process thread lock cannot stop two of them
+    tearing a line in half. A lock file needs no extra dependency and keeps the single
+    events.jsonl every reader already opens.
+    """
+    if not lines:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    blobs = [(line if line.endswith("\n") else line + "\n").encode("utf-8") for line in lines]
+    lock_path = path.with_name(path.name + ".lock")
+    event_fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+    lock_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT)
+    try:
+        if os.lseek(lock_fd, 0, os.SEEK_END) == 0:
+            os.write(lock_fd, b"\0")
+        _lock(lock_fd)
+        try:
+            for blob in blobs:
+                view = memoryview(blob)
+                while view:
+                    wrote = os.write(event_fd, view)
+                    if wrote <= 0:
+                        raise OSError("event append wrote nothing")
+                    view = view[wrote:]
+        finally:
+            _unlock(lock_fd)
+    finally:
+        os.close(event_fd)
+        os.close(lock_fd)
 
 
 class EventSink:
@@ -71,10 +167,7 @@ class EventSink:
                 self._seq[event.run_id] = seq + 2
             self._history.setdefault(event.run_id, []).extend(pending)
             path = self._root / event.run_id / "events.jsonl"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                for item in pending:
-                    handle.write(item.model_dump_json() + "\n")
+            append_lines(path, [item.model_dump_json() for item in pending])
             stored = pending[0]
             queues = list(self._queues.get(event.run_id, []))
         return stored, queues

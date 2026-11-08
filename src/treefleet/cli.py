@@ -221,6 +221,11 @@ def _sessions(argv: list[str]) -> int:
             print(f"no run {parsed.run_id}", file=sys.stderr)
             return 1
         print(format_show(load_run(path)))
+        from treefleet.events import read_events, skip_message
+
+        _rows, skipped = read_events(path.parent / "events.jsonl")
+        if skipped:
+            print(skip_message(skipped))
         return 0
     settings = load_settings(Path.cwd() / "treefleet.toml")
     root = Path(settings.worktree_root)

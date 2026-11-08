@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -94,19 +93,9 @@ def test_a_recovered_tool_denial_stays_on_that_task() -> None:
 
 
 def _fixture_events() -> tuple[list[dict], int]:
-    rows: list[dict] = []
-    corrupt = 0
-    for line in FIXTURE.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            corrupt += 1
-            continue
-        if isinstance(item, dict):
-            rows.append(item)
-    return rows, corrupt
+    from treefleet.events import read_events
+
+    return read_events(FIXTURE)
 
 
 def test_live_run_a2f1be0b_lanes_follow_the_fleet() -> None:
