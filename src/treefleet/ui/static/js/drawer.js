@@ -286,6 +286,24 @@ export function createDrawer({ auth, worktreeFor }) {
       const td = el("td", ok ? "ok" : "bad", ok ? "yes ✓" : "NO ✗");
       tr.appendChild(td);
       body.appendChild(tr);
+      if (label === "Process cwd" && !ok && proof.cwd_attempts && proof.cwd_attempts.length) {
+        const detail = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 2;
+        cell.className = "proof-detail";
+        cell.textContent = proof.cwd_attempts
+          .map((attempt) => {
+            const children = (attempt.child_pids || []).join(",");
+            const head = `pid ${attempt.pid ?? "unresolved"} started ${attempt.pid_started ?? "-"} alive ${attempt.alive} children ${children}${attempt.error ? " " + attempt.error : ""}`;
+            const lines = (attempt.processes || []).map((proc) =>
+              proc.error ? `  ${proc.pid} ${proc.error}` : `  ${proc.pid} ${proc.cwd}`,
+            );
+            return [head, ...lines].join("\n");
+          })
+          .join("\n");
+        detail.appendChild(cell);
+        body.appendChild(detail);
+      }
     });
     table.appendChild(body);
     root.appendChild(table);

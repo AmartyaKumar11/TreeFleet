@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -219,6 +221,67 @@ def test_launcher_cwd_follows_the_real_interpreter(git_repo: tuple[Path, str, li
         stderr=subprocess.DEVNULL,
     )
     try:
+        target = os.path.normcase(str(worktree.resolve()))
+        interpreter: int | None = None
+        deadline = time.monotonic() + 5
+        while interpreter is None and time.monotonic() < deadline:
+            try:
+                root = psutil.Process(proc.pid)
+                children = root.children(recursive=True)
+            except psutil.Error:
+                time.sleep(0.05)
+                continue
+            for item in children:
+                try:
+                    if "python" not in item.name().lower():
+                        continue
+                    cwd = os.path.normcase(str(Path(item.cwd()).resolve()))
+                except (psutil.Error, OSError):
+                    continue
+                if cwd == target:
+                    interpreter = int(item.pid)
+                    break
+            else:
+                time.sleep(0.05)
+        if interpreter is None:
+            root = psutil.Process(proc.pid)
+            own = os.path.normcase(str(Path(root.cwd()).resolve()))
+            assert own == target
+            interpreter = int(root.pid)
+        proof = verify_task_isolation(
+            repo,
+            task_id="alpha",
+            worktree=worktree,
+            run_id=run_id,
+            base_ref="main",
+            allowed_paths=["README.md"],
+            pid=interpreter,
+            reported_cwd=str(worktree.resolve()),
+            ready_at=time.monotonic(),
+        )
+        if sys.platform == "win32":
+            launcher_cwd = Path(psutil.Process(proc.pid).cwd()).resolve()
+            assert launcher_cwd != worktree.resolve()
+        assert proof.process_cwd_matches, [item.model_dump(mode="json") for item in proof.cwd_attempts]
+        assert proof.toplevel_matches
+        assert proof.registered_in_worktree_list
+        assert proof.ok
+    finally:
+        remove_worktree(repo, worktree, pid=proc.pid)
+        assert not psutil.pid_exists(proc.pid)
+
+
+def test_reported_cwd_mismatch_fails_and_keeps_the_attempt(git_repo: tuple[Path, str, list[Path]]) -> None:
+    repo, run_id, made = git_repo
+    worktree = _add(repo, run_id, "alpha", made)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        cwd=worktree,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
         proof = verify_task_isolation(
             repo,
             task_id="alpha",
@@ -227,17 +290,50 @@ def test_launcher_cwd_follows_the_real_interpreter(git_repo: tuple[Path, str, li
             base_ref="main",
             allowed_paths=["README.md"],
             pid=proc.pid,
+            reported_cwd=str(repo / "not-the-worktree"),
+            ready_at=time.monotonic(),
         )
-        if sys.platform == "win32":
-            launcher_cwd = Path(psutil.Process(proc.pid).cwd()).resolve()
-            assert launcher_cwd != worktree.resolve()
-        assert proof.process_cwd_matches
-        assert proof.toplevel_matches
-        assert proof.registered_in_worktree_list
-        assert proof.ok
+        assert proof.process_cwd_matches is False
+        assert proof.cwd_attempts
+        assert proof.cwd_attempts[0].pid == proc.pid
     finally:
-        remove_worktree(repo, worktree, pid=proc.pid)
-        assert not psutil.pid_exists(proc.pid)
+        proc.kill()
+        proc.wait(timeout=5)
+
+
+def test_unresolved_interpreter_fails_the_cwd_check(git_repo: tuple[Path, str, list[Path]]) -> None:
+    repo, run_id, made = git_repo
+    worktree = _add(repo, run_id, "alpha", made)
+    proof = verify_task_isolation(
+        repo,
+        task_id="alpha",
+        worktree=worktree,
+        run_id=run_id,
+        base_ref="main",
+        allowed_paths=["README.md"],
+        cwd_required=True,
+    )
+    assert proof.process_cwd_matches is False
+    assert proof.cwd_attempts[0].error == "unresolved"
+
+
+def test_dead_pid_is_inconclusive_then_fails(git_repo: tuple[Path, str, list[Path]]) -> None:
+    repo, run_id, made = git_repo
+    worktree = _add(repo, run_id, "alpha", made)
+    proof = verify_task_isolation(
+        repo,
+        task_id="alpha",
+        worktree=worktree,
+        run_id=run_id,
+        base_ref="main",
+        allowed_paths=["README.md"],
+        pid=2**31 - 1,
+        reported_cwd=str(worktree.resolve()),
+        ready_at=time.monotonic() - 30,
+    )
+    assert proof.process_cwd_matches is False
+    assert proof.cwd_attempts
+    assert proof.cwd_attempts[-1].processes[0].error == "NoSuchProcess"
 
 
 def test_collect_changes_includes_tracked_staged_and_untracked(git_repo: tuple[Path, str, list[Path]]) -> None:

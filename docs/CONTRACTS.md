@@ -183,6 +183,8 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `git.worktree_created`, `git.worktree_removed`, `git.commit`, `git.merge`, `git.proof`
 - `scope_violation` (payload: `path`, `reason`) when a worktree has a `.cursor/` directory or `.cursorrules` file that is not in the base commit. `git.cursor_warning` (payload: `path`, `text`) logs tracked Cursor config. That text is never executed.
 - `worker.spawned`, `worker.progress`, `worker.step` (payload is `StepTiming`: `start`, `deepseek`, `cursor`, `check`, or `commit`, with `duration_s` and `timed_out`), `worker.step_callback`, `worker.task_callback`, `worker.guardrail`, `worker.exited`
+- `worker.ready` (payload: `pid`, `cwd`, `task_id`) written by the worker process after it changes to the worktree and before it listens. The orchestrator resolves the interpreter from this event. `worker.spawned` payload `pid` is that interpreter, or the string `unresolved`.
+- `isolation.proof_detail` (payload: `attempts`) when the process-cwd check fails. Each attempt has `pid`, `pid_started`, `alive`, `child_pids`, and `processes` of `{pid, cwd, error}`. A pass does not write this event.
 - `worker.killed` (payload: `reason`, `pid`). Written by `treefleet sessions kill --task`.
 - `jev.call` (payload: question names, input tokens, latency, cache hit)
 - `model_selected` (payload: `task_id`, `model`, `source` of `override`, `run`, `router`, `default`, or `jev`, and `complexity`)

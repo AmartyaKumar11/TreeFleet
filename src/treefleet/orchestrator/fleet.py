@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-import psutil
 
 from treefleet.checks import python_prefix
 from treefleet.contracts import (
@@ -31,6 +31,21 @@ from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, work
 
 _WAIT_S = 600
 _START = b"<a2a_datapart_json>"
+
+
+def _ready_gap(task_id: str, ready_ts: str | None) -> None:
+    """Append the worker.ready to worker.spawned gap when a gate asks for it. No secrets."""
+    path = os.environ.get("TREEFLEET_READY_LOG")
+    if not path or not ready_ts:
+        return
+    try:
+        ready = datetime.fromisoformat(ready_ts)
+        gap = (datetime.now(UTC) - ready).total_seconds()
+    except ValueError:
+        return
+    line = f"{task_id} ready_to_spawned {gap:.3f}\n"
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(line)
 
 
 def task_is_saboteur(flag: str | None, task_id: str) -> bool:
@@ -321,27 +336,24 @@ def _fleet_base():
                 )
             except (OSError, RuntimeError, TimeoutError) as exc:
                 return finish(_failed(envelope, worktree, str(exc), 1))
-            started = None
-            try:
-                started = psutil.Process(proc.pid).create_time()
-            except psutil.Error:
-                started = None
-            note_task(
-                self.bundle,
-                task.id,
-                title=task.title,
-                branch=branch_name(self.bundle.run_id, task.id),
-                worktree=str(worktree),
-                worker_pid=proc.pid,
-                worker_started=started,
-                status="working",
-            )
+            noted: dict[str, Any] = {
+                "title": task.title,
+                "branch": branch_name(self.bundle.run_id, task.id),
+                "worktree": str(worktree),
+                "status": "working",
+            }
+            if proc.interpreter_pid is not None:
+                noted["worker_pid"] = proc.interpreter_pid
+                noted["worker_started"] = proc.interpreter_started
+            note_task(self.bundle, task.id, **noted)
+            spawned_pid: int | str = proc.interpreter_pid if proc.interpreter_pid is not None else "unresolved"
             _event(
                 self.bundle,
                 "worker.spawned",
                 task.id,
-                {"upstream": [item.summary for item in upstream], "pid": proc.pid},
+                {"upstream": [item.summary for item in upstream], "pid": spawned_pid},
             )
+            _ready_gap(task.id, proc.ready_ts)
             fakes = self.bundle.fakes
             if fakes is not None and fakes.kill_task == task.id:
                 asyncio.get_running_loop().call_later(0.4, lambda pid=proc.popen.pid: kill_tree(pid))

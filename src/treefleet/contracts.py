@@ -534,6 +534,29 @@ class ReviewVerdict(_Model):
         return self
 
 
+class CwdProcessView(_Model):
+    """One process seen while checking the worker's working directory."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    pid: int
+    cwd: str = ""
+    error: str = ""
+
+
+class CwdAttempt(_Model):
+    """One OS lookup. A failure keeps every attempt; a pass does not."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    pid: int | None = None
+    pid_started: float | None = None
+    alive: bool = False
+    child_pids: list[int] = Field(default_factory=list)
+    processes: list[CwdProcessView] = Field(default_factory=list)
+    error: str = ""
+
+
 class IsolationProof(_Model):
     """Computed by the orchestrator from git and the OS. Never from worker claims."""
 
@@ -549,6 +572,7 @@ class IsolationProof(_Model):
     canary_absent: bool
     changes_within_allowed_paths: bool
     offending_paths: list[str] = Field(default_factory=list)
+    cwd_attempts: list[CwdAttempt] = Field(default_factory=list)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

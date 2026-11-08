@@ -18,7 +18,7 @@ from treefleet.config import load_settings
 from treefleet.contracts import IsolationReport, Plan, RunRequest, StateKey, WorkerResult, WorkerTaskEnvelope
 from treefleet.events import EventSink
 from treefleet.git.cursor_scope import ScopeViolation
-from treefleet.git.worktrees import list_worktrees, remove_worktree
+from treefleet.git.worktrees import kill_tree, list_worktrees, remove_worktree
 from treefleet.mcp_servers.worktree_fs_server import execute_check
 from treefleet.orchestrator.agents import assign_checks, plan_goal, plan_problems, scan_text
 from treefleet.orchestrator.pipeline import OfflineFakes, ask_plan, cleanup_run, run_pipeline
@@ -317,7 +317,27 @@ async def test_three_workers_overlap_and_prove_isolation(tmp_path: Path, monkeyp
             WorkerResult.model_validate(outcome.state[StateKey.WORKER_RESULTS][task_id])
         Plan.model_validate(outcome.state[StateKey.PLAN])
         isolation = IsolationReport.model_validate(outcome.state[StateKey.ISOLATION])
-        assert isolation.ok
+        if not isolation.ok:
+            detail = [
+                item
+                for item in (tmp_path / "runs" / outcome.run_id / "events.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if "isolation.proof_detail" in item
+            ]
+            print("\n".join(detail), flush=True)
+        assert isolation.ok, [
+            (
+                item.task_id,
+                item.process_cwd_matches,
+                item.toplevel_matches,
+                item.registered_in_worktree_list,
+                item.canary_absent,
+                item.changes_within_allowed_paths,
+                [attempt.model_dump(mode="json") for attempt in item.cwd_attempts],
+            )
+            for item in isolation.tasks
+        ]
         assert len({item.worktree_path for item in isolation.tasks}) == 3
         assert len({item.branch for item in isolation.tasks}) == 3
         text = outcome.report.to_markdown()
@@ -337,6 +357,73 @@ async def test_three_workers_overlap_and_prove_isolation(tmp_path: Path, monkeyp
         if outcome is not None:
             cleanup_run(repo, outcome.run_id)
         _sweep(repo)
+
+
+def _cpu_burners(count: int = 4) -> list[subprocess.Popen[bytes]]:
+    code = (
+        "import time\n"
+        "end = time.time() + 180\n"
+        "while time.time() < end:\n"
+        "    x = 0\n"
+        "    while x < 100000:\n"
+        "        x += 1\n"
+    )
+    return [
+        subprocess.Popen(
+            [sys.executable, "-c", code],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=False,
+        )
+        for _ in range(count)
+    ]
+
+
+async def test_isolation_holds_under_cpu_stress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Five fleet runs while four processes burn CPU. A cwd failure prints the proof detail."""
+    burners = _cpu_burners()
+    try:
+        for index in range(5):
+            repo = tmp_path / f"repo{index}"
+            _git(repo)
+            outcome = None
+            try:
+                outcome, _calls = await _run(
+                    repo,
+                    [_plan_json(["alpha", "beta", "gamma"], override="composer-2.5-fast")],
+                    monkeypatch,
+                    tmp_path,
+                    sleep="0.2",
+                )
+                assert outcome.code == 0, outcome.message
+                assert outcome.report is not None
+                isolation = IsolationReport.model_validate(outcome.state[StateKey.ISOLATION])
+                events = [
+                    json.loads(line)
+                    for line in (tmp_path / "runs" / outcome.run_id / "events.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                    if line.strip()
+                ]
+                detail = [item for item in events if item.get("type") == "isolation.proof_detail"]
+                if not isolation.ok:
+                    print(json.dumps(detail, indent=2), flush=True)
+                assert isolation.ok, detail
+                ready = [item["ts"] for item in events if item.get("type") == "worker.ready"]
+                spawned = [item["ts"] for item in events if item.get("type") == "worker.spawned"]
+                assert len(ready) == 3 and len(spawned) == 3
+            finally:
+                if outcome is not None:
+                    cleanup_run(repo, outcome.run_id)
+                _sweep(repo)
+    finally:
+        for proc in burners:
+            kill_tree(proc.pid)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 async def test_killed_worker_fails_and_the_others_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

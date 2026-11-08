@@ -640,21 +640,35 @@ def prove(
         task = by_id[task_id]
         worktree = bundle.worktree_root / bundle.run_id / task_id
         proc = next((item for item in bundle.procs if item.task_id == task_id), None)
-        pid = proc.pid if proc is not None else None
+        pid = proc.interpreter_pid if proc is not None else None
         if worktree.exists():
             owned.add(worktree)
-        proofs.append(
-            verify_task_isolation(
-                bundle.repo,
-                task_id=task_id,
-                worktree=worktree,
-                run_id=bundle.run_id,
-                base_ref=bundle.request.base_ref,
-                allowed_paths=list(task.allowed_paths),
-                denied_paths=list(task.denied_paths),
-                pid=pid,
-            )
+        proof = verify_task_isolation(
+            bundle.repo,
+            task_id=task_id,
+            worktree=worktree,
+            run_id=bundle.run_id,
+            base_ref=bundle.request.base_ref,
+            allowed_paths=list(task.allowed_paths),
+            denied_paths=list(task.denied_paths),
+            pid=pid,
+            reported_cwd=proc.reported_cwd if proc is not None else None,
+            ready_at=proc.ready_at if proc is not None else None,
+            cwd_required=proc is not None,
+            observe_pid=proc.pid if proc is not None and pid is None else None,
         )
+        if not proof.process_cwd_matches:
+            bundle.sink.emit_sync(
+                RunEvent(
+                    run_id=bundle.run_id,
+                    seq=0,
+                    source="orchestrator",
+                    type="isolation.proof_detail",
+                    task_id=task_id,
+                    payload={"attempts": [item.model_dump(mode="json") for item in proof.cwd_attempts]},
+                )
+            )
+        proofs.append(proof)
     main = verify_main(bundle.repo, bundle.main_before or snapshot_main(bundle.repo))
     siblings = verify_siblings(bundle.siblings_before, snapshot_siblings(bundle.repo), owned)
     if not siblings.ok:

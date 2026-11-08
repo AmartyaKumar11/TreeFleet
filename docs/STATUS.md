@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Demo hardening | not started | |
 
+## 2026-11-08 — Process cwd proof
+
+`IsolationProof.cwd_attempts` records each OS lookup when the process-cwd check fails. A pass leaves the list empty. The worker writes `worker.ready` with its pid and `os.getcwd()`. The orchestrator stores the child python running `treefleet.worker.main` for that task, or `unresolved`. The check passes only when that pid's OS cwd and the worker's reported cwd are both the worktree. A process the OS cannot see is retried until 15 seconds after `worker.ready`, then fails. A visible mismatch fails immediately.
+
 ## 2026-11-07 — Reactions config
 
 `[reactions.<event>]` in `treefleet.toml` is optional. Defaults match the inventory in `docs/REACTIONS.md`. `resolve()` is pure. Each production call writes `reaction.fired`. `needs_review`, `task_failed`, `provider_error`, and `review_rejected` cannot be `ignore`. `review_rejected` does not retry. `review_revise` carries `[revise] max_rounds`. Check failures and review revises are separate budgets. Retries cap at 5. Guards, isolation proofs, scope revert, and merge exclusion are not reaction keys.

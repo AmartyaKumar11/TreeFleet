@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import psutil
 
-from treefleet.contracts import FileChange, IsolationProof, MainCheckoutProof
+from treefleet.contracts import CwdAttempt, CwdProcessView, FileChange, IsolationProof, MainCheckoutProof
 from treefleet.git.canary import CANARY_NAME
 from treefleet.git.worktrees import GitError, Worktree, _same, branch_name, git_out, list_worktrees, run_git
 
@@ -140,26 +140,80 @@ def _restore(worktree: Path, rel: str) -> None:
     run_git(["clean", "-f", "--", rel], cwd=worktree)
 
 
-def process_cwd_matches(pid: int, worktree: Path) -> bool:
-    """The uv launcher's cwd is the temp directory. The child interpreter holds the worktree cwd."""
-    target = worktree.resolve()
-    deadline = time.monotonic() + 2
-    while True:
+def _same_dir(left: str, right: Path) -> bool:
+    try:
+        return os.path.normcase(str(Path(left).resolve())) == os.path.normcase(str(right.resolve()))
+    except OSError:
+        return False
+
+
+def observe_cwd(pid: int) -> CwdAttempt:
+    """One look at a process tree: identity, liveness, children, and each cwd or the error."""
+    try:
+        root = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return CwdAttempt(pid=pid, processes=[CwdProcessView(pid=pid, error="NoSuchProcess")])
+    except psutil.Error as exc:
+        return CwdAttempt(pid=pid, processes=[CwdProcessView(pid=pid, error=type(exc).__name__)])
+    alive = False
+    started: float | None = None
+    try:
+        alive = bool(root.is_running())
+    except psutil.Error:
+        alive = False
+    try:
+        started = float(root.create_time())
+    except psutil.Error:
+        started = None
+    try:
+        children = root.children(recursive=True)
+    except psutil.Error:
+        children = []
+    processes: list[CwdProcessView] = []
+    for proc in (root, *children):
         try:
-            root = psutil.Process(pid)
-        except psutil.NoSuchProcess:
-            return False
-        procs = [root, *root.children(recursive=True)]
-        for proc in procs:
-            try:
-                cwd = Path(proc.cwd()).resolve()
-            except (psutil.Error, OSError):
-                continue
-            if os.path.normcase(str(cwd)) == os.path.normcase(str(target)):
-                return True
+            processes.append(CwdProcessView(pid=int(proc.pid), cwd=str(Path(proc.cwd()).resolve())))
+        except (psutil.Error, OSError) as exc:
+            processes.append(CwdProcessView(pid=int(proc.pid), error=type(exc).__name__))
+    return CwdAttempt(
+        pid=pid,
+        pid_started=started,
+        alive=alive,
+        child_pids=[int(child.pid) for child in children],
+        processes=processes,
+    )
+
+
+def confirm_cwd(
+    pid: int,
+    worktree: Path,
+    reported: str,
+    *,
+    ready_at: float | None,
+) -> tuple[bool, list[CwdAttempt]]:
+    """The worker's reported directory and the OS directory of this pid must both be the worktree.
+
+    A lookup that cannot see the process is inconclusive and is retried with backoff until 15 seconds
+    after the worker reported ready. A visible mismatch fails immediately. Unknown is not a pass.
+    """
+    deadline = (ready_at if ready_at is not None else time.monotonic()) + 15
+    attempts: list[CwdAttempt] = []
+    delay = 0.05
+    while True:
+        attempt = observe_cwd(pid)
+        attempts.append(attempt)
+        own = next((item for item in attempt.processes if item.pid == pid and item.cwd), None)
+        if own is not None:
+            os_ok = _same_dir(own.cwd, worktree)
+            reported_ok = _same_dir(reported, worktree)
+            agreed = _same_dir(reported, Path(own.cwd))
+            if os_ok and reported_ok and agreed:
+                return True, []
+            return False, attempts
         if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.05)
+            return False, attempts
+        time.sleep(delay)
+        delay = min(delay * 2, 1.0)
 
 
 def _toplevel(worktree: Path) -> Path | None:
@@ -181,6 +235,10 @@ def verify_task_isolation(
     allowed_paths: list[str],
     denied_paths: list[str] | None = None,
     pid: int | None = None,
+    reported_cwd: str | None = None,
+    ready_at: float | None = None,
+    cwd_required: bool = False,
+    observe_pid: int | None = None,
 ) -> IsolationProof:
     denied = denied_paths or []
     top = _toplevel(worktree)
@@ -192,17 +250,34 @@ def verify_task_isolation(
     except GitError:
         changes = []
     offending = [path for path in changes if not in_scope(path, allowed_paths, denied)]
+    cwd_ok = True
+    attempts: list[CwdAttempt] = []
+    if pid is None and cwd_required:
+        cwd_ok = False
+        if observe_pid is not None:
+            seen = observe_cwd(observe_pid)
+            attempts = [seen.model_copy(update={"pid": None, "error": "unresolved"})]
+        else:
+            attempts = [CwdAttempt(error="unresolved")]
+    elif pid is not None:
+        if not reported_cwd:
+            cwd_ok = False
+            seen = observe_cwd(pid)
+            attempts = [seen.model_copy(update={"error": "missing worker.ready"})]
+        else:
+            cwd_ok, attempts = confirm_cwd(pid, worktree, reported_cwd, ready_at=ready_at)
     return IsolationProof(
         task_id=task_id,
         worktree_path=str(worktree),
         branch=branch_name(run_id, task_id),
         pid=pid,
-        process_cwd_matches=True if pid is None else process_cwd_matches(pid, worktree),
+        process_cwd_matches=cwd_ok,
         toplevel_matches=top is not None and _same(top, worktree),
         registered_in_worktree_list=registered,
         canary_absent=not (worktree / CANARY_NAME).exists(),
         changes_within_allowed_paths=not offending,
         offending_paths=offending,
+        cwd_attempts=attempts,
     )
 
 

@@ -42,6 +42,11 @@ class WorkerProcess:
     pid: int
     url: str
     worktree: Path
+    interpreter_pid: int | None = None
+    interpreter_started: float | None = None
+    reported_cwd: str | None = None
+    ready_at: float | None = None
+    ready_ts: str | None = None
 
 
 def before_spawn(worktree: Path, run_id: str, sink: EventSink | None = None, task_id: str | None = None) -> list[str]:
@@ -79,24 +84,6 @@ def free_port(start: int, taken: set[int]) -> int:
     raise RuntimeError(f"no free worker port from {start}")
 
 
-def interpreter_pid(pid: int, worktree: Path) -> int:
-    """The venv launcher's cwd is a temp directory. The child interpreter holds the worktree."""
-    target = os.path.normcase(str(worktree.resolve()))
-    try:
-        root = psutil.Process(pid)
-    except psutil.NoSuchProcess:
-        return pid
-    for proc in (root, *root.children(recursive=True)):
-        try:
-            cwd = os.path.normcase(str(Path(proc.cwd()).resolve()))
-            name = proc.name().lower()
-        except (psutil.Error, OSError):
-            continue
-        if cwd == target and "python" in name:
-            return int(proc.pid)
-    return pid
-
-
 def spawn_worker(
     *,
     python: Path,
@@ -126,6 +113,8 @@ def spawn_worker(
         run_id,
         "--task-id",
         task_id,
+        "--events",
+        str(log_path.parent / "events.jsonl"),
     ]
     if sys.platform == "win32":
         # Suspend until the process is in the job, so the interpreter it spawns inherits the job.
@@ -177,26 +166,161 @@ def spawn_worker(
     record = WorkerProcess(task_id=task_id, popen=proc, pid=proc.pid, url=url, worktree=worktree)
     if owner is not None:
         owner.append(record)
+    events = log_path.parent / "events.jsonl"
+    deadline = time.monotonic() + 120
     try:
-        _wait_for_card(url, token, proc)
+        ready = _wait_for_ready(events, task_id, proc, deadline)
+        if ready is not None:
+            raw_payload = ready.get("payload")
+            reported = raw_payload.get("cwd") if isinstance(raw_payload, dict) else ""
+            record.reported_cwd = str(reported or "")
+            record.ready_at = time.monotonic()
+            record.ready_ts = str(ready.get("ts") or "")
+            raw_pid = raw_payload.get("pid") if isinstance(raw_payload, dict) else None
+            reported_pid = raw_pid if isinstance(raw_pid, int) else None
+            resolved = resolve_interpreter(
+                proc.pid,
+                task_id,
+                reported_pid,
+                deadline=min(deadline, record.ready_at + 15),
+            )
+            if resolved is not None:
+                record.interpreter_pid, record.interpreter_started = resolved
+                try:
+                    bind_worker(record.interpreter_pid)
+                except RuntimeError:
+                    kill_tree(proc.pid)
+                    raise
+        _wait_for_card(url, token, proc, deadline, record.interpreter_pid)
     except Exception:
-        kill_tree(proc.pid)
-        raise
-    record.pid = interpreter_pid(proc.pid, worktree)
-    try:
-        bind_worker(record.pid)
-    except RuntimeError:
         kill_tree(proc.pid)
         raise
     return record
 
 
-def _wait_for_card(url: str, token: str, proc: subprocess.Popen[str], timeout_s: float = 40) -> None:
-    deadline = time.monotonic() + timeout_s
-    headers = {"Authorization": f"Bearer {token}"}
+def resolve_interpreter(
+    root_pid: int,
+    task_id: str,
+    reported_pid: int | None,
+    *,
+    deadline: float,
+) -> tuple[int, float] | None:
+    """The python running treefleet.worker.main for this task. Never the venv launcher.
+
+    A process list that cannot be read is retried until deadline (15s after worker.ready).
+    No match by then is unresolved.
+    """
+    while True:
+        found = _match_interpreter(root_pid, task_id, reported_pid)
+        if found is not None:
+            return found
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def _command_match(pid: int, task_id: str) -> tuple[int, float] | None:
+    try:
+        proc = psutil.Process(pid)
+        command = [str(part) for part in proc.cmdline()]
+        name = proc.name().lower()
+        started = float(proc.create_time())
+    except (psutil.Error, OSError):
+        return None
+    if "python" not in name or not _is_worker_command(command, task_id):
+        return None
+    return int(proc.pid), started
+
+
+def _match_interpreter(
+    root_pid: int,
+    task_id: str,
+    reported_pid: int | None,
+) -> tuple[int, float] | None:
+    if reported_pid is not None:
+        direct = _command_match(reported_pid, task_id)
+        if direct is not None:
+            return direct
+    try:
+        root = psutil.Process(root_pid)
+    except psutil.NoSuchProcess:
+        return _scan_worker(task_id, root_pid)
+    try:
+        procs = [root, *root.children(recursive=True)]
+    except psutil.Error:
+        procs = [root]
+    matches: list[tuple[int, float]] = []
+    for proc in procs:
+        found = _command_match(int(proc.pid), task_id)
+        if found is not None:
+            matches.append(found)
+    children = [item for item in matches if item[0] != root_pid]
+    # The Windows venv python is a launcher with the same command line and a temp cwd.
+    # The interpreter is its child. A lone match is the interpreter itself.
+    if children:
+        return children[-1]
+    return matches[0] if matches else None
+
+
+def _scan_worker(task_id: str, root_pid: int) -> tuple[int, float] | None:
+    """The interpreter after the venv launcher has exited and the child was reparented."""
+    launcher: tuple[int, float] | None = None
+    for proc in psutil.process_iter():
+        found = _command_match(int(proc.pid), task_id)
+        if found is None:
+            continue
+        if found[0] == root_pid:
+            launcher = found
+            continue
+        return found
+    return launcher
+
+
+def _is_worker_command(command: list[str], task_id: str) -> bool:
+    if not any(part == "treefleet.worker.main" or part.endswith("treefleet.worker.main") for part in command):
+        return False
+    for index, part in enumerate(command):
+        if part == "--task-id" and index + 1 < len(command) and command[index + 1] == task_id:
+            return True
+    return False
+
+
+def _wait_for_ready(
+    events: Path,
+    task_id: str,
+    _proc: subprocess.Popen[str],
+    deadline: float,
+) -> dict[str, object] | None:
+    from treefleet.events import read_events
+
     while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError("worker exited before the agent card was ready")
+        if events.is_file():
+            rows, _skipped = read_events(events)
+            for item in rows:
+                if item.get("type") == "worker.ready" and item.get("task_id") == task_id:
+                    return item
+        # The venv launcher can exit before the child writes worker.ready. That is not the worker exiting.
+        time.sleep(0.05)
+    return None
+
+
+def _wait_for_card(
+    url: str,
+    token: str,
+    _proc: subprocess.Popen[str],
+    deadline: float,
+    interpreter_pid: int | None,
+) -> None:
+    headers = {"Authorization": f"Bearer {token}"}
+    missing_since: float | None = None
+    while time.monotonic() < deadline:
+        if interpreter_pid is not None and not psutil.pid_exists(interpreter_pid):
+            if missing_since is None:
+                missing_since = time.monotonic()
+            elif time.monotonic() - missing_since > 2:
+                raise RuntimeError("worker exited before the agent card was ready")
+        else:
+            missing_since = None
         try:
             response = httpx.get(url + "/.well-known/agent-card.json", headers=headers, timeout=2)
         except httpx.HTTPError:
@@ -205,7 +329,7 @@ def _wait_for_card(url: str, token: str, proc: subprocess.Popen[str], timeout_s:
         if response.status_code == 200:
             return
         time.sleep(0.2)
-    raise TimeoutError(f"worker agent card was not ready within {timeout_s}s")
+    raise TimeoutError("worker agent card was not ready within 120s")
 
 
 def worker_pids() -> list[int]:
