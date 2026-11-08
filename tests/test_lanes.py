@@ -10,6 +10,7 @@ from treefleet.ui.lanes import TaskLaneFacts, derive_lane, tasks_from_snapshot
 from treefleet.ui.server import _stage
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "a2f1be0b-events.jsonl"
+STUB = Path(__file__).resolve().parents[1] / "evidence" / "phase-8" / "ui-v2" / "live-real-2" / "stub" / "events.jsonl"
 _CONTINUED = {"cursor.tool_start", "output_line", "review_started", "review_verdict"}
 
 pytestmark = pytest.mark.phase8
@@ -57,39 +58,90 @@ def test_approve_is_ready_to_merge() -> None:
     assert derive_lane(TaskLaneFacts(integrated=True)) == "working"
 
 
-def test_a_recovered_tool_denial_stays_on_that_task() -> None:
-    denial = {
+def _history(rows: list[dict]) -> dict[str, list[str]]:
+    history: dict[str, list[str]] = {}
+    prefix: list[dict] = []
+    for item in rows:
+        prefix.append(item)
+        for card in tasks_from_snapshot(prefix, None):
+            seen = history.setdefault(card["id"], [])
+            if not seen or seen[-1] != card["lane"]:
+                seen.append(card["lane"])
+    return history
+
+
+def test_a_recovered_tool_denial_never_moves_the_card() -> None:
+    argument = {
         "type": "guard.decision",
         "task_id": "alpha",
         "payload": {"stage": "tool_result", "allowed": False, "reasons": ["bad args"]},
     }
-    stopped = tasks_from_snapshot(
+    tool_error = {
+        "type": "tool.error",
+        "task_id": "alpha",
+        "payload": {"tool": "read_file", "message": "path is required"},
+    }
+    kept = tasks_from_snapshot(
         [
             {"type": "worker.spawned", "task_id": "alpha"},
             {"type": "worker.spawned", "task_id": "beta"},
-            denial,
+            argument,
+            tool_error,
         ],
         None,
         awaiting=False,
     )
-    lanes = {card["id"]: card["lane"] for card in stopped}
-    assert lanes == {"alpha": "needs", "beta": "working"}
+    assert {card["id"]: card["lane"] for card in kept} == {"alpha": "working", "beta": "working"}
+    policy = {
+        "type": "guard.decision",
+        "task_id": "alpha",
+        "payload": {"stage": "tool_args", "allowed": False, "reasons": ["path rejected: parent"]},
+    }
     recovered = tasks_from_snapshot(
         [
             {"type": "worker.spawned", "task_id": "alpha"},
-            denial,
+            policy,
             {"type": "cursor.tool_start", "task_id": "alpha", "payload": {"tool": "read"}},
         ],
         None,
         awaiting=False,
     )
     assert recovered[0]["lane"] == "working"
+    assert (
+        "needs"
+        not in _history(
+            [
+                {"type": "worker.spawned", "task_id": "alpha"},
+                policy,
+                {"type": "cursor.tool_start", "task_id": "alpha", "payload": {"tool": "read"}},
+                {"type": "worker.exited", "task_id": "alpha", "payload": {"status": "done"}},
+                {"type": "review_verdict", "task_id": "alpha", "payload": {"verdict": "approve"}},
+            ]
+        )["alpha"]
+    )
     failed = tasks_from_snapshot(
-        [denial, {"type": "worker.exited", "task_id": "alpha", "payload": {"status": "failed"}}],
+        [
+            {"type": "worker.spawned", "task_id": "alpha"},
+            policy,
+            {"type": "worker.exited", "task_id": "alpha", "payload": {"status": "failed"}},
+        ],
         None,
         awaiting=False,
     )
     assert failed[0]["lane"] == "needs"
+    human = tasks_from_snapshot(
+        [
+            {"type": "worker.spawned", "task_id": "alpha"},
+            {
+                "type": "reaction.fired",
+                "task_id": "alpha",
+                "payload": {"action": "needs_human", "event": "review_rejected"},
+            },
+        ],
+        None,
+        awaiting=False,
+    )
+    assert human[0]["lane"] == "needs"
 
 
 def _fixture_events() -> tuple[list[dict], int]:
@@ -124,6 +176,22 @@ def test_live_run_a2f1be0b_lanes_follow_the_fleet() -> None:
             seen["ready"] = True
     assert seen == {"working": True, "review": True, "ready": True}
     assert _stage(rows, False, True) == "done"
+    _assert_approved_never_needed(rows)
+
+
+def _assert_approved_never_needed(rows: list[dict]) -> None:
+    history = _history(rows)
+    final = {card["id"]: card for card in tasks_from_snapshot(rows, None)}
+    for task_id, card in final.items():
+        if card.get("verdict") == "approve" or card.get("status") == "done":
+            assert "needs" not in history[task_id], history[task_id]
+
+
+def test_stub_fleet_approved_tasks_never_visit_needs_you() -> None:
+    from treefleet.events import read_events
+
+    rows, _corrupt = read_events(STUB)
+    _assert_approved_never_needed(rows)
 
 
 def test_tasks_from_snapshot_attach_lane() -> None:

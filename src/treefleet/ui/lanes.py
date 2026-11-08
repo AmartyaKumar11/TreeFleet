@@ -20,6 +20,13 @@ _CONTINUED = {
     "revise_started",
 }
 _STOPPED = {"failed", "needs_review"}
+_ARGUMENT = (
+    "validation error",
+    "field required",
+    "error executing tool",
+    "bad_args",
+    "malformed tool result",
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +39,7 @@ class TaskLaneFacts:
     checks_failed: bool = False
     conflict: bool = False
     guard_blocked: bool = False
+    needs_human: bool = False
     worker_active: bool = False
     output_seen: bool = False
     fleet_in_progress: bool = False
@@ -49,6 +57,7 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
         or facts.checks_failed
         or facts.conflict
         or facts.guard_blocked
+        or facts.needs_human
         or facts.verdict in {"revise", "reject"}
         or facts.status == "failed"
     ):
@@ -60,6 +69,20 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
     if facts.worker_active or facts.output_seen or facts.fleet_in_progress:
         return "working"
     return "working"
+
+
+def _argument_error(payload: dict[str, Any]) -> bool:
+    """A tool-argument failure is not a policy block, including old tool_result denials."""
+    if str(payload.get("stage") or "") == "tool_result":
+        return True
+    reasons = payload.get("reasons") or []
+    text = " ".join(str(item) for item in reasons) if isinstance(reasons, list) else str(reasons)
+    lowered = text.lower()
+    return any(marker in lowered for marker in _ARGUMENT)
+
+
+def _policy_denial(payload: dict[str, Any]) -> bool:
+    return payload.get("allowed") is False and not _argument_error(payload)
 
 
 def _checks_failed(result: dict[str, Any]) -> bool:
@@ -131,10 +154,16 @@ def tasks_from_snapshot(
                 "review_started": False,
                 "awaiting_verdict": False,
                 "guard_blocked": False,
+                "policy_open": False,
+                "needs_human": False,
             },
         )
-        if kind == "guard.decision" and payload.get("allowed") is False:
-            task["guard_blocked"] = True
+        if kind == "tool.error":
+            pass
+        elif kind == "guard.decision" and _policy_denial(payload):
+            task["policy_open"] = True
+        if kind == "reaction.fired" and str(payload.get("action") or "") == "needs_human":
+            task["needs_human"] = True
         if kind == "model_selected":
             task["model"] = str(payload.get("model") or task["model"])
         if kind == "worker.spawned":
@@ -165,9 +194,14 @@ def tasks_from_snapshot(
                 task["error"] = payload["error"]
             if payload.get("files"):
                 task["files"] = payload["files"]
-            if task["status"] in _STOPPED:
+            if task["status"] in _STOPPED and task.get("policy_open"):
                 task["guard_blocked"] = True
-        if kind in _CONTINUED or (kind == "worker.exited" and task["status"] not in _STOPPED):
+            else:
+                task["policy_open"] = False
+                if task["status"] not in _STOPPED:
+                    task["guard_blocked"] = False
+        if kind in _CONTINUED:
+            task["policy_open"] = False
             task["guard_blocked"] = False
         if kind == "review_started":
             task["review_started"] = True
@@ -205,10 +239,12 @@ def tasks_from_snapshot(
                     "review_started": False,
                     "awaiting_verdict": False,
                     "guard_blocked": False,
+                    "policy_open": False,
+                    "needs_human": False,
                 },
             )
             task["status"] = str(result.get("status") or task["status"])
-            if task["status"] in _STOPPED:
+            if task["status"] in _STOPPED and task.get("policy_open"):
                 task["guard_blocked"] = True
             task["checks_failed"] = _checks_failed(result)
             if result.get("error"):
@@ -223,6 +259,7 @@ def tasks_from_snapshot(
             checks_failed=bool(task.get("checks_failed")),
             conflict=_conflicted(task_id, report),
             guard_blocked=bool(task.get("guard_blocked")),
+            needs_human=bool(task.get("needs_human")),
             worker_active=bool(task.get("worker_active")),
             output_seen=bool(task.get("output_seen")),
             fleet_in_progress=fleet_in_progress and not task.get("status"),
@@ -231,11 +268,8 @@ def tasks_from_snapshot(
             integrated=_integrated(task_id, report),
             ready_to_merge=_integrated(task_id, report),
         )
-        card = {
-            key: value
-            for key, value in task.items()
-            if key not in {"worker_active", "output_seen", "checks_failed", "guard_blocked"}
-        }
+        hidden = {"worker_active", "output_seen", "checks_failed", "guard_blocked", "policy_open", "needs_human"}
+        card = {key: value for key, value in task.items() if key not in hidden}
         card["lane"] = derive_lane(facts)
         tasks.append(card)
     return tasks
