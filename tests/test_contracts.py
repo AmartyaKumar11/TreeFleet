@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from treefleet.contracts import (
     CheckResult,
+    Complexity,
     CostLine,
     FinalReport,
     IntegrationConflict,
@@ -15,6 +16,7 @@ from treefleet.contracts import (
     MainCheckoutProof,
     Plan,
     ReviewVerdict,
+    RouteDecision,
     RunMetrics,
     RunRequest,
     SelfReportedIsolation,
@@ -157,7 +159,8 @@ def test_final_report_markdown_and_metrics() -> None:
         branch="tf/abc123/aa",
         head_sha=SHA,
         commit_made=True,
-        model="m",
+        model="deepseek/deepseek-flash",
+        cursor_model="composer-2.5",
         isolation=iso(),
     )
     proof = IsolationProof(
@@ -180,7 +183,10 @@ def test_final_report_markdown_and_metrics() -> None:
     metrics = RunMetrics(
         wall_seconds=10,
         sequential_seconds=25,
-        costs=[CostLine(component="worker", model="m", usage=TokenUsage(input_tokens=10), usd=0.0123, task_id="aa")],
+        costs=[
+            CostLine(component="worker", model="m", usage=TokenUsage(input_tokens=10), usd=0.0123, task_id="aa"),
+            CostLine(component="cursor", model="composer-2.5", usage=TokenUsage(), usd=0, task_id="aa"),
+        ],
     )
     report = FinalReport(
         run_id="abc123",
@@ -193,9 +199,22 @@ def test_final_report_markdown_and_metrics() -> None:
             merged=["aa"], conflicts=[IntegrationConflict(path="README.md", between=["aa", "bb"])]
         ),
         metrics=metrics,
+        routing=[
+            RouteDecision(
+                task_id="aa",
+                model="deepseek/deepseek-flash",
+                complexity=Complexity.MODERATE,
+                confidence=1,
+                source="jev",
+                cursor_model="composer-2.5",
+            )
+        ],
     )
     md = report.to_markdown()
     assert "Overall:** PASS" in md and "Speedup: 2.5x" in md and "Conflict in `README.md`" in md
+    assert "- aa: reasoner deepseek/deepseek-flash, coder composer-2.5" in md
+    assert "| reasoner | m |" in md
+    assert "| coder | composer-2.5 |" in md
     assert metrics.total_usd == 0.0123
     assert from_wire(to_wire(report), FinalReport) == report
 

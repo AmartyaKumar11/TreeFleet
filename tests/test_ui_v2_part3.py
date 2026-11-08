@@ -285,7 +285,7 @@ def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: py
 
             page.get_by_role("tab", name="Cost").click()
             cost = page.locator("#costpane")
-            assert "planner" in cost.inner_text().lower()
+            assert "reasoner" in cost.inner_text().lower()
             assert "unpriced" in cost.inner_text().lower()
             assert "usage not reported" in cost.inner_text().lower()
 

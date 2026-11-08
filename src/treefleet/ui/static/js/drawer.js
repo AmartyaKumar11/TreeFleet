@@ -22,6 +22,15 @@ function proofFrom(state, task) {
   return list.find((item) => item.task_id === task.id) || null;
 }
 
+export function costRole(row) {
+  const component = String((row && (row.component || row.role)) || "");
+  if (component === "cursor") return "coder";
+  if (component === "planner" || component === "worker" || component === "reviewer" || component === "reporter") {
+    return "reasoner";
+  }
+  return component;
+}
+
 export function createDrawer({ auth, worktreeFor }) {
   let followTail = true;
   let liveOffset = 0;
@@ -340,7 +349,7 @@ export function createDrawer({ auth, worktreeFor }) {
     let priced = false;
     costs.forEach((row) => {
       const tr = document.createElement("tr");
-      tr.appendChild(el("td", null, row.component || row.role || ""));
+      tr.appendChild(el("td", null, costRole(row)));
       tr.appendChild(el("td", "mono", row.tokens != null ? String(row.tokens) : "—"));
       const usd = document.createElement("td");
       const text = formatUsd(row.usd, row.label);

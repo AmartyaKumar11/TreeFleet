@@ -1,5 +1,5 @@
 import { createOrchestrator } from "./orchestrator.js";
-import { createDrawer } from "./drawer.js";
+import { costRole, createDrawer } from "./drawer.js";
 import { createGitGraph } from "./git-graph.js";
 import { createPalette } from "./palette.js";
 
@@ -403,6 +403,9 @@ function select(task, fromUser) {
   }
   if (selected && selected.id === task.id && !fromUser) {
     selected = task;
+    document.querySelectorAll(".card[data-task-id]").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.taskId === task.id);
+    });
     if (drawer) drawer.refresh(task, state);
     return;
   }
@@ -623,7 +626,7 @@ function render(data) {
   const costs = (data.report && data.report.metrics && data.report.metrics.costs) || [];
   costs.forEach((row) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${esc(row.component)}</td><td>${esc(row.model)}</td><td>${moneyCell(row)}</td>`;
+    tr.innerHTML = `<td>${esc(costRole(row))}</td><td>${esc(row.model)}</td><td>${moneyCell(row)}</td>`;
     costBody.appendChild(tr);
   });
   document.getElementById("count-metrics").textContent = String(costs.length);

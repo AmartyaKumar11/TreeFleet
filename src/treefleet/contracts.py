@@ -695,6 +695,15 @@ def assemble_metrics(
     )
 
 
+def cost_role(component: str) -> str:
+    """Cost-table label. DeepSeek rows are the reasoner. The Cursor row is the coder."""
+    if component in {"planner", "worker", "reviewer", "reporter"}:
+        return "reasoner"
+    if component == "cursor":
+        return "coder"
+    return component
+
+
 def isolation_overall(report: IsolationReport, results: list[WorkerResult]) -> str:
     """PASS, PASS with a contained revert, or FAIL. A leftover violation is FAIL."""
     main = report.main
@@ -771,10 +780,23 @@ class FinalReport(_Model):
                 root = self.integration.repo if self.integration is not None and self.integration.repo else ""
                 command = f"git -C {root} merge {result.branch}" if root else f"git merge {result.branch}"
                 lines.append(f"- {result.task_id} needs review on `{result.branch}`: {why}. Merge: `{command}`")
-        if self.routing:
+        routes = {route.task_id: route for route in self.routing}
+        if self.results or self.routing:
             lines += ["", "## Models", ""]
+            seen: list[str] = []
+            for result in self.results:
+                route = routes.get(result.task_id)
+                coder = ""
+                if route is not None and route.cursor_model:
+                    coder = str(route.cursor_model)
+                elif result.cursor_model:
+                    coder = result.cursor_model
+                lines.append(f"- {result.task_id}: reasoner {result.model}, coder {coder or 'unknown'}")
+                seen.append(result.task_id)
             for route in self.routing:
-                lines.append(f"- {route.task_id}: {route.cursor_model} ({route.source})")
+                if route.task_id in seen:
+                    continue
+                lines.append(f"- {route.task_id}: reasoner unknown, coder {route.cursor_model or 'unknown'}")
         lines += ["", "## Isolation proof", "", f"**Overall:** {isolation_overall(self.isolation, self.results)}", ""]
         lines += [
             "| Task | Process cwd | Toplevel | Registered | Canary absent | Within scope |",
@@ -828,7 +850,7 @@ class FinalReport(_Model):
             ]
             for item in self.metrics.costs:
                 lines.append(
-                    f"| {item.component} | {item.model} | {item.usage.input_tokens} | "
+                    f"| {cost_role(item.component)} | {item.model} | {item.usage.input_tokens} | "
                     f"{item.usage.output_tokens} | {item.usage.cached_input_tokens} | "
                     f"{item.usage.cache_write_tokens} | {item.usd:.6f} | {item.label} |"
                 )
