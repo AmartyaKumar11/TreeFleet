@@ -14,7 +14,7 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 7 | Observability | not started | |
 | 8 | Web UI | lite board | `evidence/phase-8/` |
 | 9 | Evaluation, cost, time | done | `eval/report.md` |
-| 10 | Cloud deployment | step 1b review events split | `docs/REACTIONS.md` |
+| 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Demo hardening | not started | |
 
 ## 2026-11-07 — Reactions config
