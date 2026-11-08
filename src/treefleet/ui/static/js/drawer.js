@@ -77,37 +77,44 @@ export function createDrawer({ auth, worktreeFor }) {
 
   function renderLive(task) {
     const root = document.getElementById("live");
-    clear(root);
-    const toolbar = el("div", "live-toolbar");
-    const pause = el("button", "btn ghost", followTail ? "Pause" : "Follow");
-    pause.type = "button";
-    pause.addEventListener("click", () => {
-      followTail = !followTail;
-      pause.textContent = followTail ? "Pause" : "Follow";
-      if (followTail) renderLive(task);
-    });
-    const copy = el("button", "btn ghost", "Copy");
-    copy.type = "button";
-    copy.addEventListener("click", async () => {
-      const text = (task.lines || []).join("\n");
-      try {
-        if (navigator.clipboard) await navigator.clipboard.writeText(text);
-        copy.textContent = "Copied";
-        setTimeout(() => {
-          copy.textContent = "Copy";
-        }, 1200);
-      } catch (_err) {
-        /* ignore */
-      }
-    });
-    toolbar.appendChild(pause);
-    toolbar.appendChild(copy);
-    root.appendChild(toolbar);
+    let toolbar = root.querySelector(".live-toolbar");
+    if (!toolbar) {
+      clear(root);
+      toolbar = el("div", "live-toolbar");
+      const pause = el("button", "btn ghost", followTail ? "Pause" : "Follow");
+      pause.type = "button";
+      pause.addEventListener("click", () => {
+        followTail = !followTail;
+        pause.textContent = followTail ? "Pause" : "Follow";
+        if (followTail) renderLive(task);
+      });
+      const copy = el("button", "btn ghost", "Copy");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
+        const text = ((selected && selected.lines) || []).join("\n");
+        try {
+          if (navigator.clipboard) await navigator.clipboard.writeText(text);
+          copy.textContent = "Copied";
+          setTimeout(() => {
+            copy.textContent = "Copy";
+          }, 1200);
+        } catch (_err) {
+          /* ignore */
+        }
+      });
+      toolbar.appendChild(pause);
+      toolbar.appendChild(copy);
+      root.appendChild(toolbar);
+    }
 
     const lines = task.lines || [];
     const total = lines.length;
     let start = liveOffset;
     if (followTail && total > LIVE_CAP) start = Math.max(0, total - LIVE_CAP);
+    const sig = JSON.stringify({ start, followTail, lines });
+    const existing = root.querySelector(".live-log");
+    if (existing && existing.dataset.sig === sig) return;
+    root.querySelectorAll(".earlier-lines, .live-log").forEach((node) => node.remove());
     if (start > 0) {
       const earlier = el("button", "btn ghost earlier-lines", "Show earlier lines");
       earlier.type = "button";
@@ -119,6 +126,7 @@ export function createDrawer({ auth, worktreeFor }) {
       root.appendChild(earlier);
     }
     const log = el("div", "live-log");
+    log.dataset.sig = sig;
     lines.slice(start).forEach((line) => {
       log.appendChild(el("div", "live-line", String(line)));
     });

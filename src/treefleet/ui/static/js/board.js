@@ -22,6 +22,7 @@ let drawer = null;
 let graph = null;
 let palette = null;
 let optimistic = null;
+let laneSig = "";
 let lastCounts = { working: 0, needs: 0, review: 0, ready: 0 };
 
 function esc(value) {
@@ -365,7 +366,7 @@ function renderCard(task) {
   button.innerHTML = `
     <div class="model-row">
       <span class="model">${modelIcon()}<span>${esc(task.model || "model")}</span></span>
-      <span class="age">${esc(age)}</span>
+      <span class="age"${task.age_s != null ? ' data-fixed="1"' : ""}>${esc(age)}</span>
     </div>
     <div class="title">${esc(task.title)}</div>
     <span class="branch mono" title="${esc(task.branch || task.id)}">${gitGlyph()}<span>${esc(
@@ -512,6 +513,14 @@ function render(data) {
     runList.appendChild(li);
   }
 
+  const tasks = data.tasks || [];
+  const laneKey = JSON.stringify({ awaiting: data.awaiting, tasks });
+  const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
+  lastCounts = counts;
+  notifyHuman(needsCount(counts));
+  updateRunStrip(data, counts);
+  if (laneKey !== laneSig) {
+    laneSig = laneKey;
   ["needs", "working", "review", "ready"].forEach((id) => {
     document.getElementById(id).innerHTML = "";
   });
@@ -545,16 +554,10 @@ function render(data) {
     document.getElementById("needs").appendChild(card);
   }
 
-  const tasks = data.tasks || [];
-  const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
-  lastCounts = counts;
-  notifyHuman(needsCount(counts));
-  updateRunStrip(data, counts);
   tasks.forEach((task) => {
     document.getElementById(lane(task)).appendChild(renderCard(task));
   });
   playFlip();
-  applyMobileLane();
 
   if (!pinned) {
     let current = null;
@@ -570,6 +573,8 @@ function render(data) {
   } else {
     showDrawerEmpty();
   }
+  }
+  applyMobileLane();
 
   const body = document.querySelector("#worktrees tbody");
   body.innerHTML = "";
@@ -656,6 +661,9 @@ function tick() {
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
   const summary = document.getElementById("summary-elapsed");
   if (summary) summary.textContent = shown;
+  document.querySelectorAll(".card .age").forEach((el) => {
+    if (el.dataset.fixed !== "1") el.textContent = shown;
+  });
   if (state && Object.keys(state).length) {
     updateRunStrip(state, lastCounts);
   }

@@ -264,7 +264,10 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       );
     }
 
-    root.innerHTML = parts.join("") || `<p class="empty-line">No run yet. Describe a goal to begin.</p>`;
+    const html = parts.join("") || `<p class="empty-line">No run yet. Describe a goal to begin.</p>`;
+    if (html === root.dataset.rendered) return;
+    root.dataset.rendered = html;
+    root.innerHTML = html;
 
     root.querySelectorAll(".worker-row").forEach((button) => {
       button.addEventListener("click", () => {
