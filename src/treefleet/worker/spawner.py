@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ import psutil
 from treefleet.events import EventSink
 from treefleet.git.cursor_scope import check_cursor_scope
 from treefleet.git.worktrees import kill_tree
+from treefleet.procgroup import _linux_pdeathsig, bind_worker, resume_process
 
 _KEEP = (
     "SystemRoot",
@@ -110,30 +112,66 @@ def spawn_worker(
     """Start the worker venv interpreter and wait until its agent card answers."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("w", encoding="utf-8")
-    proc = subprocess.Popen(
-        [
-            str(python),
-            "-m",
-            "treefleet.worker.main",
-            "--port",
-            str(port),
-            "--worktree",
-            str(worktree),
-            "--token",
-            token,
-            "--run-id",
-            run_id,
-            "--task-id",
-            task_id,
-        ],
-        cwd=worktree,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=handle,
-        stderr=subprocess.STDOUT,
-        text=True,
-        shell=False,
-    )
+    command = [
+        str(python),
+        "-m",
+        "treefleet.worker.main",
+        "--port",
+        str(port),
+        "--worktree",
+        str(worktree),
+        "--token",
+        token,
+        "--run-id",
+        run_id,
+        "--task-id",
+        task_id,
+    ]
+    if sys.platform == "win32":
+        # Suspend until the process is in the job, so the interpreter it spawns inherits the job.
+        proc = subprocess.Popen(
+            command,
+            cwd=worktree,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            shell=False,
+            creationflags=0x4,
+        )
+    elif sys.platform == "linux":
+        proc = subprocess.Popen(
+            command,
+            cwd=worktree,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            shell=False,
+            start_new_session=True,
+            preexec_fn=_linux_pdeathsig,
+        )
+    else:
+        proc = subprocess.Popen(
+            command,
+            cwd=worktree,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            shell=False,
+            start_new_session=True,
+        )
+    try:
+        bind_worker(proc.pid)
+    except RuntimeError:
+        kill_tree(proc.pid)
+        handle.close()
+        raise
+    resume_process(proc.pid)
     handle.close()
     url = f"http://127.0.0.1:{port}"
     record = WorkerProcess(task_id=task_id, popen=proc, pid=proc.pid, url=url, worktree=worktree)
@@ -145,6 +183,11 @@ def spawn_worker(
         kill_tree(proc.pid)
         raise
     record.pid = interpreter_pid(proc.pid, worktree)
+    try:
+        bind_worker(record.pid)
+    except RuntimeError:
+        kill_tree(proc.pid)
+        raise
     return record
 
 
