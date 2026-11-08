@@ -108,6 +108,7 @@ class RunBundle:
         self.port_start = port_start
         self.approve = approve
         self.fakes = fakes
+        self.store: Any = None
         self.approved = True
         self.main_before: MainSnapshot | None = None
         self.siblings_before: tuple[SiblingSnapshot, ...] = ()
@@ -761,7 +762,9 @@ class PlannerAgent(BaseAgent):
 
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
         from treefleet.orchestrator.callbacks import UsageBox
+        from treefleet.sessions import note_stage, remember_plan
 
+        note_stage(self.bundle, "plan")
         started = time.monotonic()
         tree = str(ctx.session.state.get(StateKey.REPO_MAP, ""))
         fast, pro = planner_choice(self.bundle.settings)
@@ -804,6 +807,8 @@ class PlannerAgent(BaseAgent):
                 )
             )
         self.bundle.approved = approved
+        if approved:
+            remember_plan(self.bundle, plan)
         _phase(self.bundle, "planner", time.monotonic() - started)
         yield _adk_event(ctx, self.name, {StateKey.PLAN: dump_plan(plan), "approved": approved})
 

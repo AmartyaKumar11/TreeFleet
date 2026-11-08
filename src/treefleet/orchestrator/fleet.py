@@ -10,6 +10,8 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+import psutil
+
 from treefleet.checks import python_prefix
 from treefleet.contracts import (
     Limits,
@@ -207,6 +209,9 @@ def _fleet_base():
         async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
             if not self.bundle.approved:
                 return
+            from treefleet.sessions import note_stage
+
+            note_stage(self.bundle, "fleet")
             write_canary(self.bundle.repo, self.bundle.run_id)
             self.bundle.main_before = snapshot_main(self.bundle.repo)
             self.bundle.siblings_before = snapshot_siblings(self.bundle.repo)
@@ -236,13 +241,25 @@ def _fleet_base():
             )
 
         async def _one(self, task: Any, results: dict[str, WorkerResult], routes: dict[str, Any]) -> WorkerResult:
+            from treefleet.sessions import note_task
+
+            def finish(result: WorkerResult) -> WorkerResult:
+                note_task(
+                    self.bundle,
+                    task.id,
+                    title=task.title,
+                    status=result.status,
+                    reason=result.error or "",
+                )
+                return result
+
             route = routes[task.id]
             upstream: list[UpstreamContext] = []
             for dep in task.depends_on:
                 prev = results.get(dep)
                 if prev is not None and prev.status == "needs_review":
                     envelope = self._envelope(task, route, [])
-                    return _failed(envelope, self.bundle.repo, f"upstream {dep} needs review", 1)
+                    return finish(_failed(envelope, self.bundle.repo, f"upstream {dep} needs review", 1))
                 sha = prev.head_sha if prev is not None and prev.status == "done" else None
                 # A main-checkout mutation stays fail-closed. Any other failed upstream cancels this task.
                 if prev is None or not sha:
@@ -251,7 +268,7 @@ def _fleet_base():
                         reason = f"upstream {dep} did not finish"
                     else:
                         reason = f"upstream {dep} rejected"
-                    return _failed(envelope, self.bundle.repo, reason, 1)
+                    return finish(_failed(envelope, self.bundle.repo, reason, 1))
                 upstream.append(
                     UpstreamContext(
                         task_id=dep,
@@ -270,11 +287,19 @@ def _fleet_base():
                     self.bundle.request.base_ref,
                 )
             except GitError as exc:
-                return _failed(envelope, self.bundle.repo, str(exc), 1)
+                return finish(_failed(envelope, self.bundle.repo, str(exc), 1))
+            note_task(
+                self.bundle,
+                task.id,
+                title=task.title,
+                branch=branch_name(self.bundle.run_id, task.id),
+                worktree=str(worktree),
+                status="spawning",
+            )
             try:
                 before_spawn(worktree, self.bundle.run_id, self.bundle.sink, task.id)
             except ScopeViolation as exc:
-                return _failed(envelope, worktree, str(exc), 1)
+                return finish(_failed(envelope, worktree, str(exc), 1))
             port = free_port(self.bundle.port_start, self.bundle.ports)
             self.bundle.ports.add(port)
             extra = _extra_env(self.bundle)
@@ -295,7 +320,22 @@ def _fleet_base():
                     owner=self.bundle.procs,
                 )
             except (OSError, RuntimeError, TimeoutError) as exc:
-                return _failed(envelope, worktree, str(exc), 1)
+                return finish(_failed(envelope, worktree, str(exc), 1))
+            started = None
+            try:
+                started = psutil.Process(proc.pid).create_time()
+            except psutil.Error:
+                started = None
+            note_task(
+                self.bundle,
+                task.id,
+                title=task.title,
+                branch=branch_name(self.bundle.run_id, task.id),
+                worktree=str(worktree),
+                worker_pid=proc.pid,
+                worker_started=started,
+                status="working",
+            )
             _event(
                 self.bundle,
                 "worker.spawned",
@@ -319,7 +359,7 @@ def _fleet_base():
                     "a2a": note,
                 },
             )
-            return result
+            return finish(result)
 
         def _envelope(self, task: Any, route: Any, upstream: list[UpstreamContext]) -> WorkerTaskEnvelope:
             checks = {

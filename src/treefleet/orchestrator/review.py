@@ -798,6 +798,9 @@ class ReviewerAgent(BaseAgent):
     async def _run_async_impl(self, ctx: Any) -> AsyncGenerator[Any, None]:
         if not self.bundle.approved:
             return
+        from treefleet.sessions import note_stage, note_task
+
+        note_stage(self.bundle, "review")
         plan = read_plan(ctx.session.state)
         results = read_results(ctx.session.state)
         holder: dict[str, Any] = {}
@@ -819,6 +822,8 @@ class ReviewerAgent(BaseAgent):
             round_budget_s=self.bundle.settings.revise.round_budget_s,
             reactions=self.bundle.settings.reactions,
         )
+        for task_id, verdict in verdicts.items():
+            note_task(self.bundle, task_id, verdict=verdict.verdict, status=updated[task_id].status)
         self.bundle.review_seconds += timings.get("review", 0.0)
         self.bundle.revise_seconds += timings.get("revise", 0.0)
         _phase(self.bundle, "review", self.bundle.review_seconds)
@@ -844,6 +849,9 @@ class IntegratorAgent(BaseAgent):
         import time
 
         from treefleet.git.merge import conflict_revision_feedback, integrate, merge_tip_into_task
+        from treefleet.sessions import note_stage
+
+        note_stage(self.bundle, "integrate")
 
         plan = read_plan(ctx.session.state)
         results = read_results(ctx.session.state)

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 from treefleet.config import Settings
 from treefleet.contracts import FinalReport, Plan, RunRequest
@@ -107,6 +110,24 @@ async def run_pipeline(
     run_id = run_id or secrets.token_hex(4)
     root = Path(runs_root) if runs_root is not None else Path.cwd() / "runs"
     sink = LiveSink(root)
+    from treefleet.git.worktrees import git_out
+    from treefleet.sessions import RunStore
+
+    try:
+        base_sha = git_out(["rev-parse", "HEAD"], repo).strip()
+    except GitError:
+        base_sha = ""
+    store = RunStore.start(
+        root / run_id / "run.json",
+        run_id=run_id,
+        repo=str(repo),
+        base_sha=base_sha,
+        goal=request.goal,
+        routing_mode=request.worker_model,
+        pid=os.getpid(),
+        started=psutil.Process().create_time(),
+    )
+    store.start_heartbeat()
     bundle = RunBundle(
         request=request,
         settings=settings,
@@ -120,10 +141,13 @@ async def run_pipeline(
         approve=approve,
         fakes=fakes,
     )
+    bundle.store = store
     bundle.started = time.monotonic()
     bundle.jev = _jev_for(bundle)
     blocked = _screen_input(bundle)
     if blocked is not None:
+        store.set_stage("failed")
+        store.stop()
         return blocked
     from treefleet.orchestrator.callbacks import agent_hooks
 
@@ -152,6 +176,7 @@ async def run_pipeline(
         async for _event in runner.run_async(user_id="u", session_id=run_id, new_message=message):
             pass
     except PlanRejected as exc:
+        store.set_stage("failed")
         _write_blocked(root, run_id, request.goal, "Plan rejected", str(exc))
         return RunOutcome(1, None, {}, run_id, str(exc))
     finally:
@@ -161,14 +186,18 @@ async def run_pipeline(
                 proc.popen.wait(timeout=10)
             except Exception:
                 pass
+        store.stop()
     if not bundle.approved:
+        store.set_stage("cancelled")
         cleanup_run(repo, run_id)
         return RunOutcome(0, None, {}, run_id, "plan declined")
     session = await service.get_session(app_name="treefleet", user_id="u", session_id=run_id)
     state = dict(session.state) if session is not None else {}
     report = FinalReport.model_validate(state["report"]) if "report" in state else None
     if report is None:
+        store.set_stage("failed")
         return RunOutcome(1, None, state, run_id, "run finished without a report")
+    store.set_stage("done")
     from treefleet.contracts import RunEvent
     from treefleet.reactions import Event, reaction_payload, resolve
 
