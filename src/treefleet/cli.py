@@ -12,7 +12,7 @@ from treefleet.checks import detect_checks, select_checks
 from treefleet.config import load_settings
 from treefleet.contracts import RunRequest
 from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers  # noqa: F401
-from treefleet.orchestrator.pipeline import ask_plan, cleanup_run, run_blocking
+from treefleet.orchestrator.pipeline import ask_plan, run_blocking
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,8 +21,10 @@ def main(argv: list[str] | None = None) -> int:
         return _models()
     if args and args[0] == "reactions":
         return _reactions(args[1:])
+    if args and args[0] == "sessions":
+        return _sessions(args[1:])
     if args and args[0] == "cleanup":
-        return _cleanup(args[1:])
+        return _sessions(["cleanup", *args[1:]])
     if args and args[0] == "eval":
         return _eval(args[1:])
     if args and args[0] == "ui":
@@ -132,17 +134,33 @@ def _ui(argv: list[str]) -> int:
     from treefleet.ui.server import create_app
 
     parser = argparse.ArgumentParser(prog="treefleet ui")
-    parser.add_argument("--repo", required=True)
+    parser.add_argument("--repo", default=None)
     parser.add_argument("--replay", default=None)
+    parser.add_argument("--run", default=None)
     parser.add_argument("--port", type=int, default=8765)
     parsed = parser.parse_args(argv)
     from treefleet.evals.harness import load_env
 
     load_env(Path.cwd())
-    repo = Path(parsed.repo)
+    replay = Path(parsed.replay) if parsed.replay else None
+    repo = Path(parsed.repo) if parsed.repo else None
+    if parsed.run:
+        replay = Path.cwd() / "runs" / parsed.run / "events.jsonl"
+        if not replay.is_file():
+            print(f"no events at {replay}", file=sys.stderr)
+            return 1
+        if repo is None:
+            record = Path.cwd() / "runs" / parsed.run / "run.json"
+            if record.is_file():
+                from treefleet.sessions import load_run
+
+                repo = Path(load_run(record).repo)
+    if repo is None:
+        print("pass --repo or --run", file=sys.stderr)
+        return 2
     if not (repo / ".git").exists():
         raise SystemExit("not a git repository")
-    app = create_app(repo, replay=Path(parsed.replay) if parsed.replay else None)
+    app = create_app(repo, replay=replay)
     uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
     return 0
 
@@ -175,15 +193,63 @@ def _models() -> int:
     return 0
 
 
-def _cleanup(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="treefleet cleanup")
-    parser.add_argument("run_id")
-    parser.add_argument("--repo", default=None)
+def _sessions(argv: list[str]) -> int:
+    from treefleet.sessions import cleanup_session, format_ls, format_show, kill_run, kill_task, list_runs, load_run
+
+    parser = argparse.ArgumentParser(prog="treefleet sessions")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("ls")
+    show = sub.add_parser("show")
+    show.add_argument("run_id")
+    kill = sub.add_parser("kill")
+    kill.add_argument("--task", default=None)
+    kill.add_argument("--run", default=None)
+    clean = sub.add_parser("cleanup")
+    clean.add_argument("run_id")
+    clean.add_argument("--yes", action="store_true")
+    clean.add_argument("--force", action="store_true")
+    clean.add_argument("--include-unmerged", action="store_true")
+    clean.add_argument("--repo", default=None)
     parsed = parser.parse_args(argv)
+    runs = Path.cwd() / "runs"
+    if parsed.cmd == "ls":
+        print(format_ls(list_runs(runs)))
+        return 0
+    if parsed.cmd == "show":
+        path = runs / parsed.run_id / "run.json"
+        if not path.is_file():
+            print(f"no run {parsed.run_id}", file=sys.stderr)
+            return 1
+        print(format_show(load_run(path)))
+        return 0
+    settings = load_settings(Path.cwd() / "treefleet.toml")
+    root = Path(settings.worktree_root)
+    if parsed.cmd == "kill":
+        if bool(parsed.task) == bool(parsed.run):
+            print("pass exactly one of --task RUN/TASK or --run RUN", file=sys.stderr)
+            return 2
+        if parsed.task:
+            if "/" not in parsed.task:
+                print("--task needs RUN/TASK", file=sys.stderr)
+                return 2
+            run_id, task_id = parsed.task.split("/", 1)
+            result = kill_task(runs, run_id, task_id, root)
+        else:
+            result = kill_run(runs, parsed.run, root)
+        print("\n".join(result.lines))
+        return result.code
     repo = Path(parsed.repo or Path.cwd())
-    for path in cleanup_run(repo, parsed.run_id):
-        print(path)
-    return 0
+    result = cleanup_session(
+        parsed.run_id,
+        repo=repo,
+        runs=runs,
+        worktree_root=root,
+        yes=parsed.yes,
+        force=parsed.force,
+        include_unmerged=parsed.include_unmerged,
+    )
+    print("\n".join(result.lines))
+    return result.code
 
 
 def _run(argv: list[str]) -> int:

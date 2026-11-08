@@ -160,6 +160,7 @@ class Board:
         self.goals: dict[str, str] = {}
         self.worker_models: dict[str, str] = {}
         self.replay = False
+        self.dead = False
         self.replay_events: list[dict[str, Any]] = []
         self.base_sha = run_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip() or "HEAD"
         self._lock = threading.Lock()
@@ -234,6 +235,7 @@ class Board:
             "head": head,
             "clean": clean,
             "replay": self.replay,
+            "dead": self.dead,
             "run_id": run_id,
             "goal": goal,
             "worker_model": self.worker_models.get(run_id, "router"),
@@ -274,6 +276,14 @@ def create_app(
 
     if replay is not None:
         board.replay = True
+        record_path = replay.parent / "run.json"
+        if record_path.is_file():
+            from treefleet.sessions import load_run, run_state
+
+            try:
+                board.dead = run_state(load_run(record_path)) == "dead"
+            except (OSError, ValueError):
+                board.dead = False
         recorded = _events(replay)
 
         def play() -> None:
@@ -304,6 +314,8 @@ def create_app(
         page = page.replace("{{TOKEN}}", board.token)
         page = page.replace("{{REPLAY}}", "true" if board.replay else "false")
         page = page.replace("{{REPLAY_ATTR}}", "" if board.replay else "hidden")
+        if board.dead:
+            page = page.replace(">REPLAY<", ">DEAD<", 1)
         return HTMLResponse(page)
 
     @app.get("/api/models")
@@ -337,6 +349,7 @@ def create_app(
                     "head": head,
                     "clean": clean,
                     "replay": board.replay,
+                    "dead": board.dead,
                     "stage": "guard",
                     "stages": list(_STAGES),
                     "events": list(board.replay_events),
