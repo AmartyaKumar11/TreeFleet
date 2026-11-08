@@ -243,15 +243,16 @@ def _sessions(argv: list[str]) -> int:
             result = kill_run(runs, parsed.run, root)
         print("\n".join(result.lines))
         return result.code
-    repo = Path(parsed.repo or Path.cwd())
+    supplied = Path(parsed.repo) if parsed.repo else None
     result = cleanup_session(
         parsed.run_id,
-        repo=repo,
+        repo=supplied or Path.cwd(),
         runs=runs,
         worktree_root=root,
         yes=parsed.yes,
         force=parsed.force,
         include_unmerged=parsed.include_unmerged,
+        supplied=supplied,
     )
     print("\n".join(result.lines))
     return result.code

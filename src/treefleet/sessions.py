@@ -476,6 +476,13 @@ def _merged(repo: Path, branch: str, integrated: str) -> bool:
     return run_git(["merge-base", "--is-ancestor", branch, integrated], cwd=repo).returncode == 0
 
 
+def _different(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() != right.resolve()
+    except OSError:
+        return str(left) != str(right)
+
+
 def cleanup_session(
     run_id: str,
     *,
@@ -485,6 +492,7 @@ def cleanup_session(
     yes: bool = False,
     force: bool = False,
     include_unmerged: bool = False,
+    supplied: Path | None = None,
 ) -> CommandResult:
     from treefleet.git.worktrees import GitError, kill_tree, list_worktrees, run_git
 
@@ -492,6 +500,10 @@ def cleanup_session(
     loaded = _load(runs, run_id)
     record = None if isinstance(loaded, CommandResult) else loaded[1]
     if record is not None:
+        recorded = Path(record.repo)
+        if supplied is not None and _different(supplied, recorded):
+            return CommandResult(2, [f"--repo {supplied}", f"run.json {recorded}"])
+        repo = recorded
         refused = _reject_paths(record, worktree_root)
         if refused is not None:
             return refused
@@ -543,7 +555,7 @@ def cleanup_session(
     if skipped:
         lines.append("skipped a pid whose start time does not match")
     if not yes:
-        return CommandResult(1 if refused_branches or skipped else 0, lines)
+        return CommandResult(0, lines)
     for pid, role in pids:
         if role != "orchestrator":
             kill_tree(pid)

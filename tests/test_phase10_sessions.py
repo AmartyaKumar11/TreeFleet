@@ -547,6 +547,50 @@ def test_cleanup_refuses_an_unmerged_branch(tmp_path: Path) -> None:
         run_git(["branch", "-D", branch], cwd=repo)
 
 
+def test_cleanup_reads_the_repo_from_the_run_and_stops_when_repo_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded = tmp_path / "recorded"
+    other = tmp_path / "other"
+    _git(recorded)
+    _git(other)
+    run_id = "s10repo1"
+    branch = branch_name(run_id, "alpha")
+    run_git(["branch", branch], cwd=recorded)
+    runs = tmp_path / "runs"
+    RunStore.start(
+        runs / run_id / "run.json",
+        run_id=run_id,
+        repo=str(recorded),
+        base_sha="abc",
+        goal="clean the other repo",
+        routing_mode="router",
+        pid=999999,
+        started=1.0,
+    )
+    try:
+        dry = cleanup_session(run_id, repo=other, runs=runs, worktree_root=WT)
+        assert dry.code == 0
+        assert any(line == f"refuse {branch} unmerged" for line in dry.lines)
+        assert run_git(["rev-parse", "--verify", branch], cwd=recorded).returncode == 0
+        mismatch = cleanup_session(run_id, repo=other, runs=runs, worktree_root=WT, supplied=other)
+        assert mismatch.code == 2
+        assert mismatch.lines == [f"--repo {other}", f"run.json {recorded}"]
+        assert run_git(["rev-parse", "--verify", branch], cwd=recorded).returncode == 0
+        _secrets(monkeypatch)
+        (tmp_path / "treefleet.toml").write_text(
+            (ROOT / "treefleet.toml").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)
+        assert main(["sessions", "cleanup", run_id, "--repo", str(other)]) == 2
+        printed = capsys.readouterr().out
+        assert str(other) in printed
+        assert str(recorded) in printed
+        assert run_git(["rev-parse", "--verify", branch], cwd=recorded).returncode == 0
+    finally:
+        run_git(["branch", "-D", branch], cwd=recorded)
+
+
 def test_cli_lists_a_run_and_a_dead_board_says_dead(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
