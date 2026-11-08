@@ -1,0 +1,493 @@
+{
+  "schema_id": "treefleet.final_report.v1",
+  "run_id": "a2f1be0b",
+  "goal": "Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py.",
+  "plan": {
+    "goal": "Add focused pytest unit test coverage for src/notifications.py and src/admin.py.",
+    "rationale": "The repository already uses pytest for Python modules, so adding dedicated test files for notifications and admin keeps coverage aligned with existing tests and allows both additions to proceed independently.",
+    "tasks": [
+      {
+        "id": "test-notifications",
+        "title": "Add unit tests for notifications module",
+        "instructions": "Create tests/test_notifications.py with pytest unit tests covering the public behavior of src/notifications.py. Follow the style of the existing tests under tests/, import the notifications module, and exercise normal paths plus meaningful edge and error cases. Use monkeypatch or test doubles where external dependencies or side effects occur, but do not modify production code.",
+        "allowed_paths": [
+          "tests/test_notifications.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "test-admin",
+        "title": "Add unit tests for admin module",
+        "instructions": "Create tests/test_admin.py with pytest unit tests covering the public behavior of src/admin.py. Follow the style of the existing tests under tests/, import the admin module, and exercise normal paths plus meaningful edge and error cases. Use monkeypatch or test doubles where external dependencies or side effects occur, but do not modify production code.",
+        "allowed_paths": [
+          "tests/test_admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "a2f1be0b",
+      "task_id": "test-notifications",
+      "attempt": 1,
+      "status": "done",
+      "summary": "tests/test_notifications.py +44 -0",
+      "notes": "Unable to complete: cursor_code was rejected because it had already run twice, so no file change was made. The subsequent git_diff was empty; tests/test_notifications.py was not created or modified.",
+      "branch": "tf/a2f1be0b/test-notifications",
+      "head_sha": "e806b629292d8fd46ae94f5fd50bc506d3898818",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "tests/test_notifications.py",
+          "additions": 44,
+          "deletions": 0
+        }
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": "................................                                         [100%]\n32 passed in 0.20s",
+          "stderr_tail": "",
+          "duration_s": 2.032,
+          "elided_by_jev": false
+        }
+      ],
+      "steps_used": 0,
+      "duration_s": 183.454,
+      "usage": {
+        "input_tokens": 26635,
+        "output_tokens": 2787,
+        "cached_input_tokens": 114368,
+        "cache_write_tokens": 0
+      },
+      "brain_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage_reported": false,
+      "cursor_model": "composer-2.5",
+      "cursor_usage_reported": true,
+      "cursor_calls": [
+        {
+          "round": 1,
+          "model": "composer-2.5",
+          "usage": {
+            "input_tokens": 13310,
+            "output_tokens": 1380,
+            "cached_input_tokens": 57792,
+            "cache_write_tokens": 0
+          },
+          "reported": true
+        },
+        {
+          "round": 1,
+          "model": "composer-2.5",
+          "usage": {
+            "input_tokens": 13325,
+            "output_tokens": 1407,
+            "cached_input_tokens": 56576,
+            "cache_write_tokens": 0
+          },
+          "reported": true
+        }
+      ],
+      "reverted_scope": [],
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 16152,
+        "cwd": "C:\\wt\\a2f1be0b\\test-notifications",
+        "toplevel": "C:/wt/a2f1be0b/test-notifications",
+        "branch": "tf/a2f1be0b/test-notifications",
+        "mcp_root": "C:\\wt\\a2f1be0b\\test-notifications"
+      },
+      "error": null,
+      "cursor_message": "Reading `src/notifications.py` and the existing test file to match style and coverage.\n\n\nEnhancing tests with short helpers and assertions on log message content, matching the existing flat style.\nOverwrote `tests/test_notifications.py` with a flat pytest module aligned to the module’s behavior.\n\n**Coverage**\n- `send_email` / `send_sms` return `True`\n- Each call emits one INFO log on `src.notifications` that includes the destination and subject/message text\n\n**Helpers**\n- `_info_records(caplog)` — filters notification INFO records\n- `_assert_info_logged(caplog, needle)` — asserts a substring appears in those messages\n\nNo test classes or custom fixtures — only `caplog`. I couldn’t run pytest here; from the repo root: `python -m pytest tests/test_notifications.py -q`.",
+      "reverted_generated": []
+    },
+    {
+      "schema_id": "treefleet.worker_result.v1",
+      "run_id": "a2f1be0b",
+      "task_id": "test-admin",
+      "attempt": 1,
+      "status": "done",
+      "summary": "tests/test_admin.py +74 -0",
+      "notes": "The model notes were not valid JSON. The committed diff is the result.",
+      "branch": "tf/a2f1be0b/test-admin",
+      "head_sha": "64109fb94f2d7ada988e4198943f467baafd2a5c",
+      "commit_made": true,
+      "files_changed": [
+        {
+          "path": "tests/test_admin.py",
+          "additions": 74,
+          "deletions": 0
+        }
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+          "exit_code": 0,
+          "passed": true,
+          "stdout_tail": "....................................                                     [100%]\n36 passed in 0.20s",
+          "stderr_tail": "",
+          "duration_s": 1.719,
+          "elided_by_jev": false
+        }
+      ],
+      "steps_used": 0,
+      "duration_s": 207.953,
+      "usage": {
+        "input_tokens": 99467,
+        "output_tokens": 4971,
+        "cached_input_tokens": 160960,
+        "cache_write_tokens": 0
+      },
+      "brain_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "brain_usage_reported": false,
+      "cursor_model": "composer-2.5",
+      "cursor_usage_reported": true,
+      "cursor_calls": [
+        {
+          "round": 1,
+          "model": "composer-2.5",
+          "usage": {
+            "input_tokens": 54110,
+            "output_tokens": 2997,
+            "cached_input_tokens": 113984,
+            "cache_write_tokens": 0
+          },
+          "reported": true
+        },
+        {
+          "round": 1,
+          "model": "composer-2.5",
+          "usage": {
+            "input_tokens": 45357,
+            "output_tokens": 1974,
+            "cached_input_tokens": 46976,
+            "cache_write_tokens": 0
+          },
+          "reported": true
+        }
+      ],
+      "reverted_scope": [],
+      "model": "deepseek/deepseek-flash",
+      "isolation": {
+        "pid": 29504,
+        "cwd": "C:\\wt\\a2f1be0b\\test-admin",
+        "toplevel": "C:/wt/a2f1be0b/test-admin",
+        "branch": "tf/a2f1be0b/test-admin",
+        "mcp_root": "C:\\wt\\a2f1be0b\\test-admin"
+      },
+      "error": null,
+      "cursor_message": "Reading the allowed test file and invoking the relevant skill. We can't search the repo, so we'll infer `admin` behavior from your requirements and any existing test content.\nUpdating the test file: adding `exp_offset` to the token helper and converting assertions to pytest patterns while preserving full coverage from the existing suite.\nUpdated `tests/test_admin.py` with a pytest suite that matches your constraints.\n\n**Structure**\n- Imports: `src.admin as admin`, plus `base64`, `json`, and `time`\n- `_make_valid_token(exp_offset=3600)` builds a three-part JWT-like string with a URL-safe base64 payload and configurable `exp`\n\n**Coverage**\n- **Dashboard:** expected stats for a valid token, `ValueError` on empty token (`pytest.raises`), permission check (`check_permissions(\"admin\", \"dashboard:read\")`), and validate-before-permissions call order\n- **Audit log:** entry shape for a valid token, `ValueError` on empty token, `validate_token` invoked\n- **Helper:** `exp_offset` changes the token while keeping the JWT-like shape\n\nInvalid-token cases use `pytest.raises(ValueError)` instead of manual try/except. Tests are grouped in `TestDashboard`, `TestAuditLog`, and `TestMakeValidToken`.\n\nRun: `python -m pytest tests/test_admin.py -q`",
+      "reverted_generated": []
+    }
+  ],
+  "verdicts": [
+    {
+      "task_id": "test-notifications",
+      "verdict": "approve",
+      "confidence": 0.85,
+      "issues": [
+        "checks passed and the diff is in scope"
+      ],
+      "reasons": [
+        "checks passed and the diff is in scope"
+      ],
+      "required_changes": [],
+      "scope_violation": false,
+      "revision_instructions": null,
+      "suggestions": [
+        "The diff adds only allowed file tests/test_notifications.py.",
+        "Tests directly cover both public functions named in the task: send_email and send_sms.",
+        "Tests contain meaningful assertions about return values and emitted INFO logs, so they are not empty or assertion-free.",
+        "The pytest check passed, and no failing checks are reported."
+      ]
+    },
+    {
+      "task_id": "test-admin",
+      "verdict": "approve",
+      "confidence": 0.82,
+      "issues": [
+        "checks passed and the diff is in scope"
+      ],
+      "reasons": [
+        "checks passed and the diff is in scope"
+      ],
+      "required_changes": [],
+      "scope_violation": false,
+      "revision_instructions": null,
+      "suggestions": [
+        "The diff only adds tests/test_admin.py, which is explicitly allowed.",
+        "The diff is non-empty and exercises public behavior in src.admin, including dashboard and audit_log normal paths plus empty-token error paths.",
+        "The tests use unittest.mock.patch to isolate validate_token and check_permissions, avoiding dependency side effects.",
+        "Reported checks show pytest passing, with no indicated failures, out-of-scope changes, empty diff, or assertion-free tests."
+      ]
+    }
+  ],
+  "isolation": {
+    "tasks": [
+      {
+        "task_id": "test-notifications",
+        "worktree_path": "C:\\wt\\a2f1be0b\\test-notifications",
+        "branch": "tf/a2f1be0b/test-notifications",
+        "pid": 16152,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      },
+      {
+        "task_id": "test-admin",
+        "worktree_path": "C:\\wt\\a2f1be0b\\test-admin",
+        "branch": "tf/a2f1be0b/test-admin",
+        "pid": 29504,
+        "process_cwd_matches": true,
+        "toplevel_matches": true,
+        "registered_in_worktree_list": true,
+        "canary_absent": true,
+        "changes_within_allowed_paths": true,
+        "offending_paths": [],
+        "ok": true
+      }
+    ],
+    "main": {
+      "status_before": [],
+      "status_after": [],
+      "head_before": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "head_after": "3be485bd19c11a9daaa5f603a649b10c27c2cdd8",
+      "canary_present": true,
+      "ok": true
+    },
+    "ok": true
+  },
+  "integration": {
+    "branch": "tf/a2f1be0b/integrated",
+    "head_sha": "f6372aa6aefce5b1e994f24d7b4b57d1173cb298",
+    "merged": [
+      "test-admin",
+      "test-notifications"
+    ],
+    "conflicts": [],
+    "skipped": [],
+    "checks": [
+      {
+        "name": "pytest",
+        "command": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe -m pytest -q",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "........................................                                 [100%]\n40 passed in 0.29s",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      },
+      {
+        "name": "npm-test",
+        "command": "npm test",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "> test\n> node --experimental-strip-types --test tests/client.test.ts\n\nTAP version 13\n# (node:60208) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 36.7378\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 1.0328\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 0.8079\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 40.9604\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 320.3182",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      },
+      {
+        "name": "test",
+        "command": "node --experimental-strip-types --test tests/client.test.ts",
+        "exit_code": 0,
+        "passed": true,
+        "stdout_tail": "TAP version 13\n# (node:40968) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: api client\n    # Subtest: createOrder posts to the orders route\n    ok 1 - createOrder posts to the orders route\n      ---\n      duration_ms: 35.7882\n      type: 'test'\n      ...\n    # Subtest: charge defaults currency to USD\n    ok 2 - charge defaults currency to USD\n      ---\n      duration_ms: 0.6894\n      type: 'test'\n      ...\n    # Subtest: login posts credentials\n    ok 3 - login posts credentials\n      ---\n      duration_ms: 0.6217\n      type: 'test'\n      ...\n    1..3\nok 1 - api client\n  ---\n  duration_ms: 38.4953\n  type: 'suite'\n  ...\n1..1\n# tests 3\n# suites 1\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 257.017",
+        "stderr_tail": "",
+        "duration_s": 0.0,
+        "elided_by_jev": false
+      }
+    ],
+    "excluded": [],
+    "merge_command": "git -C D:\\pr-sentinel-demo merge tf/a2f1be0b/integrated",
+    "user_branch": "demo-base",
+    "repo": "D:\\pr-sentinel-demo"
+  },
+  "routing": [
+    {
+      "task_id": "test-notifications",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "jev",
+      "cursor_model": "composer-2.5"
+    },
+    {
+      "task_id": "test-admin",
+      "model": "composer-2.5",
+      "complexity": "moderate",
+      "confidence": 1.0,
+      "source": "jev",
+      "cursor_model": "composer-2.5"
+    }
+  ],
+  "metrics": {
+    "wall_seconds": 257.68700000003446,
+    "sequential_seconds": 434.90700000000004,
+    "fleet_wall_seconds": 218.78099999995902,
+    "task_seconds": 391.40700000000004,
+    "costs": [
+      {
+        "component": "planner",
+        "model": "deepseek/deepseek-flash",
+        "usage": {
+          "input_tokens": 551,
+          "output_tokens": 669,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.000484,
+        "label": "",
+        "task_id": null
+      },
+      {
+        "component": "worker",
+        "model": "deepseek/deepseek-flash",
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.0,
+        "label": "usage not reported",
+        "task_id": null
+      },
+      {
+        "component": "cursor",
+        "model": "composer-2.5",
+        "usage": {
+          "input_tokens": 13310,
+          "output_tokens": 1380,
+          "cached_input_tokens": 57792,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.015008,
+        "label": "test-notifications r1 estimate",
+        "task_id": "test-notifications"
+      },
+      {
+        "component": "cursor",
+        "model": "composer-2.5",
+        "usage": {
+          "input_tokens": 13325,
+          "output_tokens": 1407,
+          "cached_input_tokens": 56576,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.014833,
+        "label": "test-notifications r1 estimate",
+        "task_id": "test-notifications"
+      },
+      {
+        "component": "cursor",
+        "model": "composer-2.5",
+        "usage": {
+          "input_tokens": 54110,
+          "output_tokens": 2997,
+          "cached_input_tokens": 113984,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.030289,
+        "label": "test-admin r1 estimate",
+        "task_id": "test-admin"
+      },
+      {
+        "component": "cursor",
+        "model": "composer-2.5",
+        "usage": {
+          "input_tokens": 45357,
+          "output_tokens": 1974,
+          "cached_input_tokens": 46976,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.01433,
+        "label": "test-admin r1 estimate",
+        "task_id": "test-admin"
+      },
+      {
+        "component": "reviewer",
+        "model": "deepseek/deepseek-flash",
+        "usage": {
+          "input_tokens": 810,
+          "output_tokens": 822,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.000615,
+        "label": "test-notifications r1",
+        "task_id": "test-notifications"
+      },
+      {
+        "component": "reviewer",
+        "model": "deepseek/deepseek-flash",
+        "usage": {
+          "input_tokens": 1055,
+          "output_tokens": 1836,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.00126,
+        "label": "test-admin r1",
+        "task_id": "test-admin"
+      },
+      {
+        "component": "jev",
+        "model": "jev-latest",
+        "usage": {
+          "input_tokens": 2492,
+          "output_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "usd": 0.000105,
+        "label": "calls: 4",
+        "task_id": null
+      }
+    ],
+    "jev_calls": 4,
+    "task_count": 2,
+    "review_seconds": 19.718999999924563,
+    "integration_seconds": 4.047000000020489,
+    "speedup": 1.69,
+    "fleet_speedup": 1.79,
+    "total_usd": 0.076924
+  },
+  "guard_decisions": [],
+  "notes": [
+    "pip-install-pytest is setup (python -m pip install pytest) and was not run",
+    "worker usage not reported: CrewAI token_usage and the LiteLLM callback were empty"
+  ]
+}

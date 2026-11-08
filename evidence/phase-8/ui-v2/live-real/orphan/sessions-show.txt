@@ -1,0 +1,8 @@
+run 77e838ee  stage=fleet  state=dead
+goal Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py.
+repo D:\pr-sentinel-demo
+base 3be485bd19c11a9daaa5f603a649b10c27c2cdd8
+routing router
+orchestrator 27108
+notifications-tests  working  verdict=-  tf/77e838ee/notifications-tests  C:\wt\77e838ee\notifications-tests
+admin-tests  working  verdict=-  tf/77e838ee/admin-tests  C:\wt\77e838ee\admin-tests
