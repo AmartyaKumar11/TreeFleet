@@ -7,6 +7,20 @@ from typing import Any, Literal
 
 Lane = Literal["needs", "working", "review", "ready"]
 
+# A later event of one of these kinds means the task kept going after a tool denial.
+_CONTINUED = {
+    "output_line",
+    "cursor.tool_start",
+    "cursor.tool_finish",
+    "worker.step",
+    "worker.step_callback",
+    "worker.task_callback",
+    "review_started",
+    "review_verdict",
+    "revise_started",
+}
+_STOPPED = {"failed", "needs_review"}
+
 
 @dataclass(frozen=True)
 class TaskLaneFacts:
@@ -39,9 +53,9 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
         or facts.status == "failed"
     ):
         return "needs"
-    if facts.verdict == "approve" and (facts.integrated or facts.ready_to_merge):
+    if facts.verdict == "approve":
         return "ready"
-    if facts.review_started or facts.awaiting_verdict or facts.status == "done" or facts.verdict == "approve":
+    if facts.review_started or facts.awaiting_verdict or facts.status == "done":
         return "review"
     if facts.worker_active or facts.output_seen or facts.fleet_in_progress:
         return "working"
@@ -88,14 +102,11 @@ def tasks_from_snapshot(
 ) -> list[dict[str, Any]]:
     """Build task cards with a server-computed lane for each known task id."""
     by_id: dict[str, dict[str, Any]] = {}
-    guard_blocked = False
     fleet_in_progress = False
     for event in events:
         kind = str(event.get("type") or "")
         raw_payload = event.get("payload")
         payload: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else {}
-        if kind == "guard.decision" and payload.get("allowed") is False:
-            guard_blocked = True
         if kind == "phase" and payload.get("name") == "fleet":
             fleet_in_progress = True
         if kind in {"worker.spawned", "output_line", "cursor.tool_start"}:
@@ -119,8 +130,11 @@ def tasks_from_snapshot(
                 "output_seen": False,
                 "review_started": False,
                 "awaiting_verdict": False,
+                "guard_blocked": False,
             },
         )
+        if kind == "guard.decision" and payload.get("allowed") is False:
+            task["guard_blocked"] = True
         if kind == "model_selected":
             task["model"] = str(payload.get("model") or task["model"])
         if kind == "worker.spawned":
@@ -151,6 +165,10 @@ def tasks_from_snapshot(
                 task["error"] = payload["error"]
             if payload.get("files"):
                 task["files"] = payload["files"]
+            if task["status"] in _STOPPED:
+                task["guard_blocked"] = True
+        if kind in _CONTINUED or (kind == "worker.exited" and task["status"] not in _STOPPED):
+            task["guard_blocked"] = False
         if kind == "review_started":
             task["review_started"] = True
             task["awaiting_verdict"] = True
@@ -186,9 +204,12 @@ def tasks_from_snapshot(
                     "output_seen": False,
                     "review_started": False,
                     "awaiting_verdict": False,
+                    "guard_blocked": False,
                 },
             )
             task["status"] = str(result.get("status") or task["status"])
+            if task["status"] in _STOPPED:
+                task["guard_blocked"] = True
             task["checks_failed"] = _checks_failed(result)
             if result.get("error"):
                 task["error"] = result["error"]
@@ -201,7 +222,7 @@ def tasks_from_snapshot(
             verdict=str(task.get("verdict") or ""),
             checks_failed=bool(task.get("checks_failed")),
             conflict=_conflicted(task_id, report),
-            guard_blocked=guard_blocked,
+            guard_blocked=bool(task.get("guard_blocked")),
             worker_active=bool(task.get("worker_active")),
             output_seen=bool(task.get("output_seen")),
             fleet_in_progress=fleet_in_progress and not task.get("status"),
@@ -211,7 +232,9 @@ def tasks_from_snapshot(
             ready_to_merge=_integrated(task_id, report),
         )
         card = {
-            key: value for key, value in task.items() if key not in {"worker_active", "output_seen", "checks_failed"}
+            key: value
+            for key, value in task.items()
+            if key not in {"worker_active", "output_seen", "checks_failed", "guard_blocked"}
         }
         card["lane"] = derive_lane(facts)
         tasks.append(card)
