@@ -191,7 +191,7 @@ class _FsTool(BaseTool):
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 raw = pool.submit(asyncio.run, once()).result()
-        return on_tool_result(raw, self._sink, self._run_id, self._task_id)
+        return on_tool_result(raw, self._sink, self._run_id, self._task_id, tool=self._tool_name)
 
 
 def _fs_tools(envelope: WorkerTaskEnvelope, worktree: Path) -> list[_FsTool]:

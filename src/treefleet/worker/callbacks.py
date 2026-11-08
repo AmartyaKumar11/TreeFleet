@@ -85,7 +85,13 @@ def on_tool_args(
     return json.dumps({"ok": False, "error": {"code": "PATH_ESCAPE", "message": message[:200]}})
 
 
-def on_tool_result(raw: str, sink: EventSink | None, run_id: str, task_id: str | None) -> str:
+def on_tool_result(
+    raw: str,
+    sink: EventSink | None,
+    run_id: str,
+    task_id: str | None,
+    tool: str = "",
+) -> str:
     text, count = redact(raw)
     if count and sink is not None:
         sink.emit_sync(
@@ -102,26 +108,38 @@ def on_tool_result(raw: str, sink: EventSink | None, run_id: str, task_id: str |
         data = json.loads(text)
     except json.JSONDecodeError:
         data = None
-    if isinstance(data, dict) and "ok" in data:
+    if isinstance(data, dict) and data.get("ok") is True:
         return text
-    reason = " ".join(text.split())[:300] or "empty tool result"
+    message, name = _tool_failure(text, data, tool)
     if sink is not None:
         sink.emit_sync(
             RunEvent(
                 run_id=run_id,
                 seq=0,
-                source="guard",
-                type="guard.decision",
+                source="worker",
+                type="tool.error",
                 task_id=task_id,
-                payload={
-                    "stage": "tool_result",
-                    "allowed": False,
-                    "detector": "deterministic",
-                    "reasons": [reason],
-                },
+                payload={"tool": name, "message": message},
             )
         )
-    return json.dumps({"ok": False, "error": {"code": "BAD_ARGS", "message": reason}})
+    if isinstance(data, dict) and "ok" in data:
+        return text
+    return json.dumps({"ok": False, "error": {"code": "BAD_ARGS", "message": message}})
+
+
+def _tool_failure(text: str, data: Any, tool: str) -> tuple[str, str]:
+    message = " ".join(text.split())[:300] or "empty tool result"
+    name = tool
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            message = " ".join(str(err["message"]).split())[:300]
+    if not name:
+        head = text.split(":", 1)[0]
+        marker = "Error executing tool "
+        if head.startswith(marker):
+            name = head[len(marker) :].strip()
+    return message, name or "tool"
 
 
 def _arg_problem(name: str, args: dict[str, Any], root: Any, checks: dict[str, str]) -> str | None:

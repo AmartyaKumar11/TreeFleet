@@ -174,7 +174,8 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 `RunEvent.type` vocabulary, one namespace per source:
 
 - `api.run_started`, `api.run_finished`
-- `guard.decision` (payload is a `GuardDecision`)
+- `guard.decision` (payload is a `GuardDecision`). A tool-argument or validation failure is `tool.error`, not a guard decision.
+- `tool.error` (payload: `tool`, `message`) when a worker tool rejects its arguments. It does not count as a guard decision and does not move a task to Needs you.
 - `guard_degraded` (payload: `stage`, `detector`) when Jev is unreachable or times out. The deterministic decision stands. A Jev outage does not block a run.
 - `guard_redacted` (payload: `count`, `stage`) when a secret pattern was removed. The secret itself is never stored.
 - `generated_artifact_reverted` (payload: `paths`) when a tracked file changed outside the task declaration and was restored before commit.

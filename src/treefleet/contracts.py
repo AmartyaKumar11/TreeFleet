@@ -695,6 +695,28 @@ def assemble_metrics(
     )
 
 
+def policy_guard_count(decisions: list[GuardDecision]) -> int:
+    """Policy blocks only. A tool-argument or validation failure is not a guard decision."""
+    count = 0
+    for item in decisions:
+        text = " ".join(item.reasons).lower()
+        if item.stage == GuardStage.TOOL_RESULT:
+            continue
+        if any(
+            marker in text
+            for marker in (
+                "validation error",
+                "field required",
+                "error executing tool",
+                "bad_args",
+                "malformed tool result",
+            )
+        ):
+            continue
+        count += 1
+    return count
+
+
 def cost_role(component: str) -> str:
     """Cost-table label. DeepSeek rows are the reasoner. The Cursor row is the coder."""
     if component in {"planner", "worker", "reviewer", "reporter"}:
@@ -818,6 +840,7 @@ class FinalReport(_Model):
             "",
             f"Main checkout unchanged: {mark[m.status_before == m.status_after and m.head_before == m.head_after]}; "
             f"canary still present: {mark[m.canary_present]}",
+            f"Guard decisions: {policy_guard_count(self.guard_decisions)}",
         ]
         if self.integration is not None:
             i = self.integration

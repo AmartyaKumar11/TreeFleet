@@ -255,6 +255,8 @@ def test_fastmcp_validation_text_keeps_its_reason(tmp_path: Path) -> None:
     assert "Field required" in body["error"]["message"]
     events = (tmp_path / "abc12345" / "events.jsonl").read_text(encoding="utf-8")
     assert "Field required" in events
+    assert "tool.error" in events
+    assert "guard.decision" not in events
     kept = on_tool_result(
         json.dumps({"ok": True, "data": {"lines": []}, "error": None}),
         sink,

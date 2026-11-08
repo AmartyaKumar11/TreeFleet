@@ -19,6 +19,29 @@ def skip_message(count: int) -> str:
     return f"skipped {count} corrupt event lines"
 
 
+_ARGUMENT = (
+    "validation error",
+    "field required",
+    "error executing tool",
+    "bad_args",
+    "malformed tool result",
+)
+
+
+def argument_failure(payload: dict[str, Any] | None) -> bool:
+    """True for a tool-argument or validation failure, including an old tool_result denial."""
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("stage") or "") == "tool_result":
+        return True
+    reasons = payload.get("reasons")
+    if reasons is None:
+        reasons = payload.get("message") or ""
+    text = " ".join(str(item) for item in reasons) if isinstance(reasons, list) else str(reasons)
+    lowered = text.lower()
+    return any(marker in lowered for marker in _ARGUMENT)
+
+
 def read_event_lines(lines: list[str]) -> tuple[list[dict[str, Any]], int]:
     """Parse JSONL. A line that is not a JSON object is counted and dropped."""
     rows: list[dict[str, Any]] = []

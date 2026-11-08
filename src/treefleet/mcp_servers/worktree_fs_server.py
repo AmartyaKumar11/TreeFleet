@@ -181,17 +181,28 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
         return _ok({"entries": entries})
 
     @server.tool()
-    def read_file(path: str, start_line: int = 1, end_line: int = 0) -> dict[str, Any]:
-        """Read a text slice. Rejects binary and paths outside the worktree."""
+    def read_file(
+        path: str = "",
+        file_path: str = "",
+        start_line: int = 1,
+        end_line: int = 0,
+    ) -> dict[str, Any]:
+        """Read a text slice. path is required. file_path is an alias of path.
+
+        Rejects binary and paths outside the worktree.
+        """
+        chosen = path or file_path
+        if not str(chosen).strip():
+            return _err("BAD_ARGS", "path is required")
         try:
-            target = resolve_inside(root, path)
+            target = resolve_inside(root, chosen)
         except PathGuardError as exc:
             return _err(exc.code, str(exc))
         if not target.is_file():
-            return _err("NOT_FOUND", path)
+            return _err("NOT_FOUND", chosen)
         raw = target.read_bytes()
         if len(raw) > Limits().max_file_bytes:
-            return _err("TOO_LARGE", path)
+            return _err("TOO_LARGE", chosen)
         if b"\x00" in raw:
             return _err("BAD_ARGS", "binary file")
         lines = raw.decode("utf-8", errors="replace").splitlines()

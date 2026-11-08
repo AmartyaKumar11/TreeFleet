@@ -662,6 +662,29 @@ def prove(
     return IsolationReport(tasks=proofs, main=main)
 
 
+def _recorded_guards(path: Path) -> list[GuardDecision]:
+    """Policy guard.decision rows from the run log. Tool-argument failures stay out."""
+    from pydantic import ValidationError
+
+    from treefleet.events import argument_failure, read_events
+
+    if not path.is_file():
+        return []
+    rows, _skipped = read_events(path)
+    found: list[GuardDecision] = []
+    for item in rows:
+        if item.get("type") != "guard.decision":
+            continue
+        payload = item.get("payload")
+        if not isinstance(payload, dict) or argument_failure(payload):
+            continue
+        try:
+            found.append(GuardDecision.model_validate(payload))
+        except ValidationError:
+            continue
+    return found
+
+
 def build_report(
     bundle: RunBundle,
     plan: Plan,
@@ -709,6 +732,7 @@ def build_report(
         integration=integration,
         routing=routing,
         notes=notes[:20],
+        guard_decisions=_recorded_guards(bundle.runs_root / bundle.run_id / "events.jsonl"),
         metrics=assemble_metrics(
             wall=wall_seconds,
             pre_fleet=pre_fleet,

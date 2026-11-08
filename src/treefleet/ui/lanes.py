@@ -20,13 +20,6 @@ _CONTINUED = {
     "revise_started",
 }
 _STOPPED = {"failed", "needs_review"}
-_ARGUMENT = (
-    "validation error",
-    "field required",
-    "error executing tool",
-    "bad_args",
-    "malformed tool result",
-)
 
 
 @dataclass(frozen=True)
@@ -73,12 +66,9 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
 
 def _argument_error(payload: dict[str, Any]) -> bool:
     """A tool-argument failure is not a policy block, including old tool_result denials."""
-    if str(payload.get("stage") or "") == "tool_result":
-        return True
-    reasons = payload.get("reasons") or []
-    text = " ".join(str(item) for item in reasons) if isinstance(reasons, list) else str(reasons)
-    lowered = text.lower()
-    return any(marker in lowered for marker in _ARGUMENT)
+    from treefleet.events import argument_failure
+
+    return argument_failure(payload)
 
 
 def _policy_denial(payload: dict[str, Any]) -> bool:

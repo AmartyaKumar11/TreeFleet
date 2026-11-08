@@ -457,14 +457,19 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "editing README.md" in page.locator("#working").inner_text()
             assert "+6" in page.locator("#working").inner_text()
             assert "-0" in page.locator("#working").inner_text()
-            assert "needs_review" in page.locator("#needs").inner_text()
-            assert "merge tf/abcd1234/delta" in page.locator("#needs").inner_text()
-            assert "no new diff" in page.locator("#needs").inner_text()
-            assert "94 lines" in page.locator("#needs").inner_text()
-            assert "worker made no changes" in page.locator("#needs").inner_text()
+            assert "needs review" in page.locator("#needs").inner_text()
+            assert "git -C" not in page.locator("#needs").inner_text()
+            assert "No new changes since last review" in page.locator("#needs").inner_text()
+            page.get_by_role("button", name="Admin").click()
+            page.locator(".drawer").get_by_role("tab", name="Checks").click()
+            detail = page.locator("#checks").inner_text()
+            assert "94 lines" in detail
+            assert "worker made no changes" in detail
+            page.get_by_role("button", name="Notifier").click()
             details.get_by_role("tab", name="Guards").click()
             guards = page.locator("#guards").inner_text()
-            assert "malformed tool result" in guards
+            assert "malformed tool result" not in guards
+            assert "allowed" in guards
             assert "[]" not in guards
             assert page.locator("#task-title").inner_text() == "Notifier"
             assert "Reading tests" in page.locator("#live").inner_text()
@@ -472,6 +477,8 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             proof_pane = page.locator("#proofpane").inner_text()
             assert "Within scope" in proof_pane
             assert "yes" in proof_pane
+            assert "Tool errors: 1" in proof_pane
+            assert "malformed tool result" in proof_pane
             assert "{" not in proof_pane
             page.get_by_role("button", name="Parser").click()
             page.wait_for_timeout(1200)
@@ -485,10 +492,9 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "$0.0054" in costs
             assert page.locator(".drawer").get_by_role("tab", name="Checks").count() == 1
             assert page.locator(".drawer").get_by_role("tab", name="Cost").count() == 1
-            graph = page.locator("#git-graph svg")
+            graph = page.locator("#git-graph .graph-list")
             assert graph.count() == 1
-            labels = graph.locator("text")
-            assert labels.count() >= 2
+            assert page.locator("#git-graph .graph-label").count() >= 2
             browser.close()
     finally:
         server.should_exit = True

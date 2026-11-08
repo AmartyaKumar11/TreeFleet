@@ -22,6 +22,33 @@ function proofFrom(state, task) {
   return list.find((item) => item.task_id === task.id) || null;
 }
 
+function toolErrorText(event) {
+  const payload = event.payload || {};
+  if (event.type === "tool.error") return String(payload.message || payload.tool || "tool error");
+  const reasons = payload.reasons || [];
+  return Array.isArray(reasons) ? reasons.join("; ") : String(reasons);
+}
+
+function toolErrorsFor(boardState, task) {
+  return ((boardState && boardState.events) || []).filter((event) => {
+    if (event.task_id && event.task_id !== task.id) return false;
+    if (event.type === "tool.error") return true;
+    if (event.type !== "guard.decision") return false;
+    const payload = event.payload || {};
+    if (payload.stage === "tool_result") return true;
+    const text = toolErrorText(event).toLowerCase();
+    return /validation error|field required|error executing tool|bad_args|malformed tool result/.test(text);
+  });
+}
+
+function paintToolErrors(root, boardState, task) {
+  const errors = toolErrorsFor(boardState, task);
+  root.appendChild(el("p", "empty-line", `Tool errors: ${errors.length}`));
+  errors.forEach((event) => {
+    root.appendChild(el("p", "empty-line", toolErrorText(event)));
+  });
+}
+
 export function costRole(row) {
   const component = String((row && (row.component || row.role)) || "");
   if (component === "cursor") return "coder";
@@ -233,6 +260,7 @@ export function createDrawer({ auth, worktreeFor }) {
     const proof = proofFrom(state, task);
     if (!proof) {
       root.appendChild(el("p", "empty-line", "Proof rows are in the isolation table."));
+      paintToolErrors(root, state, task);
       return;
     }
     const table = el("table", "proof-table");
@@ -253,6 +281,7 @@ export function createDrawer({ auth, worktreeFor }) {
     });
     table.appendChild(body);
     root.appendChild(table);
+    paintToolErrors(root, state, task);
     if (proof.contained_violation || (proof.reverted_paths && proof.reverted_paths.length)) {
       root.appendChild(el("p", "violation-title", "Contained violation · reverted paths"));
       const list = el("ul", "reverted-paths");

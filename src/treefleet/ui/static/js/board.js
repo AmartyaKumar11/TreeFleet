@@ -296,6 +296,14 @@ function updateRunStrip(data, counts) {
   });
 }
 
+function argumentFailure(payload) {
+  const body = payload || {};
+  if (body.stage === "tool_result") return true;
+  const reasons = body.reasons || body.message || "";
+  const text = (Array.isArray(reasons) ? reasons.join(" ") : String(reasons)).toLowerCase();
+  return /validation error|field required|error executing tool|bad_args|malformed tool result/.test(text);
+}
+
 function humanReason(task) {
   const raw = String(task.reason || "").trim();
   const blob = `${raw} ${task.error || ""}`.toLowerCase();
@@ -580,7 +588,9 @@ function render(data) {
 
   const guards = document.getElementById("guards");
   guards.innerHTML = "";
-  const guardEvents = (data.events || []).filter((event) => event.type === "guard.decision");
+  const guardEvents = (data.events || []).filter(
+    (event) => event.type === "guard.decision" && !argumentFailure(event.payload),
+  );
   guardEvents.forEach((event) => {
     const payload = event.payload || {};
     const p = document.createElement("p");
