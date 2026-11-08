@@ -1,0 +1,20 @@
+{
+  "test-notifications": [
+    "Working",
+    "Needs you",
+    "Working",
+    "Needs you",
+    "Working",
+    "In review",
+    "Ready to merge"
+  ],
+  "test-admin": [
+    "Working",
+    "Needs you",
+    "Working",
+    "Needs you",
+    "Working",
+    "In review",
+    "Ready to merge"
+  ]
+}

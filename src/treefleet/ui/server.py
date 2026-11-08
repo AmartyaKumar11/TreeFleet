@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import secrets
 import threading
 import time
@@ -24,6 +25,44 @@ from treefleet.ui.lanes import run_needs_human, tasks_from_snapshot
 _PAGE = Path(__file__).with_name("board.html")
 _STATIC = Path(__file__).with_name("static")
 _STAGES = ("guard", "plan", "approve", "fleet", "review", "integrate", "done")
+
+
+def _stub_fakes() -> Any:
+    """Offline fleet for the capture script. The live UI leaves this unset."""
+    if os.environ.get("TREEFLEET_STUB_FLEET") != "1":
+        return None
+    from treefleet.orchestrator.agents import scripted_llm
+    from treefleet.orchestrator.pipeline import OfflineFakes
+
+    # The shim writes README.md and marker.txt. Those paths keep the edit in scope.
+    plan = json.dumps(
+        {
+            "goal": "Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py.",
+            "rationale": "Two isolated edits so the board can show the fleet.",
+            "tasks": [
+                {
+                    "id": "test-notifications",
+                    "title": "Notification tests",
+                    "instructions": "Add unit tests for src/notifications.py.",
+                    "allowed_paths": ["README.md", "marker.txt"],
+                },
+                {
+                    "id": "test-admin",
+                    "title": "Admin tests",
+                    "instructions": "Add unit tests for src/admin.py.",
+                    "allowed_paths": ["README.md", "marker.txt"],
+                },
+            ],
+        }
+    )
+    return OfflineFakes(
+        planner=scripted_llm(plan),
+        cursor_cli=Path(__file__).resolve().parents[3] / "spikes" / "s9_fakes.py",
+        mock_llm="1",
+        fake_edit="readme",
+        fake_sleep=os.environ.get("TREEFLEET_FAKE_SLEEP", "2"),
+        skip_jev=True,
+    )
 
 
 def replay_gap(previous: str | None, stamp: str, cap: float = 30) -> float:
@@ -172,14 +211,17 @@ class Board:
 
             detected = detect_checks(self.repo)
             selected = select_checks(self.repo, detected, worktree_root=Path(self.settings.worktree_root))
+            fakes = _stub_fakes()
             request = RunRequest(
                 goal=goal,
                 repo=str(self.repo),
                 worker_model=worker_model,
                 plan_approval=plan_approval,
-                checks=selected.checks,
-                notes=list(selected.notes),
+                checks={} if fakes is not None else selected.checks,
+                notes=[] if fakes is not None else list(selected.notes),
             )
+            if fakes is not None:
+                time.sleep(1.0)
             outcome = asyncio.run(
                 run_pipeline(
                     request,
@@ -187,6 +229,7 @@ class Board:
                     approve=approval if plan_approval else None,
                     run_id=run_id,
                     runs_root=self.runs,
+                    fakes=fakes,
                 )
             )
             with self._lock:

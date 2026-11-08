@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
@@ -645,6 +646,11 @@ def _emit(bundle: RunBundle, kind: str, task_id: str, round_no: int, payload: di
 async def _review_one(bundle: RunBundle, plan: Plan, result: WorkerResult, round_no: int) -> ReviewVerdict:
     fakes = bundle.fakes
     if fakes is not None:
+        pause = os.environ.get("TREEFLEET_STUB_PAUSE")
+        if pause:
+            import asyncio
+
+            await asyncio.sleep(float(pause))
         script = getattr(fakes, "review_script", None)
         if script:
             return verdict_from_text(script.pop(0), result.task_id)
