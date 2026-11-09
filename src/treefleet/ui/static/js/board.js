@@ -127,15 +127,10 @@ window.__tfClearSelection = showDrawerEmpty;
 
 function filesFor(task) {
   const rows = state.worktrees || [];
-  for (const row of rows) {
-    const branch = String(row.branch || "");
-    const path = String(row.path || "");
-    if (
-      (task.branch && branch === task.branch) ||
-      (task.id && (path.includes(task.id) || branch.includes(task.id)))
-    ) {
-      if (row.files && row.files.length) return row.files;
-    }
+  const wanted = String(task.branch || "");
+  if (wanted) {
+    const row = rows.find((item) => String(item.branch || "") === wanted);
+    if (row) return Array.isArray(row.committed) ? row.committed : row.files || [];
   }
   return task.files || [];
 }
@@ -514,7 +509,14 @@ function render(data) {
   }
 
   const tasks = data.tasks || [];
-  const laneKey = JSON.stringify({ awaiting: data.awaiting, tasks });
+  const committedKey = (data.worktrees || [])
+    .map((row) => {
+      const files = Array.isArray(row.committed) ? row.committed : [];
+      const bits = files.map((file) => `${file.path}:${file.additions || 0}:${file.deletions || 0}`).join(",");
+      return `${row.branch || ""}=${bits}`;
+    })
+    .join("|");
+  const laneKey = JSON.stringify({ awaiting: data.awaiting, tasks, committedKey });
   const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
   lastCounts = counts;
   notifyHuman(needsCount(counts));

@@ -51,6 +51,32 @@ def in_scope(path: str, allowed: list[str], denied: list[str]) -> bool:
     return any(_match(path, pattern) for pattern in allowed)
 
 
+def committed_numstat(worktree: Path, base_sha: str) -> list[FileChange]:
+    """Committed changes on this branch since base_sha. Empty when nothing is committed yet."""
+    proc = run_git(
+        ["-c", "core.quotepath=false", "diff", "--numstat", f"{base_sha}...HEAD"],
+        cwd=worktree,
+    )
+    if proc.returncode != 0:
+        return []
+    stats: list[FileChange] = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        path = parts[-1].replace("\\", "/")
+        if " => " in path:
+            path = path.split(" => ")[-1].strip().strip("}")
+        stats.append(
+            FileChange(
+                path=path,
+                additions=int(parts[0]) if parts[0].isdigit() else 0,
+                deletions=int(parts[1]) if parts[1].isdigit() else 0,
+            )
+        )
+    return stats
+
+
 def diff_stats(worktree: Path, base_sha: str) -> list[FileChange]:
     """Committed and uncommitted tracked changes against base_sha, plus untracked files."""
     stats: dict[str, FileChange] = {}

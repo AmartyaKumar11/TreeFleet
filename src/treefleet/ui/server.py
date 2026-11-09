@@ -107,8 +107,12 @@ class Approval:
 
 
 def worktree_rows(repo: Path, base_sha: str = "HEAD") -> list[dict[str, Any]]:
-    """Live git worktree list, excluding the main checkout, with files changed since base_sha."""
-    from treefleet.git.proofs import diff_stats
+    """Worktrees other than the main checkout.
+
+    ``files`` is the working tree against base_sha (the diff drawer). ``committed`` is
+    ``git diff --numstat base...HEAD`` and is what a card's line count uses.
+    """
+    from treefleet.git.proofs import committed_numstat, diff_stats
     from treefleet.git.worktrees import list_worktrees
 
     rows: list[dict[str, Any]] = []
@@ -123,16 +127,22 @@ def worktree_rows(repo: Path, base_sha: str = "HEAD") -> list[dict[str, Any]]:
                 continue
         except OSError:
             continue
+        base = base_sha or "HEAD"
         try:
-            files = [change.model_dump() for change in diff_stats(item.path, base_sha or "HEAD")]
+            files = [change.model_dump() for change in diff_stats(item.path, base)]
         except Exception:
             files = []
+        try:
+            committed = [change.model_dump() for change in committed_numstat(item.path, base)]
+        except Exception:
+            committed = []
         rows.append(
             {
                 "path": str(item.path),
                 "branch": item.branch or "",
                 "changed": len(files),
                 "files": files,
+                "committed": committed,
                 "head": item.head[:7],
             }
         )

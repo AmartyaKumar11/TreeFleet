@@ -578,6 +578,9 @@ def test_stubbed_stream_shows_work_while_the_run_is_open(tmp_path: Path, monkeyp
             page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             page.locator("#working").get_by_text("editing README.md").wait_for(timeout=8000)
             assert "abcd1234" not in board.finished
+            assert page.locator("#working .chip.lines").count() == 0
+            subprocess.run(["git", "add", "README.md"], cwd=worktree, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "edit"], cwd=worktree, check=True, capture_output=True)
             page.get_by_text("README.md +1 -0").wait_for(timeout=8000)
             add(
                 3,

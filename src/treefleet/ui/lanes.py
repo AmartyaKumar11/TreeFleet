@@ -158,6 +158,9 @@ def tasks_from_snapshot(
             task["model"] = str(payload.get("model") or task["model"])
         if kind == "worker.spawned":
             task["worker_active"] = True
+            run_id = str(event.get("run_id") or "")
+            if run_id and not task.get("branch"):
+                task["branch"] = f"tf/{run_id}/{task_id}"
         if kind == "output_line":
             task["output_seen"] = True
             task["worker_active"] = True
