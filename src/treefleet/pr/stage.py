@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -165,15 +166,44 @@ def _give_up(opened: list[OpenPR], task_id: str, hooks: PollHooks) -> None:
     )
 
 
+_TIMED = ("pr.comment_seen", "pr.revision_started", "pr.revision_pushed", "pr.checks_green")
+
+
+def timings_for(events_path: Path, task_id: str) -> dict[str, str]:
+    """First timestamp of each pull-request timing event for one task."""
+    found: dict[str, str] = {}
+    if not events_path.is_file():
+        return found
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("task_id") != task_id:
+            continue
+        kind = str(event.get("type") or "")
+        if kind in _TIMED and kind not in found:
+            found[kind] = str(event.get("ts") or "")
+    return found
+
+
 def status_lines(tasks: list[dict[str, object]]) -> list[str]:
     """One row per task. No comment text and no tokens."""
     rows: list[str] = []
     for task in tasks:
         number = task.get("pr_number") or "-"
-        rows.append(
+        row = (
             f"{task.get('task_id')} pr={number} status={task.get('pr_status') or task.get('status') or '-'} "
             f"checks={task.get('pr_checks') or '-'}"
         )
+        timings = task.get("timings")
+        if isinstance(timings, dict):
+            for kind in _TIMED:
+                if timings.get(kind):
+                    row += f" {kind}={timings[kind]}"
+        rows.append(row)
     return rows
 
 
