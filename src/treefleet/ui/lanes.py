@@ -231,6 +231,9 @@ def tasks_from_snapshot(
             task["pr_status"] = "open"
             task["pr_checks"] = "pending"
             task["worker_active"] = True
+            if task.get("status") == "needs_review":
+                task["status"] = "open"
+                task["needs_human"] = False
         if kind == "pr.revision_pushed":
             task["pr_revising"] = False
             task["worker_active"] = False

@@ -90,10 +90,11 @@ def interpreter_for(recorded: str, fallback: str) -> str:
 
 
 def bind_python(command: str, interpreter: str) -> str:
-    """Replace a bare python token. An absolute interpreter does not use PATH."""
+    """Replace a bare python token. A path that is already absolute stays as written."""
     stripped = command.lstrip()
     pad = command[: len(command) - len(stripped)]
     first, _, rest = stripped.partition(" ")
-    if Path(first).name.lower() in {"python", "python.exe", "python3", "python3.exe"}:
+    bare = first.lower() in {"python", "python.exe", "python3", "python3.exe"}
+    if bare and not Path(first).is_absolute():
         return pad + interpreter + ((" " + rest) if rest else "")
     return command

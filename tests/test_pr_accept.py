@@ -237,6 +237,8 @@ def test_watch_interpreter_does_not_use_path(tmp_path: Path, monkeypatch: pytest
     command = bind_python("python -m pytest -q", chosen)
     assert command == f"{recorded} -m pytest -q"
     assert Path(command.split()[0]).is_file()
+    absolute = r"C:\already\python.exe -m pytest -q"
+    assert bind_python(absolute, str(recorded)) == absolute
 
 
 def test_status_prints_the_four_pr_times(tmp_path: Path) -> None:
