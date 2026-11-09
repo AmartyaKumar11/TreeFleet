@@ -355,10 +355,16 @@ export function createDrawer({ auth, worktreeFor }) {
       }
       root.appendChild(row);
     });
+    const reason = String(task.reason || "").trim();
+    const suggestions = Array.isArray(task.suggestions) ? task.suggestions.filter(Boolean) : [];
+    if (reason || suggestions.length) {
+      root.appendChild(el("p", "violation-title", "Review"));
+      if (reason) root.appendChild(el("p", "review-text", reason));
+      suggestions.forEach((item) => root.appendChild(el("p", "review-text", String(item))));
+    }
     const detail = [];
     if (task.cursor_message) detail.push(String(task.cursor_message));
     if (task.error) detail.push(String(task.error));
-    if (task.reason) detail.push(String(task.reason));
     if (task.status === "needs_review") {
       detail.push(`git -C ${state.repo || ""} merge ${task.branch || task.id}`);
     }

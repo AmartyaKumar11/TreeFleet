@@ -300,15 +300,30 @@ function argumentFailure(payload) {
   return /validation error|field required|error executing tool|bad_args|malformed tool result/.test(text);
 }
 
-function humanReason(task) {
+function reviewNote(task) {
   const raw = String(task.reason || "").trim();
+  const suggestions = Array.isArray(task.suggestions) ? task.suggestions.filter(Boolean) : [];
   const blob = `${raw} ${task.error || ""}`.toLowerCase();
-  if (/no new diff|no new change|no changes|unchanged/.test(blob)) return "No new changes since last review";
-  if (/conflict/.test(blob)) return "Merge conflict";
-  if (/git\s+-C|[A-Za-z]:\\/.test(raw) || /[/\\]/.test(raw)) {
-    return task.status === "failed" ? "A check failed" : "";
+  const needs =
+    lane(task) === "needs" ||
+    task.needs_human ||
+    task.status === "needs_review" ||
+    task.status === "failed" ||
+    task.verdict === "reject" ||
+    task.verdict === "revise";
+  let text = "";
+  let tone = "";
+  if (needs) {
+    tone = "needs";
+    if (/no new diff|no new change|no changes|unchanged/.test(blob)) text = "No new changes since last review";
+    else if (/conflict/.test(blob)) text = "Merge conflict";
+    else if (/git\s+-c|[a-z]:\\/.test(raw) || /[/\\]/.test(raw)) text = "A check failed";
+    else text = "Needs a human decision";
+  } else if (task.verdict === "approve" || lane(task) === "ready") {
+    tone = "ok";
+    text = suggestions.length ? "Approved with notes" : "Checks passed";
   }
-  return raw;
+  return { text: text.slice(0, 60), tone };
 }
 
 function renderCard(task) {
@@ -337,7 +352,10 @@ function renderCard(task) {
     );
   }
   if (task.round) chips.push(`<span class="chip round">revise ${esc(task.round)}</span>`);
-  const reason = humanReason(task);
+  const note = reviewNote(task);
+  const noteHtml = note.text
+    ? `<div class="${note.tone === "needs" ? "reason" : "note"}">${esc(note.text)}</div>`
+    : "";
   const age = taskAge(task);
   const action = running
     ? `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
@@ -346,12 +364,8 @@ function renderCard(task) {
     : "";
   const verdictClass = ["approve", "reject", "revise", "needs_review"].includes(verdictLabel) ? verdictLabel : "";
   const verdict = verdictLabel
-    ? `<div class="verdict-row"><span class="chip verdict ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span></div>${
-        reason ? `<div class="reason">${esc(reason)}</div>` : ""
-      }`
-    : reason
-      ? `<div class="reason">${esc(reason)}</div>`
-      : "";
+    ? `<div class="verdict-row"><span class="chip verdict ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span></div>${noteHtml}`
+    : noteHtml;
   const mergeBtn =
     lane(task) === "ready"
       ? `<div class="merge-row"><button class="btn ghost merge-btn" type="button" data-merge="${esc(

@@ -206,6 +206,9 @@ def tasks_from_snapshot(
                 task["status"] = str(payload["status"])
             if payload.get("reason"):
                 task["reason"] = payload["reason"]
+            raw_notes = payload.get("suggestions")
+            if isinstance(raw_notes, list):
+                task["suggestions"] = [str(item) for item in raw_notes if isinstance(item, str) and item][:20]
         if kind == "revise_started":
             task["round"] = int(payload.get("round") or task["round"] or 0)
             task["worker_active"] = True
