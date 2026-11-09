@@ -15,7 +15,11 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 8 | Web UI | lite board | `evidence/phase-8/` |
 | 9 | Evaluation, cost, time | done | `eval/report.md` |
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
-| 11 | Demo hardening | not started | |
+| 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
+
+## 2026-11-09 — Pull requests
+
+`[pr]` is absent by default, which is off. With it off, the integrator still builds `tf/<run>/integrated` and `eval/report.json` is unchanged. With it on, approved tasks are pushed and opened as pull requests. The poller reads only those pull requests. `merge()` runs only when `auto_merge` is true or the user runs `treefleet pr merge`. See `docs/PR_LIFECYCLE.md`.
 
 ## 2026-11-08 — Process cwd proof
 
