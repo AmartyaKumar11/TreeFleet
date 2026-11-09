@@ -197,7 +197,7 @@ def _models() -> int:
 
 def _pr(argv: list[str]) -> int:
     """watch reattaches the poller. status prints one row. merge is the only merge command."""
-    from treefleet.pr.stage import status_lines
+    from treefleet.pr.stage import status_lines, timings_for
     from treefleet.sessions import load_run
 
     if not argv or argv[0] not in {"watch", "status", "merge"}:
@@ -229,6 +229,7 @@ def _pr(argv: list[str]) -> int:
                             "pr_status": task.pr_status,
                             "status": task.status,
                             "pr_checks": task.pr_checks,
+                            "timings": timings_for(runs / argv[1] / "events.jsonl", task.task_id),
                         }
                         for task in record.tasks
                     ]
@@ -270,9 +271,10 @@ def _pr_watch(record: object, settings: object) -> int:
     from treefleet.events import EventSink
     from treefleet.git.worktrees import kill_tree
     from treefleet.orchestrator.fleet import dispatch
+    from treefleet.pr.accept import acceptance_prompt, bind_python, interpreter_for, parse_acceptance
     from treefleet.pr.gh import GhProvider
     from treefleet.pr.loop import PollHooks
-    from treefleet.pr.models import OpenPR
+    from treefleet.pr.models import OpenPR, TrackedComment
     from treefleet.pr.stage import git_push, poll_until
     from treefleet.sessions import RunRecord, RunStore
     from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
@@ -301,6 +303,10 @@ def _pr_watch(record: object, settings: object) -> int:
             last_comment_id=task.pr_last_comment_id,
             status=task.pr_status or "open",
             checks=task.pr_checks or "pending",
+            comments=[
+                TrackedComment(id=comment.id, body="", status=comment.status, rounds_used=comment.rounds_used)
+                for comment in task.comments
+            ],
         )
         for task in tasks
         if task.pr_number and task.pr_open
@@ -331,6 +337,10 @@ def _pr_watch(record: object, settings: object) -> int:
             pr_open=item.status not in {"merged", "cancelled"},
             pr_status=item.status,
             pr_checks=item.checks,
+            comments=[
+                {"id": comment.id, "status": comment.status, "rounds_used": comment.rounds_used}
+                for comment in item.comments
+            ],
         )
 
     def revise(task_id: str, feedback: str) -> str | None:
@@ -351,7 +361,10 @@ def _pr_watch(record: object, settings: object) -> int:
             worktree_root=Path(settings.worktree_root),  # type: ignore[attr-defined]
             run_id=record.run_id,
         )
-        checks = {name: selected.checks[name] for name in spec.check_ids if name in selected.checks}
+        python = interpreter_for(record.python, str(settings.worker_python))  # type: ignore[attr-defined]
+        checks = {
+            name: bind_python(selected.checks[name], python) for name in spec.check_ids if name in selected.checks
+        }
         extra = {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}  # type: ignore[attr-defined]
         prefix = python_prefix(checks)
         if prefix:
@@ -372,7 +385,7 @@ def _pr_watch(record: object, settings: object) -> int:
         try:
             before_spawn(worktree, record.run_id, sink, task_id)
             proc = spawn_worker(
-                python=Path(settings.worker_python),  # type: ignore[attr-defined]
+                python=Path(python),
                 worktree=worktree,
                 run_id=record.run_id,
                 task_id=task_id,
@@ -400,10 +413,43 @@ def _pr_watch(record: object, settings: object) -> int:
             print(f"push failed for {task_id}: {type(exc).__name__}", file=sys.stderr)
             return None
 
+    def diff_of(task_id: str) -> str:
+        import subprocess
+
+        task_row = next((row for row in tasks if row.task_id == task_id), None)
+        if task_row is None or not task_row.worktree:
+            return ""
+        proc = subprocess.run(
+            ["git", "diff", "HEAD~1"],
+            cwd=task_row.worktree,
+            shell=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        return proc.stdout
+
+    def judge(task_id: str, comment: str, diff: str) -> tuple[str, str]:
+        from google.adk.models.lite_llm import LiteLlm
+
+        from treefleet.orchestrator.agents import _complete
+
+        text = asyncio.run(
+            _complete(
+                LiteLlm(model=settings.models.fast),  # type: ignore[attr-defined]
+                acceptance_prompt(comment, diff),
+                instruction="Reply with one line: satisfied or unsatisfied, then a short reason.",
+            )
+        )
+        return parse_acceptance(text)
+
     outcome = poll_until(
         opened,
         GhProvider(settings.pr.repo),  # type: ignore[attr-defined]
-        PollHooks(revise=revise, resolve_conflict=lambda _task: None, emit=emit),
+        PollHooks(revise=revise, resolve_conflict=lambda _task: None, emit=emit, judge=judge, diff=diff_of),
         settings.pr,  # type: ignore[attr-defined]
         login=login,
     )
@@ -415,6 +461,10 @@ def _pr_watch(record: object, settings: object) -> int:
             pr_open=item.status not in {"merged", "cancelled"},
             pr_status=item.status,
             pr_checks=item.checks,
+            comments=[
+                {"id": comment.id, "status": comment.status, "rounds_used": comment.rounds_used}
+                for comment in item.comments
+            ],
         )
     print(outcome)
     return 0 if outcome == "done" else 1
