@@ -238,6 +238,8 @@ def tasks_from_snapshot(
             task["pr_revising"] = False
             task["worker_active"] = False
             task["pr_checks"] = "pending"
+            if task.get("reason") == "revision made no commit":
+                task["reason"] = ""
         if kind == "pr.revision_failed":
             task["pr_revising"] = False
             task["worker_active"] = False
