@@ -39,6 +39,17 @@ class Comment:
 
 
 @dataclass
+class TrackedComment:
+    """One trusted comment. The body stays in memory and is not written to the run record."""
+
+    id: int
+    body: str
+    status: str = "open"
+    rounds_used: int = 0
+    reason: str = ""
+
+
+@dataclass
 class OpenPR:
     """One PR this run opened. The poller never tracks anything else."""
 
@@ -53,3 +64,5 @@ class OpenPR:
     checks: str = "pending"
     unresolved: bool = False
     last_failure: str = ""
+    comments: list[TrackedComment] = field(default_factory=list)
+    pending_revision: bool = False

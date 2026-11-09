@@ -329,12 +329,15 @@ function reviewNote(task) {
     if (/no new diff|no new change|no changes|unchanged/.test(blob)) text = "No new changes since last review";
     else if (/conflict/.test(blob)) text = "Merge conflict";
     else if (/git\s+-c|[a-z]:\\/.test(raw) || /[/\\]/.test(raw)) text = "A check failed";
-    else text = "Needs a human decision";
+    else text = raw || "Needs a human decision";
+  } else if (raw && lane(task) === "review") {
+    tone = "needs";
+    text = raw;
   } else if (task.verdict === "approve" || lane(task) === "ready") {
     tone = "ok";
     text = suggestions.length ? "Approved with notes" : "Checks passed";
   }
-  return { text: text.slice(0, 60), tone };
+  return { text: text.slice(0, 120), tone };
 }
 
 function renderCard(task) {

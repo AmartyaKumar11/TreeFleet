@@ -235,14 +235,24 @@ def tasks_from_snapshot(
             task["pr_revising"] = False
             task["worker_active"] = False
             task["pr_checks"] = "pending"
-        if kind == "pr.checks":
+        if kind == "pr.revision_failed":
+            task["pr_revising"] = False
+            task["worker_active"] = False
+            task["reason"] = str(payload.get("reason") or "revision failed")
+        if kind in {"pr.checks", "pr.checks_green"}:
             if payload.get("checks"):
                 task["pr_checks"] = str(payload["checks"])
-            if payload.get("checks") == "passing":
+            approved = payload.get("approved")
+            if approved is True or (
+                payload.get("checks") == "passing" and "approved" not in payload and kind == "pr.checks"
+            ):
                 task["pr_status"] = "approved_green"
                 task["pr_open"] = True
             if payload.get("status") == "needs_review":
                 task["status"] = "needs_review"
+                task["needs_human"] = True
+                if payload.get("reason"):
+                    task["reason"] = str(payload["reason"])
         if kind == "pr.merged":
             task["status"] = "done"
             task["pr_open"] = False

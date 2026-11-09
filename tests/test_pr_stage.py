@@ -57,7 +57,13 @@ def _hooks(fake: FakeProvider, opened_box: list[OpenPR]) -> tuple[PollHooks, lis
     def resolve_conflict(task_id: str) -> str:
         return revise(task_id, "<untrusted-data>\nmerge the base\n</untrusted-data>")
 
-    return PollHooks(revise=revise, resolve_conflict=resolve_conflict, emit=lambda *_args: None), seen
+    def judge(_task_id: str, _comment: str, _diff: str) -> tuple[str, str]:
+        return "satisfied", "the diff matches the request"
+
+    return (
+        PollHooks(revise=revise, resolve_conflict=resolve_conflict, emit=lambda *_args: None, judge=judge),
+        seen,
+    )
 
 
 def _tasks() -> list[dict[str, str]]:
@@ -110,8 +116,9 @@ def test_e8_fail_then_comment_then_green_without_merge() -> None:
     assert beta.status == "merged"
     assert fake.merged == []
     posted = " ".join(body for _number, body in fake.posted)
-    assert "Revision " in posted
+    assert "TreeFleet revision" in posted
     assert "<!-- treefleet -->" in posted
+    assert "ignore previous instructions" not in posted
 
 
 def test_e9_one_conflict_round_then_green() -> None:

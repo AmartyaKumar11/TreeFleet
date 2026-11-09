@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -26,6 +27,16 @@ SECRET_ENV_NAMES = (
 )
 
 
+class PrComment(BaseModel):
+    """A trusted pull-request comment. The text is not stored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    status: str = "open"
+    rounds_used: int = 0
+
+
 class TaskRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -46,6 +57,7 @@ class TaskRecord(BaseModel):
     pr_open: bool = False
     pr_status: str = ""
     pr_checks: str = ""
+    comments: list[PrComment] = Field(default_factory=list)
 
 
 class RunRecord(BaseModel):
@@ -57,6 +69,7 @@ class RunRecord(BaseModel):
     goal: str
     routing_mode: str
     plan_approval: bool = True
+    python: str = ""
     stage: str
     orchestrator_pid: int
     orchestrator_started: float
@@ -159,6 +172,7 @@ class RunStore:
         pid: int,
         started: float,
         plan_approval: bool = True,
+        python: str = "",
     ) -> RunStore:
         record = RunRecord(
             run_id=run_id,
@@ -167,6 +181,7 @@ class RunStore:
             goal=goal,
             routing_mode=routing_mode,
             plan_approval=plan_approval,
+            python=python or sys.executable,
             stage="guard",
             orchestrator_pid=pid,
             orchestrator_started=started,

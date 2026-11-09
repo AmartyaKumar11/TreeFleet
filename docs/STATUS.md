@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-09 — Pull request revision check
+
+A trusted comment stays open until a reviewer accepts the new diff. `approved_green` needs green checks, every tracked comment satisfied, and no revision in flight. The posted comment names the files and the verdict, never the request text. `pr watch` reuses the interpreter recorded on the run. Unknown GitHub check values stay pending.
+
 ## 2026-11-09 — Tool error arguments
 
 `tool.error` includes the tool arguments, each redacted and cut to 200 characters, when the caller passed them. A call with no arguments omits the field.

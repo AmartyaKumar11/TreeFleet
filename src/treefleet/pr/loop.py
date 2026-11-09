@@ -6,16 +6,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from treefleet.guards.text import redact
-from treefleet.pr.models import CheckRun, OpenPR, PRState
-from treefleet.pr.safety import MARKER, comment_kind, delimited_feedback, public_text, revision_comment
+from treefleet.pr.accept import classify_check, format_revision, parse_acceptance, revision_request
+from treefleet.pr.models import CheckRun, OpenPR, PRState, TrackedComment
+from treefleet.pr.safety import MARKER, comment_kind, delimited_feedback, public_text
 from treefleet.reactions import Action, Event, ReactionTable, default_table, resolve
 
 _POLL_BACKOFF_S = (5.0, 15.0, 45.0)
 _POLL_FAILS = 5
 
 _DONE = frozenset({"merged", "cancelled"})
-_FAIL = frozenset({"failure", "timed_out", "cancelled", "action_required"})
-_GREEN = frozenset({"success", "skipped", "neutral"})
 
 
 @dataclass
@@ -25,6 +24,8 @@ class PollHooks:
     revise: Callable[[str, str], str | None]
     resolve_conflict: Callable[[str], str | None]
     emit: Callable[[str, str, dict[str, object]], None]
+    judge: Callable[[str, str, str], tuple[str, str]] | None = None
+    diff: Callable[[str], str] | None = None
     events: list[tuple[str, str, dict[str, object]]] = field(default_factory=list)
 
     def note(self, kind: str, task_id: str, payload: dict[str, object]) -> None:
@@ -32,19 +33,32 @@ class PollHooks:
         self.emit(kind, task_id, payload)
 
 
+def check_parts(state: PRState) -> tuple[str, list[str]]:
+    """Overall label plus any check value this table does not know."""
+    if not state.check_runs:
+        return "pending", []
+    labels: list[str] = []
+    unknown: list[str] = []
+    for run in state.check_runs:
+        label, raw = classify_check(status=run.status, conclusion=run.conclusion)
+        labels.append(label)
+        if raw:
+            unknown.append(raw)
+    if any(item == "failing" for item in labels):
+        return "failing", unknown
+    if unknown or any(item != "passing" for item in labels):
+        return "pending", unknown
+    return "passing", unknown
+
+
 def check_label(state: PRState) -> str:
-    runs = state.check_runs
-    if not runs:
-        return "pending"
-    if any(item.conclusion in _FAIL for item in runs):
-        return "failing"
-    if _green(runs):
-        return "passing"
-    return "pending"
+    return check_parts(state)[0]
 
 
 def _green(runs: tuple[CheckRun, ...]) -> bool:
-    return bool(runs) and all(item.conclusion in _GREEN for item in runs)
+    if not runs:
+        return False
+    return all(classify_check(status=item.status, conclusion=item.conclusion)[0] == "passing" for item in runs)
 
 
 class PollItemError(Exception):
@@ -111,25 +125,23 @@ def _poll_item(
         if kind == "untrusted":
             hooks.note("pr.comment_ignored", item.task_id, {"author": comment.author, "number": item.number})
             continue
-        _on_comment(item, comment.body, provider, policy, hooks)
+        _on_comment(item, comment, provider, policy, hooks)
         acted = True
     if acted or item.status in _DONE or item.status == "needs_review":
         return
     if state.mergeable == "CONFLICTING":
         _on_conflict(item, provider, policy, hooks)
         return
-    label = (
-        "failing"
-        if any(run.conclusion in _FAIL for run in state.check_runs) and state.head_sha == item.head_sha
-        else check_label(state)
-    )
+    label, unknown = check_parts(state)
+    for value in unknown:
+        hooks.note("pr.unknown_check_state", item.task_id, {"value": value, "number": item.number})
     if label == "failing" and state.head_sha == item.head_sha and item.checks != "revising":
         _on_checks(item, provider, policy, hooks)
         return
     if (
-        _green(state.check_runs)
+        label == "passing"
         and state.mergeable != "CONFLICTING"
-        and not item.unresolved
+        and not item.pending_revision
         and item.status != "approved_green"
     ):
         _on_green(item, provider, policy, auto_merge, hooks)
@@ -146,27 +158,96 @@ def _exhausted(item: OpenPR, summary: str, hooks: PollHooks) -> None:
     hooks.note("pr.checks", item.task_id, {"status": "needs_review", "number": item.number})
 
 
-def _revise(item: OpenPR, feedback: str, provider: object, hooks: PollHooks, *, attempt: int) -> None:
+def _diff(item: OpenPR, hooks: PollHooks) -> str:
+    if hooks.diff is None:
+        return ""
+    return hooks.diff(item.task_id)
+
+
+def _post(item: OpenPR, provider: object, attempt: int, diff: str, request: str) -> None:
+    provider.post_comment(item.number, format_revision(attempt, diff, request))  # type: ignore[attr-defined]
+
+
+def _revise(item: OpenPR, feedback: str, provider: object, hooks: PollHooks, *, attempt: int) -> str | None:
+    """Push one revision. None means the worker made no commit."""
+    item.pending_revision = True
     hooks.note("pr.revision_started", item.task_id, {"attempt": attempt, "number": item.number})
     new_sha = hooks.revise(item.task_id, feedback)
+    item.pending_revision = False
     if not new_sha:
-        return
+        hooks.note(
+            "pr.revision_failed",
+            item.task_id,
+            {"task": item.task_id, "reason": "revision made no commit"},
+        )
+        return None
     item.head_sha = new_sha
     item.checks = "pending"
     item.unresolved = False
-    provider.post_comment(item.number, revision_comment(attempt, feedback))  # type: ignore[attr-defined]
     hooks.note("pr.revision_pushed", item.task_id, {"attempt": attempt, "sha": new_sha, "number": item.number})
+    return new_sha
 
 
-def _on_comment(item: OpenPR, body: str, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
+def _judge(item: OpenPR, body: str, diff: str, hooks: PollHooks) -> tuple[str, str]:
+    if hooks.judge is None:
+        return "unsatisfied", "no reviewer"
+    verdict, reason = hooks.judge(item.task_id, body, diff)
+    if verdict not in {"satisfied", "unsatisfied"}:
+        verdict, reason = parse_acceptance(verdict)
+    reason = public_text(reason)[:120] or "does not match the request"
+    if body and body in reason:
+        reason = "matches the request" if verdict == "satisfied" else "does not match the request"
+    return verdict, reason
+
+
+def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
+    """Revise until the reviewer is satisfied or the comment's rounds are spent."""
+    limit = resolve(Event.pr_comment, 1, table).max_attempts
+    while tracked.status != "satisfied" and tracked.rounds_used < limit:
+        tracked.rounds_used += 1
+        feedback = revision_request(tracked.body, reason=tracked.reason)
+        sha = _revise(item, feedback, provider, hooks, attempt=tracked.rounds_used)
+        if sha is None:
+            tracked.status = "unsatisfied"
+            tracked.reason = "revision made no commit"
+            continue
+        diff = _diff(item, hooks)
+        verdict, reason = _judge(item, tracked.body, diff, hooks)
+        tracked.reason = reason
+        tracked.status = verdict
+        request = "satisfied" if verdict == "satisfied" else f"not satisfied ({reason[:120]})"
+        _post(item, provider, tracked.rounds_used, diff, request)
+    if tracked.status != "satisfied":
+        tracked.status = "needs_human"
+        item.status = "needs_review"
+        item.unresolved = True
+        item.last_failure = tracked.reason[:1800]
+        hooks.note(
+            "pr.checks",
+            item.task_id,
+            {"status": "needs_review", "number": item.number, "reason": tracked.reason[:300]},
+        )
+
+
+def _on_comment(item: OpenPR, comment: object, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
+    body = str(getattr(comment, "body", ""))
+    comment_id = int(getattr(comment, "id", 0))
     attempt = _attempt(item, "pr_comment")
     decision = resolve(Event.pr_comment, attempt, table)
+    hooks.note(
+        "pr.comment_seen",
+        item.task_id,
+        {"comment_id": comment_id, "number": item.number, "attempt": attempt},
+    )
     hooks.note("pr.comment", item.task_id, {"author_trusted": True, "number": item.number, "attempt": attempt})
+    tracked = TrackedComment(id=comment_id, body=body)
+    item.comments.append(tracked)
     item.unresolved = True
     if decision.action != Action.send_to_agent:
-        _exhausted(item, body, hooks)
+        tracked.status = "needs_human"
+        _exhausted(item, "round limit reached", hooks)
         return
-    _revise(item, delimited_feedback(body), provider, hooks, attempt=attempt)
+    _satisfy(item, tracked, provider, table, hooks)
 
 
 def _on_checks(item: OpenPR, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
@@ -180,7 +261,10 @@ def _on_checks(item: OpenPR, provider: object, table: ReactionTable, hooks: Poll
         _exhausted(item, summary, hooks)
         return
     item.checks = "revising"
-    _revise(item, delimited_feedback(summary or "a check failed"), provider, hooks, attempt=attempt)
+    sha = _revise(item, delimited_feedback(summary or "a check failed"), provider, hooks, attempt=attempt)
+    if sha is None:
+        return
+    _post(item, provider, attempt, _diff(item, hooks), "not satisfied (a check failed)")
 
 
 def _on_conflict(item: OpenPR, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
@@ -199,21 +283,37 @@ def _on_conflict(item: OpenPR, provider: object, table: ReactionTable, hooks: Po
     )
     new_sha = hooks.resolve_conflict(item.task_id)
     if not new_sha:
+        hooks.note(
+            "pr.revision_failed",
+            item.task_id,
+            {"task": item.task_id, "reason": "revision made no commit"},
+        )
         return
     item.head_sha = new_sha
     item.checks = "pending"
-    provider.post_comment(item.number, revision_comment(attempt, "merged the base and resolved the conflict"))  # type: ignore[attr-defined]
+    _post(item, provider, attempt, _diff(item, hooks), "satisfied")
     hooks.note("pr.revision_pushed", item.task_id, {"attempt": attempt, "sha": new_sha, "number": item.number})
 
 
+def _comments_block(item: OpenPR) -> bool:
+    return item.pending_revision or any(comment.status != "satisfied" for comment in item.comments)
+
+
 def _on_green(item: OpenPR, provider: object, table: ReactionTable, auto_merge: bool, hooks: PollHooks) -> None:
+    item.checks = "passing"
+    hooks.note("pr.checks_green", item.task_id, {"number": item.number, "checks": "passing"})
+    if _comments_block(item) or item.unresolved:
+        return
     decision = resolve(Event.approved_green, 1, table)
     action = decision.action
     if Event.approved_green.value in table.defaults and action == Action.ignore:
         action = Action.notify
     item.status = "approved_green"
-    item.checks = "passing"
-    hooks.note("pr.checks", item.task_id, {"checks": "passing", "action": action.value, "number": item.number})
+    hooks.note(
+        "pr.checks",
+        item.task_id,
+        {"checks": "passing", "approved": True, "action": action.value, "number": item.number},
+    )
     if auto_merge:
         provider.merge(item.number)  # type: ignore[attr-defined]
 
