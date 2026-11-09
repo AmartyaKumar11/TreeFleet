@@ -56,6 +56,11 @@ export function createGitGraph({ onSelect }) {
     const all = (data.tasks || []).filter((task) => task.branch);
     const integration = data.report && data.report.integration;
     const base = (integration && integration.base) || data.head || "HEAD";
+    const integrated =
+      (integration && integration.branch) ||
+      ((data.events || []).some((event) => event.type === "phase" && (event.payload || {}).name === "integrate")
+        ? `tf/${data.run_id || "run"}/integrated`
+        : "");
     const overflow = all.length > CAP;
     const shown = overflow && !expanded ? all.slice(0, CAP) : all;
     const hidden = overflow && !expanded ? all.length - CAP : 0;
@@ -66,8 +71,8 @@ export function createGitGraph({ onSelect }) {
     shown.forEach((task) => {
       row(list, task.branch || task.id, statusColor(task), { "data-task-id": task.id });
     });
-    if (integration && integration.branch) {
-      row(list, integration.branch, "var(--green)", { "data-graph-integrated": "1" });
+    if (integrated) {
+      row(list, integrated, "var(--green)", { "data-graph-integrated": "1" });
     }
     host.appendChild(list);
 

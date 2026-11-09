@@ -1,0 +1,12 @@
+{"run_id": "fea7ef2e", "seq": 2, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "scan", "duration_s": 0.032}}
+{"run_id": "fea7ef2e", "seq": 9, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "planner", "duration_s": 13.703}}
+{"run_id": "fea7ef2e", "seq": 14, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "router", "duration_s": 0.312}}
+{"run_id": "fea7ef2e", "seq": 17, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "worker.spawned", "task_id": "test-notifications", "payload": {"pid": 36460, "upstream": []}}
+{"run_id": "fea7ef2e", "seq": 18, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "worker.spawned", "task_id": "test-admin", "payload": {"pid": 57492, "upstream": []}}
+{"run_id": "fea7ef2e", "seq": 21, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "fleet", "duration_s": 228.203}}
+{"run_id": "fea7ef2e", "seq": 26, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "review_started", "task_id": "test-notifications", "payload": {"round": 1}}
+{"run_id": "fea7ef2e", "seq": 27, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "review_started", "task_id": "test-admin", "payload": {"round": 1}}
+{"run_id": "fea7ef2e", "seq": 31, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "review_verdict", "task_id": "test-notifications", "payload": {"round": 1, "verdict": "approve", "reason": "checks passed and the diff is in scope"}}
+{"run_id": "fea7ef2e", "seq": 34, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "review_verdict", "task_id": "test-admin", "payload": {"round": 1, "verdict": "approve", "reason": "checks passed and the diff is in scope"}}
+{"run_id": "fea7ef2e", "seq": 36, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "review", "duration_s": 16.281}}
+{"run_id": "fea7ef2e", "seq": 37, "ts": "2026-11-08T10:28:54Z", "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "revise", "duration_s": 0.0}}
