@@ -159,11 +159,10 @@ function lineCounts(files) {
 }
 
 function worktreeFor(task) {
-  const branch = task.branch || "";
-  for (const row of state.worktrees || []) {
-    if (row.branch === branch || (branch && String(row.path).includes(task.id))) return row.path;
-  }
-  return "";
+  const branch = String(task.branch || "");
+  if (!branch) return "";
+  const row = (state.worktrees || []).find((item) => String(item.branch || "") === branch);
+  return row ? String(row.path || "") : "";
 }
 
 function formatUsd(value, label) {

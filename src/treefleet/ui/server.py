@@ -106,6 +106,12 @@ class Approval:
         self._decision.set()
 
 
+def rows_for_run(rows: list[dict[str, Any]], run_id: str) -> list[dict[str, Any]]:
+    """Keep worktrees whose branch is exactly tf/<run_id>/..."""
+    prefix = f"tf/{run_id}/"
+    return [row for row in rows if str(row.get("branch") or "").startswith(prefix)]
+
+
 def worktree_rows(repo: Path, base_sha: str = "HEAD") -> list[dict[str, Any]]:
     """Worktrees other than the main checkout.
 
@@ -290,7 +296,7 @@ class Board:
             "events": events[-400:],
             "tasks": tasks,
             "needs_human": run_needs_human(events, report, awaiting=waiting),
-            "worktrees": worktree_rows(self.repo, self.base_sha),
+            "worktrees": rows_for_run(worktree_rows(self.repo, self.base_sha), run_id),
             "report": report,
             "message": self.messages.get(run_id, ""),
             "stages": list(_STAGES),
@@ -377,6 +383,11 @@ def create_app(
             if fixture is not None and fixture.get("worktrees")
             else worktree_rows(repo, board.base_sha)
         )
+        run_id = next(iter(board.approvals), "")
+        if board.replay and board.replay_events:
+            run_id = str(board.replay_events[-1].get("run_id") or run_id)
+        if run_id and fixture is None:
+            rows = rows_for_run(list(rows), run_id)
         body, _count = redact_payload({"worktrees": rows})
         return JSONResponse(body)
 
