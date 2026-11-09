@@ -153,9 +153,12 @@ def test_external_hook_refuses_until_the_switch_is_true() -> None:
         )
 
 
-def test_revision_comment_uses_the_request_line() -> None:
-    body = delimited_feedback("Please add a docstring to the first test function.")
-    posted = revision_comment(1, body)
-    assert posted.startswith("Revision 1: Please add a docstring to the first test function.")
+def test_revision_comment_never_echoes_the_request() -> None:
+    request = "Please add a docstring to the first test function."
+    posted = revision_comment(
+        1, delimited_feedback(request), diff="diff --git a/tests/test_admin.py b/tests/test_admin.py\n+    pass\n"
+    )
+    assert posted.startswith("TreeFleet revision 1: changed tests/test_admin.py (+1/-0). Request: satisfied.")
     assert posted.endswith("<!-- treefleet -->")
+    assert request not in posted
     assert "<untrusted-data>" not in posted

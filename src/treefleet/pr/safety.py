@@ -95,18 +95,12 @@ def pr_body(*, goal: str, scope: str, verdict: str, checks: str, run_id: str) ->
     return "\n".join(lines)
 
 
-def _public_line(line: str) -> str:
-    skip = {"<untrusted-data>", "</untrusted-data>"}
-    for row in public_text(line).splitlines():
-        text = row.strip()
-        if not text or text in skip or text.startswith("guard:"):
-            continue
-        return text[:180]
-    return "updated"
+def revision_comment(round_no: int, line: str, *, diff: str = "", request: str = "satisfied") -> str:
+    """Public comment. `line` is the request and is never copied into the body."""
+    from treefleet.pr.accept import format_revision
 
-
-def revision_comment(round_no: int, line: str) -> str:
-    return f"Revision {round_no}: {_public_line(line)}\n{MARKER}"
+    del line
+    return format_revision(round_no, diff, request)
 
 
 def comment_kind(comment: Comment, trusted: set[str]) -> str:
