@@ -329,15 +329,17 @@ function reviewNote(task) {
     if (/no new diff|no new change|no changes|unchanged/.test(blob)) text = "No new changes since last review";
     else if (/conflict/.test(blob)) text = "Merge conflict";
     else if (/git\s+-c|[a-z]:\\/.test(raw) || /[/\\]/.test(raw)) text = "A check failed";
-    else text = raw || "Needs a human decision";
-  } else if (raw && lane(task) === "review") {
+    else if (task.pr_number && task.status === "needs_review" && raw) text = raw;
+    else text = "Needs a human decision";
+  } else if (task.pr_number && raw === "revision made no commit") {
     tone = "needs";
     text = raw;
   } else if (task.verdict === "approve" || lane(task) === "ready") {
     tone = "ok";
     text = suggestions.length ? "Approved with notes" : "Checks passed";
   }
-  return { text: text.slice(0, 120), tone };
+  const limit = task.pr_number && task.status === "needs_review" ? 120 : 60;
+  return { text: text.slice(0, limit), tone };
 }
 
 function renderCard(task) {
