@@ -1,0 +1,6 @@
+Exception in thread tf-c6dbaa59, after both pull requests had opened.
+treefleet.pr.gh.GhError: unknown flag: --repo
+
+Raised from src/treefleet/pr/gh.py list_comments via pr/loop.py poll_once.
+The pipeline thread ended there. No later pr.* events were written.
+The gh api help text that followed the flag error is omitted.

@@ -1,0 +1,8 @@
+run c6dbaa59  stage=awaiting_prs  state=awaiting_prs
+goal Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py.
+repo D:\pr-sentinel-demo
+base 1c631bde4a3d5c9329563d5289bf6187e39b604f
+routing router
+orchestrator 43820
+test-notifications  done  verdict=approve  tf/c6dbaa59/test-notifications  C:\wt\c6dbaa59\test-notifications
+test-admin  done  verdict=approve  tf/c6dbaa59/test-admin  C:\wt\c6dbaa59\test-admin
