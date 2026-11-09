@@ -992,6 +992,8 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
     )
     if outcome == "timed_out":
         note_stage(bundle, "timed_out")
+    elif outcome == "pr_poll_failed":
+        note_stage(bundle, "pr_poll_failed")
     for item in opened:
         note_task(
             bundle,

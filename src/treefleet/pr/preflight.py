@@ -68,7 +68,26 @@ def preflight(
     blocked = external_hook_block(settings, hosts)
     if blocked:
         raise PreflightError(blocked)
+    gh_smoke(settings, runner)
     return warnings
+
+
+def gh_smoke(settings: PrSettings, runner: Runner) -> None:
+    """Read the configured repo and an empty sentinel head. Never another pull request."""
+    code, _out, _err = runner(["api", f"repos/{settings.repo}"])
+    if code != 0:
+        raise PreflightError(f"gh cannot read {settings.repo}")
+    code, listed, _err = runner(
+        ["pr", "list", "--repo", settings.repo, "--head", "tf/__preflight__", "--json", "number"]
+    )
+    if code != 0:
+        raise PreflightError("gh pr list preflight failed")
+    try:
+        payload = json.loads(listed or "[]")
+    except json.JSONDecodeError as exc:
+        raise PreflightError("gh pr list preflight returned non-json") from exc
+    if payload != []:
+        raise PreflightError("preflight head matched a pull request")
 
 
 def _workflow_names(body: str) -> list[str]:

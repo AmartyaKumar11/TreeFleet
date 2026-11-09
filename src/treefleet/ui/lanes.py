@@ -252,6 +252,10 @@ def tasks_from_snapshot(
             task["status"] = "cancelled"
             task["pr_open"] = False
             task["reason"] = str(payload.get("reason") or "pull request closed")
+        if kind == "pr.poll_failed":
+            task["status"] = "needs_review"
+            task["reason"] = "PR polling failed"
+            task["needs_human"] = True
 
     if report and isinstance(report.get("results"), list):
         for result in report["results"]:

@@ -41,7 +41,10 @@ class GhProvider:
 
     def _call(self, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
         command = ["gh", *args]
-        if "--repo" not in command:
+        # gh api takes the repo in the path. gh pr and gh run take --repo.
+        if len(command) > 1 and command[1] == "api":
+            command = _without_flag(command, "--repo")
+        elif "--repo" not in command and not any(item.startswith("--repo=") for item in command):
             command.extend(["--repo", self.repo])
         last = ""
         for attempt in range(3):
@@ -97,8 +100,6 @@ class GhProvider:
                 "api",
                 "--paginate",
                 f"repos/{self.repo}/issues/{number}/comments",
-                "--repo",
-                self.repo,
             ]
         )
         try:
@@ -135,6 +136,22 @@ class GhProvider:
 
     def merge(self, number: int) -> None:
         self._call(["pr", "merge", str(number), "--repo", self.repo, "--squash"])
+
+
+def _without_flag(args: list[str], flag: str) -> list[str]:
+    kept: list[str] = []
+    skip = False
+    for item in args:
+        if skip:
+            skip = False
+            continue
+        if item == flag:
+            skip = True
+            continue
+        if item.startswith(flag + "="):
+            continue
+        kept.append(item)
+    return kept
 
 
 def _default_runner(args: list[str]) -> subprocess.CompletedProcess[str]:

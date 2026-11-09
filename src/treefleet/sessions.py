@@ -121,6 +121,8 @@ def run_state(record: RunRecord, *, now: float | None = None) -> str:
         return "cancelled"
     if record.stage == "timed_out":
         return "timed_out"
+    if record.stage == "pr_poll_failed":
+        return "pr_poll_failed"
     moment = time.time() if now is None else now
     try:
         updated = datetime.fromisoformat(record.updated_at).timestamp()

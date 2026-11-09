@@ -7,7 +7,15 @@ from collections.abc import Callable
 from pathlib import Path
 
 from treefleet.pr.config import PrSettings
-from treefleet.pr.loop import PollHooks, awaiting, poll_once
+from treefleet.pr.loop import (
+    _POLL_BACKOFF_S,
+    _POLL_FAILS,
+    PollHooks,
+    PollItemError,
+    awaiting,
+    poll_message,
+    poll_once,
+)
 from treefleet.pr.models import OpenPR
 from treefleet.pr.preflight import external_hook_block
 from treefleet.pr.safety import PrSafetyError, pr_body, push_refspec, task_branch
@@ -115,14 +123,46 @@ def poll_until(
     if not known and login:
         known = {login}
     end = now() + settings.max_wait_minutes * 60 if deadline is None else deadline
+    consecutive = 0
     while awaiting(opened):
-        poll_once(opened, provider, trusted=known, auto_merge=settings.auto_merge, hooks=hooks)
+        try:
+            poll_once(opened, provider, trusted=known, auto_merge=settings.auto_merge, hooks=hooks)
+        except Exception as exc:
+            consecutive += 1
+            task_id = exc.task_id if isinstance(exc, PollItemError) else ""
+            cause = exc.cause if isinstance(exc, PollItemError) else exc
+            hooks.note(
+                "pr.poll_error",
+                task_id,
+                {"task": task_id, "message": poll_message(cause), "consecutive": consecutive},
+            )
+            if consecutive >= _POLL_FAILS:
+                _give_up(opened, task_id, hooks)
+                return "pr_poll_failed"
+            sleep(_POLL_BACKOFF_S[min(consecutive - 1, len(_POLL_BACKOFF_S) - 1)])
+            continue
+        consecutive = 0
         if not awaiting(opened):
             return "done"
         if now() >= end:
             return "timed_out"
         sleep(settings.poll_seconds)
     return "done"
+
+
+def _give_up(opened: list[OpenPR], task_id: str, hooks: PollHooks) -> None:
+    affected = [item for item in opened if item.task_id == task_id and item.status not in {"merged", "cancelled"}]
+    if not affected:
+        affected = [item for item in opened if item.status not in {"merged", "cancelled"}]
+    for item in affected:
+        item.status = "needs_review"
+        hooks.note("pr.poll_failed", item.task_id, {"reason": "PR polling failed", "number": item.number})
+    notify = task_id or (affected[0].task_id if affected else "")
+    hooks.note(
+        "reaction.fired",
+        notify,
+        {"event": "pr_poll_failed", "task": notify, "action": "notify", "attempt": _POLL_FAILS, "escalate": False},
+    )
 
 
 def status_lines(tasks: list[dict[str, object]]) -> list[str]:

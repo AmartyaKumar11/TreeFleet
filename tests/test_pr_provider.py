@@ -78,6 +78,53 @@ def test_gh_retries_transient_errors_and_always_passes_repo() -> None:
     assert len(calls) == 3
 
 
+_ALLOWED = {
+    "api": {"--paginate", "--jq"},
+    "pr": {"--repo", "--base", "--head", "--title", "--body", "--json", "--squash"},
+}
+
+
+def test_every_provider_method_uses_the_flags_its_subcommand_allows() -> None:
+    calls: list[list[str]] = []
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        if args[1] == "api":
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if "view" in args:
+            body = (
+                '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":'
+                '[{"name":"test","status":"COMPLETED","conclusion":"failure"}],'
+                '"headRefOid":"abc","url":"https://github.com/octo/demo/pull/7"}'
+            )
+            return subprocess.CompletedProcess(args, 0, body, "")
+        if "create" in args or "comment" in args:
+            return subprocess.CompletedProcess(args, 0, "https://github.com/octo/demo/pull/7\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
+    provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    provider.get_pr(7)
+    provider.list_comments(7, 0)
+    provider.post_comment(7, "note")
+    provider.get_failed_check_summary(7)
+    provider.merge(7)
+    seen: set[str] = set()
+    for args in calls:
+        assert args[0] == "gh"
+        sub = args[1]
+        seen.add(sub)
+        flags = [item for item in args if item.startswith("--")]
+        assert sub in _ALLOWED
+        assert set(flags) <= _ALLOWED[sub], args
+        if sub == "api":
+            assert "--repo" not in args
+            assert any(item.startswith("repos/octo/demo/") for item in args)
+        else:
+            assert args[args.index("--repo") + 1] == "octo/demo"
+    assert seen == {"api", "pr"}
+
+
 def test_gh_does_not_retry_a_normal_failure() -> None:
     def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, 1, "", "pull request already exists")

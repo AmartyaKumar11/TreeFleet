@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-09 — Pull request poller
+
+`gh api` calls do not take `--repo`; the repo is in the path. `gh pr` calls still pass `--repo`. When `[pr]` is enabled, `treefleet demo preflight` reads `repos/<owner>/<repo>` and `gh pr list --head tf/__preflight__`, and that list must be empty. A poll exception emits `pr.poll_error` and retries after 5, 15, then 45 seconds. Five consecutive failures set the run state to `pr_poll_failed`, move the affected cards to Needs you with reason "PR polling failed", and emit a notify. The poll thread returns instead of dying.
+
 ## 2026-11-09 — Pull requests
 
 `[pr]` is absent by default, which is off. With it off, the integrator still builds `tf/<run>/integrated` and `eval/report.json` is unchanged. With it on, approved tasks are pushed and opened as pull requests. The poller reads only those pull requests. `merge()` runs only when `auto_merge` is true or the user runs `treefleet pr merge`. See `docs/PR_LIFECYCLE.md`.

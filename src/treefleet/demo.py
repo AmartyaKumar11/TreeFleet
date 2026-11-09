@@ -184,6 +184,7 @@ def preflight(
     login: Callable[[Path], tuple[bool, str]] | None = None,
     models: Callable[[Path], tuple[bool, str]] | None = None,
     auth: Callable[[Mapping[str, str]], list[tuple[bool, str]]] | None = None,
+    gh: Callable[[list[str]], tuple[int, str, str]] | None = None,
 ) -> list[tuple[bool, str]]:
     """One line per check: ok, and the text to print. The text has no secret value."""
     found = env if env is not None else os.environ
@@ -199,6 +200,7 @@ def preflight(
     elif env is None:
         lines.extend(live_auth(found))
     cli = Path("cursor-agent")
+    settings = None
     try:
         settings = load_settings(Path.cwd() / "treefleet.toml")
         cli = Path(settings.cursor.cli)
@@ -231,6 +233,15 @@ def preflight(
         lines.append((True, "green  no stale worktrees"))
     else:
         lines.append((False, f"red    {len(stale)} stale worktree(s)\n       fix: treefleet demo reset --repo {repo}"))
+    if gh is not None and settings is not None and settings.pr.enabled:
+        from treefleet.pr.preflight import PreflightError, gh_smoke
+
+        try:
+            gh_smoke(settings.pr, gh)
+        except PreflightError as exc:
+            lines.append((False, f"red    {exc}"))
+        else:
+            lines.append((True, "green  gh can read the pull request repo"))
     return lines
 
 
@@ -269,6 +280,20 @@ def reset_repo(repo: Path, *, confirm: Callable[[list[str]], bool]) -> list[str]
     return notes
 
 
+def _gh(args: list[str]) -> tuple[int, str, str]:
+    proc = subprocess.run(
+        ["gh", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        shell=False,
+        check=False,
+    )
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -281,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     parsed = parser.parse_args(argv)
     repo = Path(parsed.repo)
     if parsed.command == "preflight":
-        rows = preflight(repo)
+        rows = preflight(repo, gh=_gh)
         for _ok, text in rows:
             print(text)
         return 0 if all(ok for ok, _text in rows) else 1
