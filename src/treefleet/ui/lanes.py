@@ -40,6 +40,9 @@ class TaskLaneFacts:
     awaiting_verdict: bool = False
     integrated: bool = False
     ready_to_merge: bool = False
+    pr_open: bool = False
+    pr_revising: bool = False
+    pr_green: bool = False
 
 
 def derive_lane(facts: TaskLaneFacts) -> Lane:
@@ -47,15 +50,19 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
     if (
         facts.awaiting_approval
         or facts.status == "needs_review"
-        or facts.checks_failed
-        or facts.conflict
+        or (facts.checks_failed and not facts.pr_open)
+        or (facts.conflict and not facts.pr_open)
         or facts.guard_blocked
         or facts.needs_human
         or facts.verdict in {"revise", "reject"}
         or facts.status == "failed"
     ):
         return "needs"
-    if facts.verdict == "approve":
+    if facts.pr_revising:
+        return "working"
+    if facts.pr_open and not facts.pr_green:
+        return "review"
+    if facts.pr_green or facts.verdict == "approve":
         return "ready"
     if facts.review_started or facts.awaiting_verdict or facts.status == "done":
         return "review"
@@ -212,6 +219,39 @@ def tasks_from_snapshot(
         if kind == "revise_started":
             task["round"] = int(payload.get("round") or task["round"] or 0)
             task["worker_active"] = True
+        if kind == "pr.opened":
+            task["pr_number"] = payload.get("number")
+            task["pr_url"] = str(payload.get("url") or "")
+            task["pr_open"] = True
+            task["pr_checks"] = "pending"
+            task["pr_status"] = "open"
+        if kind == "pr.revision_started":
+            task["pr_revising"] = True
+            task["pr_open"] = True
+            task["pr_status"] = "open"
+            task["pr_checks"] = "pending"
+            task["worker_active"] = True
+        if kind == "pr.revision_pushed":
+            task["pr_revising"] = False
+            task["worker_active"] = False
+            task["pr_checks"] = "pending"
+        if kind == "pr.checks":
+            if payload.get("checks"):
+                task["pr_checks"] = str(payload["checks"])
+            if payload.get("checks") == "passing":
+                task["pr_status"] = "approved_green"
+                task["pr_open"] = True
+            if payload.get("status") == "needs_review":
+                task["status"] = "needs_review"
+        if kind == "pr.merged":
+            task["status"] = "done"
+            task["pr_open"] = False
+            task["pr_status"] = "merged"
+            task["pr_checks"] = "passing"
+        if kind == "pr.closed":
+            task["status"] = "cancelled"
+            task["pr_open"] = False
+            task["reason"] = str(payload.get("reason") or "pull request closed")
 
     if report and isinstance(report.get("results"), list):
         for result in report["results"]:
@@ -263,6 +303,9 @@ def tasks_from_snapshot(
             awaiting_verdict=bool(task.get("awaiting_verdict")),
             integrated=_integrated(task_id, report),
             ready_to_merge=_integrated(task_id, report),
+            pr_open=bool(task.get("pr_open")),
+            pr_revising=bool(task.get("pr_revising")),
+            pr_green=task.get("pr_status") == "approved_green",
         )
         hidden = {"worker_active", "output_seen", "checks_failed", "guard_blocked", "policy_open", "needs_human"}
         card = {key: value for key, value in task.items() if key not in hidden}

@@ -222,6 +222,14 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       });
     }
 
+    (data.events || [])
+      .filter((event) => String(event.type || "").startsWith("pr."))
+      .forEach((event) => {
+        const author = event.type === "pr.comment_ignored" ? (event.payload || {}).author || "" : "";
+        const extra = author ? ` ${author}` : ` ${event.task_id || ""}`;
+        parts.push(`<div class="bubble-row"><div class="sys-line">${esc(event.type)}${esc(extra)}</div></div>`);
+      });
+
     const integration = data.report && data.report.integration;
     if (integration) {
       const merged = integration.merged || [];

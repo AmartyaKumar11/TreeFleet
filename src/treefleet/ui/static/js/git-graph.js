@@ -56,11 +56,12 @@ export function createGitGraph({ onSelect }) {
     const all = (data.tasks || []).filter((task) => task.branch);
     const integration = data.report && data.report.integration;
     const base = (integration && integration.base) || data.head || "HEAD";
-    const integrated =
-      (integration && integration.branch) ||
-      ((data.events || []).some((event) => event.type === "phase" && (event.payload || {}).name === "integrate")
-        ? `tf/${data.run_id || "run"}/integrated`
-        : "");
+    const integrated = data.pr_mode
+      ? ""
+      : (integration && integration.branch) ||
+        ((data.events || []).some((event) => event.type === "phase" && (event.payload || {}).name === "integrate")
+          ? `tf/${data.run_id || "run"}/integrated`
+          : "");
     const overflow = all.length > CAP;
     const shown = overflow && !expanded ? all.slice(0, CAP) : all;
     const hidden = overflow && !expanded ? all.length - CAP : 0;

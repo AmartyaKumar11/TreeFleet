@@ -263,6 +263,13 @@ function runStripState(data, counts) {
     return { line: `Blocked · ${why}`, stage: "guard" };
   }
   if (awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
+  if (data.pr_mode && (stage === "done" || stage === "timed_out" || stage === "awaiting_prs" || stage === "pr")) {
+    const label = stage === "timed_out" ? "Timed out" : stage === "done" ? "Done" : "PRs open";
+    return { line: `${label} · ${elapsed}`, stage: "pr" };
+  }
+  if (data.pr_mode && (stage === "review" || stage === "integrate")) {
+    return { line: `PRs open · ${elapsed}`, stage: "pr" };
+  }
   if (stage === "done") return { line: `Done · ${elapsed}`, stage: "integrate" };
   if (stage === "integrate") return { line: `Integrating · ${elapsed}`, stage: "integrate" };
   if (stage === "review") return { line: `Reviewing · ${elapsed}`, stage: "review" };
@@ -283,11 +290,16 @@ function updateRunStrip(data, counts) {
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
   const summary = document.getElementById("summary-elapsed");
   if (summary) summary.textContent = shown;
-  const idx = STAGES.indexOf(info.stage);
-  document.querySelectorAll("#stage-stepper li").forEach((item) => {
-    const i = STAGES.indexOf(item.dataset.stage);
+  const last = document.querySelector('#stage-stepper li[data-stage="integrate"], #stage-stepper li[data-stage="pr"]');
+  if (last) {
+    last.dataset.stage = data.pr_mode ? "pr" : "integrate";
+    last.textContent = data.pr_mode ? "pr" : "integrate";
+  }
+  const names = [...document.querySelectorAll("#stage-stepper li")].map((item) => item.dataset.stage);
+  const idx = names.indexOf(info.stage);
+  document.querySelectorAll("#stage-stepper li").forEach((item, i) => {
     item.classList.toggle("is-current", i === idx);
-    item.classList.toggle("is-done", i >= 0 && i < idx);
+    item.classList.toggle("is-done", idx >= 0 && i < idx);
   });
 }
 
@@ -345,6 +357,13 @@ function renderCard(task) {
     const passed = typeof check === "string" ? true : check.passed !== false;
     chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
   });
+  if (task.pr_number) {
+    chips.push(`<span class="chip pr" data-pr-url="${esc(task.pr_url || "")}">PR #${esc(task.pr_number)}</span>`);
+    const failing = task.pr_checks === "failing";
+    const passing = task.pr_checks === "passing";
+    const label = passing ? "checks passing" : failing ? "checks failing" : "checks pending";
+    chips.push(`<span class="chip ${passing ? "pass" : failing ? "fail" : ""}">${label}</span>`);
+  }
   if (counts.count) {
     chips.push(
       `<span class="chip lines"><span class="add">+${counts.added}</span> <span class="del">-${counts.removed}</span></span>`,
@@ -365,10 +384,13 @@ function renderCard(task) {
   const verdict = verdictLabel
     ? `<div class="verdict-row"><span class="chip verdict ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span></div>${noteHtml}`
     : noteHtml;
+  const mergeCmd = task.pr_number
+    ? `gh pr merge ${task.pr_number} --repo ${state.pr_repo || ""} --squash`
+    : `git -C ${state.repo || ""} merge ${task.branch || task.id}`;
   const mergeBtn =
     lane(task) === "ready"
       ? `<div class="merge-row"><button class="btn ghost merge-btn" type="button" data-merge="${esc(
-          `git -C ${state.repo || ""} merge ${task.branch || task.id}`,
+          mergeCmd,
         )}"><span class="merge-label">Copy merge command</span></button></div>`
       : "";
   button.innerHTML = `
@@ -386,6 +408,13 @@ function renderCard(task) {
     ${mergeBtn}
   `;
   button.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-pr-url]");
+    if (link) {
+      event.stopPropagation();
+      const url = link.getAttribute("data-pr-url");
+      if (url) window.open(url, "_blank", "noopener");
+      return;
+    }
     const merge = event.target.closest("[data-merge]");
     if (merge) {
       event.stopPropagation();

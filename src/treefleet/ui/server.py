@@ -179,6 +179,8 @@ def _stage(events: list[dict[str, Any]], waiting: bool, finished: bool) -> str:
     def phase(name: str) -> bool:
         return any(item.get("type") == "phase" and (item.get("payload") or {}).get("name") == name for item in events)
 
+    if any(item.startswith("pr.") for item in names):
+        return "pr"
     if "review_started" in names or phase("review"):
         return "integrate" if phase("integrate") else "review"
     fleet = any(item.get("type") in {"worker.spawned", "worker.exited"} for item in events)
@@ -301,6 +303,9 @@ class Board:
             "message": self.messages.get(run_id, ""),
             "stages": list(_STAGES),
         }
+        if any(str(item.get("type") or "").startswith("pr.") for item in events):
+            body["pr_mode"] = True
+            body["pr_repo"] = self.settings.pr.repo
         clean_body, _count = redact_payload(body)
         return clean_body if isinstance(clean_body, dict) else body
 
