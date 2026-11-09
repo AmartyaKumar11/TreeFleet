@@ -10,6 +10,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from treefleet.pr.config import PrConfigError, PrSettings, default_pr, load_pr
 from treefleet.reactions import ReactionConfigError, ReactionTable, default_table, load_reactions
 
 _SECRET_KEYS = ("deepseek_api_key", "typesafe_api_key", "cursor_api_key")
@@ -123,6 +124,7 @@ class Settings(_Strict):
     guards: Guards = Field(default_factory=Guards)
     revise: Revise = Field(default_factory=Revise)
     reactions: ReactionTable = Field(default_factory=default_table)
+    pr: PrSettings = Field(default_factory=default_pr)
     worktree_root: str
     orchestrator_python: str
     worker_python: str
@@ -153,6 +155,7 @@ def _python(venv: Path) -> Path:
 def load_settings(path: Path) -> Settings:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     reactions_raw = data.pop("reactions", None)
+    pr_raw = data.pop("pr", None)
     leaked = [key for key in _SECRET_KEYS if key in data]
     if leaked:
         raise ConfigError(f"{leaked[0]} must be set with an environment variable, not treefleet.toml.")
@@ -177,4 +180,8 @@ def load_settings(path: Path) -> Settings:
         table = load_reactions(reactions_raw, review_rounds=settings.revise.max_rounds)
     except ReactionConfigError as exc:
         raise ConfigError(str(exc)) from exc
-    return settings.model_copy(update={"reactions": table})
+    try:
+        pr = load_pr(pr_raw)
+    except PrConfigError as exc:
+        raise ConfigError(str(exc)) from exc
+    return settings.model_copy(update={"reactions": table, "pr": pr})
