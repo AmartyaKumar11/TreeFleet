@@ -570,8 +570,7 @@ def _start_worker(worktree: Path, token: str, runs: Path, log: Path) -> tuple[su
             str(port),
             "--worktree",
             str(worktree),
-            "--token",
-            token,
+            f"--token={token}",
             "--run-id",
             "ab12cd",
             "--task-id",
@@ -621,6 +620,34 @@ def _worker_result(response: object) -> tuple[str, WorkerResult | None]:
         return result.status.state.value, None
     error = getattr(root, "error", None)
     return f"error:{error}", None
+
+
+def test_worker_starts_when_the_run_token_starts_with_a_dash(tmp_path: Path) -> None:
+    repo, worktree, run_id = _git_worktree(tmp_path)
+    token = "-phase3-token"
+    log = tmp_path / "worker.log"
+    from treefleet.worker.spawner import spawn_worker, worker_env
+
+    record = spawn_worker(
+        python=WORKER,
+        worktree=worktree,
+        run_id=run_id,
+        task_id="alpha",
+        token=token,
+        port=_free_port(),
+        env=worker_env(token),
+        log_path=log,
+    )
+    try:
+        card = httpx.get(
+            record.url + "/.well-known/agent-card.json",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        assert card.status_code == 200
+    finally:
+        kill_tree(record.pid)
+        remove_worktree(repo, worktree)
 
 
 async def test_a2a_card_client_and_busy_reject(tmp_path: Path) -> None:

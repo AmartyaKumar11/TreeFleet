@@ -107,8 +107,8 @@ def spawn_worker(
         str(port),
         "--worktree",
         str(worktree),
-        "--token",
-        token,
+        # One argument. token_urlsafe can start with "-", which argparse reads as a flag.
+        f"--token={token}",
         "--run-id",
         run_id,
         "--task-id",
