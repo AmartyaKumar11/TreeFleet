@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from treefleet.config import ConfigError, load_settings
 from treefleet.pr.fake import FakeProvider
 from treefleet.pr.gh import GhError, GhProvider
+from treefleet.pr.loop import check_label
 
 pytestmark = pytest.mark.phase11
 
@@ -76,6 +78,25 @@ def test_gh_retries_transient_errors_and_always_passes_repo() -> None:
     assert opened.head_sha == "abc"
     assert all(args[0] == "gh" and "--repo" in args and "octo/demo" in args for args in calls)
     assert len(calls) == 3
+
+
+def test_uppercase_github_conclusions_count_as_passing() -> None:
+    body = json.dumps(
+        {
+            "state": "OPEN",
+            "mergeable": "MERGEABLE",
+            "headRefOid": "a" * 40,
+            "url": "https://github.com/octo/demo/pull/85",
+            "statusCheckRollup": [{"name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"}],
+        }
+    )
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, body, "")
+
+    state = GhProvider("octo/demo", runner=runner).get_pr(85)
+    assert state.check_runs[0].conclusion == "success"
+    assert check_label(state) == "passing"
 
 
 _ALLOWED = {
