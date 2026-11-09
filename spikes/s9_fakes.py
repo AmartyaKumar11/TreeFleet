@@ -31,6 +31,16 @@ def shim() -> None:
     if edit == "readme":
         note = os.environ.get("TREEFLEET_FAKE_NOTE", "")
         Path("README.md").write_text(f"shim readme\n{note}", encoding="utf-8")
+    if edit == "both":
+        tests = Path("tests")
+        tests.mkdir(exist_ok=True)
+        target = tests / "test_admin.py"
+        current = target.read_text(encoding="utf-8") if target.is_file() else ""
+        target.write_text(
+            current + '\n\ndef test_added():\n    """Documented."""\n    assert True\n',
+            encoding="utf-8",
+        )
+        Path("README.md").write_text("injected\n", encoding="utf-8")
     if edit == "outside":
         Path("sneak.txt").write_text("nope\n", encoding="utf-8")
         outside = os.environ.get("TREEFLEET_FAKE_OUTSIDE")

@@ -564,12 +564,19 @@ def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     def produce(error: str | None) -> str:
         from treefleet.llm_retry import ModelUnavailableError
 
-        description = (
-            f"{envelope.task.instructions}\nAllowed: {envelope.task.allowed_paths}. "
-            f"Denied: {envelope.task.denied_paths}. Revision: {feedback}. "
-            "Call cursor_code at most once. Then call git_diff. "
-            'Then return JSON {"notes": "..."} only. Do not explore the repository.'
-        )
+        if feedback:
+            description = (
+                f"{feedback}\nAllowed paths: {envelope.task.allowed_paths}. "
+                "Do not change any other file. Call cursor_code at most once. Then call git_diff. "
+                'Then return JSON {"notes": "..."} only. Do not explore the repository.'
+            )
+        else:
+            description = (
+                f"{envelope.task.instructions}\nAllowed: {envelope.task.allowed_paths}. "
+                f"Denied: {envelope.task.denied_paths}. "
+                "Call cursor_code at most once. Then call git_diff. "
+                'Then return JSON {"notes": "..."} only. Do not explore the repository.'
+            )
         if error:
             description += f"\nThe previous JSON failed validation: {error}. Return WorkerDraft JSON only."
         task_started = time.monotonic()
