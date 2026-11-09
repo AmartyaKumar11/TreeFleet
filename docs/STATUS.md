@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-09 — Review rubric
+
+`tests assert nothing` applies only to test files in the diff. A README or CONTRIBUTING diff cannot produce it. The revise feedback is stored on `revise_started`, truncated to 600 characters, and a review after a revise with no new diff is round 2. The verdict reason no longer repeats the same sentence.
+
 ## 2026-11-09 — Pull request poller
 
 `gh api` calls do not take `--repo`; the repo is in the path. `gh pr` calls still pass `--repo`. When `[pr]` is enabled, `treefleet demo preflight` reads `repos/<owner>/<repo>` and `gh pr list --head tf/__preflight__`, and that list must be empty. A poll exception emits `pr.poll_error` and retries after 5, 15, then 45 seconds. Five consecutive failures set the run state to `pr_poll_failed`, move the affected cards to Needs you with reason "PR polling failed", and emit a notify. The poll thread returns instead of dying.

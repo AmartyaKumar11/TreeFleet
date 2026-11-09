@@ -166,6 +166,32 @@ def _forced_reject(task_id: str, source: ReviewVerdict | str) -> ReviewVerdict:
     )
 
 
+def _test_file(path: str) -> bool:
+    """A test path lives under tests/ or test/, or uses a test file name."""
+    pure = path.replace("\\", "/")
+    parts = [part for part in pure.split("/") if part and part not in {".", ".."}]
+    name = parts[-1] if parts else ""
+    under = "tests" in parts[:-1] or "test" in parts[:-1]
+    named = name.startswith("test_") and name.endswith(".py")
+    named = named or name.endswith("_test.py")
+    named = named or ".test." in name or ".spec." in name
+    return under or named
+
+
+def _test_diff(text: str) -> str:
+    """Keep hunks for test files. A blob with no diff header is already test text."""
+    if "diff --git " not in text:
+        return text
+    chunks = text.split("diff --git ")
+    kept: list[str] = []
+    for chunk in chunks[1:]:
+        header = chunk.splitlines()[0] if chunk else ""
+        path = header.rsplit(" b/", 1)[-1].strip() if " b/" in header else ""
+        if _test_file(path):
+            kept.append(chunk)
+    return "\n".join(kept)
+
+
 def apply_rubric(
     verdict: ReviewVerdict,
     *,
@@ -176,8 +202,9 @@ def apply_rubric(
     functions: list[str],
 ) -> ReviewVerdict:
     """Quality notes become suggestions. Only a real gap can revise or reject."""
-    uncovered = [name for name in functions if name not in test_text]
-    asserts_nothing = bool(test_text) and "assert " not in test_text
+    covered = _test_diff(test_text)
+    uncovered = [name for name in functions if name not in covered]
+    asserts_nothing = bool(covered) and "assert " not in covered
     blockers: list[str] = []
     if checks_failed:
         blockers.append("checks failed")
@@ -242,9 +269,13 @@ def _needs_review(result: WorkerResult, fresh: WorkerResult) -> WorkerResult:
 
 
 def verdict_reason(verdict: ReviewVerdict) -> str:
-    parts = [item for item in verdict.reasons if item]
-    if verdict.revision_instructions:
-        parts.append(verdict.revision_instructions)
+    parts: list[str] = []
+    for item in verdict.reasons:
+        if item and item not in parts:
+            parts.append(item)
+    extra = verdict.revision_instructions or ""
+    if extra and extra not in parts:
+        parts.append(extra)
     return "; ".join(parts)[:300]
 
 
@@ -322,7 +353,7 @@ async def review_loop(
                 if decision.action != Action.send_to_agent:
                     break
                 feedback = check_failure_feedback(result.checks)
-                _emit("revise_started", task_id, 0, {"reason": "checks_failed"})
+                _emit("revise_started", task_id, 0, {"reason": "checks_failed", "feedback": feedback[:600]})
                 revise_started = time.monotonic()
                 try:
                     fresh = await rerun(task_id, result, feedback, result.attempt + 1)
@@ -424,7 +455,7 @@ async def review_loop(
                     _fired(Event.approved_green, task_id, 1)
                 break
             feedback = "\n".join(verdict.required_changes) or (verdict.revision_instructions or "")
-            _emit("revise_started", task_id, round_no, {})
+            _emit("revise_started", task_id, round_no, {"feedback": feedback[:600]})
             before = diff_of(result) if diff_of is not None else None
             prior_calls = list(result.cursor_calls)
             prior_duration = result.duration_s
@@ -496,7 +527,7 @@ async def review_loop(
                 _emit(
                     "review_verdict",
                     task_id,
-                    round_no,
+                    round_no + 1,
                     {
                         "verdict": "reject",
                         "reason": verdict_reason(verdict),
