@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from treefleet.checks import detect_checks, select_checks
+from treefleet.checks import detect_checks, python_prefix, select_checks
 from treefleet.config import load_settings
 from treefleet.contracts import RunRequest
 from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers  # noqa: F401
@@ -344,7 +344,18 @@ def _pr_watch(record: object, settings: object) -> int:
             print(f"worktree missing for {task_id}", file=sys.stderr)
             return None
         spec = TaskSpec.model_validate(raw)
-        checks = {"pytest": "python -m pytest -q"} if "pytest" in spec.check_ids else {}
+        repo = Path(record.repo)
+        selected = select_checks(
+            repo,
+            detect_checks(repo),
+            worktree_root=Path(settings.worktree_root),  # type: ignore[attr-defined]
+            run_id=record.run_id,
+        )
+        checks = {name: selected.checks[name] for name in spec.check_ids if name in selected.checks}
+        extra = {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}  # type: ignore[attr-defined]
+        prefix = python_prefix(checks)
+        if prefix:
+            extra["TREEFLEET_PYTHON_DIR"] = prefix
         envelope = WorkerTaskEnvelope(
             run_id=record.run_id,
             attempt=2,
@@ -367,7 +378,7 @@ def _pr_watch(record: object, settings: object) -> int:
                 task_id=task_id,
                 token=token,
                 port=port,
-                env=worker_env(token, {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}),  # type: ignore[attr-defined]
+                env=worker_env(token, extra),
                 log_path=runs / record.run_id / f"{task_id}-revision.log",
             )
         except (OSError, RuntimeError, TimeoutError) as exc:
