@@ -383,11 +383,8 @@ def create_app(
 
     @app.get("/api/worktrees")
     def worktrees() -> JSONResponse:
-        rows = (
-            fixture.get("worktrees")
-            if fixture is not None and fixture.get("worktrees")
-            else worktree_rows(repo, board.base_sha)
-        )
+        raw_rows = fixture.get("worktrees") if fixture is not None else None
+        rows = raw_rows if isinstance(raw_rows, list) and raw_rows else worktree_rows(repo, board.base_sha)
         run_id = next(iter(board.approvals), "")
         if board.replay and board.replay_events:
             run_id = str(board.replay_events[-1].get("run_id") or run_id)

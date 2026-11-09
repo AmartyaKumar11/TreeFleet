@@ -844,6 +844,20 @@ class ReviewerAgent(BaseAgent):
         yield _adk_event(ctx, self.name, delta)
 
 
+def _pr_push(bundle: RunBundle) -> Callable[[str], str]:
+    """Use an injected pusher in tests. Otherwise push the task branch."""
+    from treefleet.pr.stage import git_push
+
+    injected = getattr(bundle, "pr_push", None)
+    if injected is not None:
+        return injected
+
+    def push(task_id: str) -> str:
+        return git_push(bundle.repo, bundle.run_id, task_id, bundle.settings.pr)
+
+    return push
+
+
 async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
     """Push approved branches and watch their pull requests. Does not build an integrated branch."""
     import asyncio
@@ -969,11 +983,7 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
         bundle.settings.pr,
         run_id=bundle.run_id,
         remote_url=remote_url,
-        push=lambda task_id: (
-            git_push(bundle.repo, bundle.run_id, task_id, bundle.settings.pr)
-            if getattr(bundle, "pr_push", None) is None
-            else bundle.pr_push(task_id)
-        ),
+        push=_pr_push(bundle),
         login=str(getattr(bundle, "pr_login", "") or ""),
         hook_hosts=list(getattr(bundle, "pr_hook_hosts", []) or []),
         sleep=getattr(bundle, "pr_sleep", None) or time.sleep,

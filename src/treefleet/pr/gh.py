@@ -113,7 +113,8 @@ class GhProvider:
             comment_id = int(item.get("id") or 0)
             if comment_id <= since_id:
                 continue
-            user = item.get("user") if isinstance(item.get("user"), dict) else {}
+            user_raw = item.get("user")
+            user = user_raw if isinstance(user_raw, dict) else {}
             found.append(Comment(id=comment_id, author=str(user.get("login") or ""), body=str(item.get("body") or "")))
         return found
 

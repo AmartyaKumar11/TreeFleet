@@ -13,7 +13,7 @@ from treefleet.config import load_settings
 from treefleet.pr.config import PrSettings
 from treefleet.pr.fake import FakeProvider
 from treefleet.pr.loop import PollHooks, poll_once
-from treefleet.pr.models import CheckRun
+from treefleet.pr.models import CheckRun, OpenPR
 from treefleet.pr.safety import PrSafetyError, push_refspec
 from treefleet.pr.stage import drive
 from treefleet.reactions import ReactionTable, default_table
@@ -31,7 +31,7 @@ def _settings(**updates: object) -> PrSettings:
     return PrSettings.model_validate(base)
 
 
-def _hooks(fake: FakeProvider, opened_box: list[object]) -> tuple[PollHooks, list[tuple[str, str]]]:
+def _hooks(fake: FakeProvider, opened_box: list[OpenPR]) -> tuple[PollHooks, list[tuple[str, str]]]:
     seen: list[tuple[str, str]] = []
 
     def revise(task_id: str, feedback: str) -> str:
@@ -44,7 +44,7 @@ def _hooks(fake: FakeProvider, opened_box: list[object]) -> tuple[PollHooks, lis
             base="demo-base",
         )
         assert spec == ["push", "origin", f"tf/run/{task_id}:tf/run/{task_id}"]
-        item = next(row for row in opened_box if row.task_id == task_id)  # type: ignore[attr-defined]
+        item = next(row for row in opened_box if row.task_id == task_id)
         sha = f"sha-{task_id}-{len(seen)}"
         fake.set_state(
             item.number,
@@ -69,7 +69,7 @@ def _tasks() -> list[dict[str, str]]:
 
 def test_e8_fail_then_comment_then_green_without_merge() -> None:
     fake = FakeProvider()
-    box: list[object] = []
+    box: list[OpenPR] = []
     hooks, seen = _hooks(fake, box)
     opened, outcome = drive(
         _tasks(),
@@ -116,7 +116,7 @@ def test_e8_fail_then_comment_then_green_without_merge() -> None:
 
 def test_e9_one_conflict_round_then_green() -> None:
     fake = FakeProvider()
-    box: list[object] = []
+    box: list[OpenPR] = []
     hooks, seen = _hooks(fake, box)
     opened, _outcome = drive(
         [_tasks()[1]],
@@ -144,7 +144,7 @@ def test_e9_one_conflict_round_then_green() -> None:
 
 def test_round_limit_ends_in_needs_review() -> None:
     fake = FakeProvider()
-    box: list[object] = []
+    box: list[OpenPR] = []
     hooks, _seen = _hooks(fake, box)
     opened, _outcome = drive(
         [_tasks()[0]],
