@@ -1,0 +1,11 @@
+comment 2026-11-09T13:09:58Z id 6740866000
+revision_pushed 2026-11-09T14:08:57Z sha cca79fcf8313d1ffc0e439919e5d924a16ebfba0
+github_checks_completed 2026-11-09T14:09:12Z
+board_pr_checks 2026-11-09T14:15:58Z
+comment_to_revision_push 58m59s
+push_to_checks_green 15s
+first_attempt 2026-11-09T14:01:24Z made no commit; the check had no Python on PATH
+pr.comment text absent from events.jsonl
+revision did not add a docstring to test_send_email_returns_true
+prs_80_and_77 unchanged
+webhook 684748816 active false
