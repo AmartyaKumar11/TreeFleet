@@ -154,3 +154,15 @@ def test_preflight_smoke_lists_only_the_sentinel_head() -> None:
 
     with pytest.raises(PreflightError, match="matched a pull request"):
         gh_smoke(settings, busy)
+
+
+def test_a_second_process_continues_event_sequence(tmp_path: Path) -> None:
+    from treefleet.contracts import RunEvent
+    from treefleet.events import EventSink
+
+    first = EventSink(tmp_path)
+    first.emit_sync(RunEvent(run_id="abcd1234", seq=0, source="orchestrator", type="pr.opened", payload={}))
+    second = EventSink(tmp_path)
+    second.prime("abcd1234")
+    stored = second.emit_sync(RunEvent(run_id="abcd1234", seq=0, source="orchestrator", type="pr.checks", payload={}))
+    assert stored.seq == 1

@@ -263,12 +263,34 @@ def _pr_merge(argv: list[str], settings: object, runs: Path) -> int:
 
 
 def _pr_watch(record: object, settings: object) -> int:
+    import asyncio
+    import secrets
+
+    from treefleet.contracts import Limits, RunEvent, TaskSpec, WorkerTaskEnvelope
+    from treefleet.events import EventSink
+    from treefleet.git.worktrees import kill_tree
+    from treefleet.orchestrator.fleet import dispatch
     from treefleet.pr.gh import GhProvider
     from treefleet.pr.loop import PollHooks
     from treefleet.pr.models import OpenPR
-    from treefleet.pr.stage import poll_until
+    from treefleet.pr.stage import git_push, poll_until
+    from treefleet.sessions import RunRecord, RunStore
+    from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
 
-    tasks = record.tasks  # type: ignore[attr-defined]
+    if not isinstance(record, RunRecord):
+        print("run record is unreadable", file=sys.stderr)
+        return 1
+    if record.stage not in {"awaiting_prs", "running"}:
+        print(f"refusing watch: stage is {record.stage}", file=sys.stderr)
+        return 1
+    runs = Path.cwd() / "runs"
+    path = runs / record.run_id / "run.json"
+    store = RunStore(path, record)
+    sink = EventSink(runs)
+    sink.prime(record.run_id)
+    plan_tasks = record.plan.get("tasks", []) if isinstance(record.plan, dict) else []
+    specs = {str(item.get("id")): item for item in plan_tasks if isinstance(item, dict)}
+    tasks = record.tasks
     opened = [
         OpenPR(
             task_id=task.task_id,
@@ -283,19 +305,142 @@ def _pr_watch(record: object, settings: object) -> int:
         for task in tasks
         if task.pr_number and task.pr_open
     ]
+    login = _gh_login()
 
-    def emit(kind: str, task_id: str, _payload: dict[str, object]) -> None:
+    def emit(kind: str, task_id: str, payload: dict[str, object]) -> None:
         print(f"{kind} {task_id}")
+        sink.emit_sync(
+            RunEvent(
+                run_id=record.run_id,
+                seq=0,
+                source="orchestrator",
+                type=kind,
+                task_id=task_id or None,
+                payload=payload,
+            )
+        )
+        item = next((row for row in opened if row.task_id == task_id), None)
+        if item is None:
+            return
+        store.upsert_task(
+            task_id,
+            pr_number=item.number,
+            pr_url=item.url,
+            pr_head_sha=item.head_sha,
+            pr_last_comment_id=item.last_comment_id,
+            pr_open=item.status not in {"merged", "cancelled"},
+            pr_status=item.status,
+            pr_checks=item.checks,
+        )
+
+    def revise(task_id: str, feedback: str) -> str | None:
+        raw = specs.get(task_id)
+        task_row = next((row for row in tasks if row.task_id == task_id), None)
+        if raw is None or task_row is None or not task_row.worktree:
+            print(f"no worktree for {task_id}", file=sys.stderr)
+            return None
+        worktree = Path(task_row.worktree)
+        if not worktree.is_dir():
+            print(f"worktree missing for {task_id}", file=sys.stderr)
+            return None
+        spec = TaskSpec.model_validate(raw)
+        checks = {"pytest": "python -m pytest -q"} if "pytest" in spec.check_ids else {}
+        envelope = WorkerTaskEnvelope(
+            run_id=record.run_id,
+            attempt=2,
+            task=spec,
+            model=settings.models.fast,  # type: ignore[attr-defined]
+            cursor_model=_cursor_model(runs, record.run_id, task_id),
+            checks=checks,
+            limits=Limits(timeout_s=600),
+            base_sha=record.base_sha or None,
+            revision_feedback=feedback[:2000] or None,
+        )
+        token = secrets.token_urlsafe(32)
+        port = free_port(settings.workers.port_start, set())  # type: ignore[attr-defined]
+        try:
+            before_spawn(worktree, record.run_id, sink, task_id)
+            proc = spawn_worker(
+                python=Path(settings.worker_python),  # type: ignore[attr-defined]
+                worktree=worktree,
+                run_id=record.run_id,
+                task_id=task_id,
+                token=token,
+                port=port,
+                env=worker_env(token, {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}),  # type: ignore[attr-defined]
+                log_path=runs / record.run_id / f"{task_id}-revision.log",
+            )
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            print(f"worker did not start for {task_id}: {type(exc).__name__}", file=sys.stderr)
+            return None
+        try:
+            result, _note = asyncio.run(dispatch(proc.url, token, envelope))
+        except Exception as exc:
+            print(f"revision failed for {task_id}: {type(exc).__name__}", file=sys.stderr)
+            return None
+        finally:
+            kill_tree(proc.pid)
+        if not result.commit_made or not result.head_sha:
+            print(f"revision made no commit for {task_id}", file=sys.stderr)
+            return None
+        try:
+            return git_push(Path(record.repo), record.run_id, task_id, settings.pr)  # type: ignore[attr-defined]
+        except Exception as exc:
+            print(f"push failed for {task_id}: {type(exc).__name__}", file=sys.stderr)
+            return None
 
     outcome = poll_until(
         opened,
         GhProvider(settings.pr.repo),  # type: ignore[attr-defined]
-        PollHooks(revise=lambda _task, _feedback: None, resolve_conflict=lambda _task: None, emit=emit),
+        PollHooks(revise=revise, resolve_conflict=lambda _task: None, emit=emit),
         settings.pr,  # type: ignore[attr-defined]
-        login="",
+        login=login,
     )
+    for item in opened:
+        store.upsert_task(
+            item.task_id,
+            pr_head_sha=item.head_sha,
+            pr_last_comment_id=item.last_comment_id,
+            pr_open=item.status not in {"merged", "cancelled"},
+            pr_status=item.status,
+            pr_checks=item.checks,
+        )
     print(outcome)
     return 0 if outcome == "done" else 1
+
+
+def _gh_login() -> str:
+    import subprocess
+
+    proc = subprocess.run(
+        ["gh", "api", "user", "--jq", ".login"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        shell=False,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
+
+
+def _cursor_model(runs: Path, run_id: str, task_id: str) -> str:
+    path = runs / run_id / "events.jsonl"
+    chosen = "composer-2.5"
+    if not path.is_file():
+        return chosen
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "model_selected" and event.get("task_id") == task_id:
+                model = event.get("payload", {}).get("model")
+                if isinstance(model, str) and model:
+                    chosen = model
+    return chosen
 
 
 def _sessions(argv: list[str]) -> int:

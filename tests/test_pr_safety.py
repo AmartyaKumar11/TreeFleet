@@ -18,6 +18,7 @@ from treefleet.pr.safety import (
     pr_body,
     public_text,
     push_refspec,
+    revision_comment,
 )
 
 pytestmark = pytest.mark.phase11
@@ -150,3 +151,11 @@ def test_external_hook_refuses_until_the_switch_is_true() -> None:
             remote_url="https://github.com/octo/demo.git",
             hook_hosts=hosts,
         )
+
+
+def test_revision_comment_uses_the_request_line() -> None:
+    body = delimited_feedback("Please add a docstring to the first test function.")
+    posted = revision_comment(1, body)
+    assert posted.startswith("Revision 1: Please add a docstring to the first test function.")
+    assert posted.endswith("<!-- treefleet -->")
+    assert "<untrusted-data>" not in posted

@@ -137,6 +137,25 @@ class EventSink:
         self._history: dict[str, list[RunEvent]] = {}
         self._queues: dict[str, list[asyncio.Queue[RunEvent]]] = {}
 
+    def prime(self, run_id: str) -> None:
+        """Continue sequence numbers when a second process appends to an existing log."""
+        path = self._root / run_id / "events.jsonl"
+        if not path.is_file():
+            return
+        last = -1
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    seq = json.loads(text).get("seq")
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(seq, int) and seq > last:
+                    last = seq
+        self._seq[run_id] = last + 1
+
     async def emit(self, event: RunEvent) -> RunEvent:
         stored, queues = self._record(event)
         for queue in queues:
