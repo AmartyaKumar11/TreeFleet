@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-09 — Board run and approval source
+
+`approval.granted` records `source` `ui` when the request sends `X-TreeFleet-Client: ui`, otherwise `http`. `run.json` stores `plan_approval`. `/api/board` returns the run named by `?run=`, and with no query it returns the most recently started run. The history list switches the board. A 30-by-30 first-click check at 1440 and 390 did not reproduce a missed Approve click.
+
 ## 2026-11-09 — Review rubric
 
 `tests assert nothing` applies only to test files in the diff. A README or CONTRIBUTING diff cannot produce it. The revise feedback is stored on `revise_started`, truncated to 600 characters, and a review after a revise with no new diff is round 2. The verdict reason no longer repeats the same sentence.

@@ -56,6 +56,7 @@ class RunRecord(BaseModel):
     base_sha: str
     goal: str
     routing_mode: str
+    plan_approval: bool = True
     stage: str
     orchestrator_pid: int
     orchestrator_started: float
@@ -157,6 +158,7 @@ class RunStore:
         routing_mode: str,
         pid: int,
         started: float,
+        plan_approval: bool = True,
     ) -> RunStore:
         record = RunRecord(
             run_id=run_id,
@@ -164,6 +166,7 @@ class RunStore:
             base_sha=base_sha,
             goal=goal,
             routing_mode=routing_mode,
+            plan_approval=plan_approval,
             stage="guard",
             orchestrator_pid=pid,
             orchestrator_started=started,

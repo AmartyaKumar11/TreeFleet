@@ -875,6 +875,8 @@ class PlannerAgent(BaseAgent):
         approved = True
         if self.bundle.request.plan_approval:
             approved = True if self.bundle.approve is None else bool(self.bundle.approve(plan))
+            source = getattr(self.bundle.approve, "source", "http") if self.bundle.approve is not None else "http"
+            source = "ui" if source == "ui" else "http"
             self.bundle.sink.emit_sync(
                 RunEvent(
                     run_id=self.bundle.run_id,
@@ -884,6 +886,16 @@ class PlannerAgent(BaseAgent):
                     payload={"approved": approved},
                 )
             )
+            if approved:
+                self.bundle.sink.emit_sync(
+                    RunEvent(
+                        run_id=self.bundle.run_id,
+                        seq=0,
+                        source="orchestrator",
+                        type="approval.granted",
+                        payload={"source": source, "approved": True},
+                    )
+                )
         self.bundle.approved = approved
         if approved:
             remember_plan(self.bundle, plan)

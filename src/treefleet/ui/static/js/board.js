@@ -498,10 +498,12 @@ function openEvents(runId) {
     .catch(() => {});
 }
 
+let selectedRun = "";
+
 function post(url, body) {
   return fetch(url, {
     method: "POST",
-    headers: auth({ "Content-Type": "application/json" }),
+    headers: auth({ "Content-Type": "application/json", "X-TreeFleet-Client": "ui" }),
     body: body ? JSON.stringify(body) : "{}",
   });
 }
@@ -540,14 +542,24 @@ function render(data) {
   const runList = document.getElementById("run-history");
   if (runList) {
     runList.innerHTML = "";
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.setAttribute("aria-current", "true");
+    const runs = Array.isArray(data.runs) && data.runs.length ? data.runs : [{ id: data.run_id || "idle" }];
     const statusDot = data.needs_human || data.awaiting ? "orange" : data.stage === "done" ? "green" : "blue";
-    btn.innerHTML = `<span class="dot ${statusDot}"></span><span class="mono">${esc(data.run_id || "idle")}</span>`;
-    li.appendChild(btn);
-    runList.appendChild(li);
+    runs.forEach((item) => {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const id = String(item.id || "idle");
+      if (id === data.run_id) btn.setAttribute("aria-current", "true");
+      btn.addEventListener("click", () => {
+        if (id && id !== "idle") {
+          selectedRun = id;
+          refresh();
+        }
+      });
+      btn.innerHTML = `<span class="dot ${id === data.run_id ? statusDot : "blue"}"></span><span class="mono">${esc(id)}</span>`;
+      li.appendChild(btn);
+      runList.appendChild(li);
+    });
   }
 
   const tasks = data.tasks || [];
@@ -714,7 +726,8 @@ function tick() {
 }
 
 function refresh() {
-  fetch("/api/board", { headers: auth() })
+  const query = selectedRun ? `?run=${encodeURIComponent(selectedRun)}` : "";
+  fetch(`/api/board${query}`, { headers: auth() })
     .then((res) => res.json())
     .then(render)
     .catch(() => {});
@@ -796,6 +809,7 @@ document.getElementById("run").addEventListener("click", () => {
         return;
       }
       started = Date.now() / 1000;
+      selectedRun = data.run_id || "";
       refresh();
     });
 });

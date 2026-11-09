@@ -125,6 +125,7 @@ async def run_pipeline(
         base_sha=base_sha,
         goal=request.goal,
         routing_mode=request.worker_model,
+        plan_approval=request.plan_approval,
         pid=os.getpid(),
         started=psutil.Process().create_time(),
     )

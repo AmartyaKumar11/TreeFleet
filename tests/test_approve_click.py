@@ -172,3 +172,110 @@ def test_approve_click_leaves_approve_within_five_seconds(tmp_path: Path, monkey
         server.should_exit = True
         thread.join(timeout=5)
     assert failures == []
+
+
+def test_immediate_approve_click_survives_the_one_second_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Click as soon as the button appears, then at half a second, one second, and two seconds."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    _env(monkeypatch)
+    repo = tmp_path / "repo"
+    _git(repo)
+    app = create_app(repo, root=ROOT, token="test-token", runs=tmp_path / "runs", models=[])
+    board = app.state.board
+    plan = _plan()
+    holder: dict[str, Approval | None] = {"gate": None}
+
+    def arm() -> Approval:
+        previous = holder["gate"]
+        if previous is not None and previous.waiting():
+            previous.finish(False)
+        gate = Approval()
+        threading.Thread(target=gate, args=(plan,), daemon=True).start()
+        deadline = time.time() + 2
+        while not gate.waiting() and time.time() < deadline:
+            time.sleep(0.01)
+        assert gate.waiting()
+        board.approvals.clear()
+        board.approvals["abcd1234"] = gate
+        board.started["abcd1234"] = time.time()
+        holder["gate"] = gate
+        return gate
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    ready = time.time() + 10
+    while time.time() < ready and not server.started:
+        time.sleep(0.05)
+    assert server.started
+    failures: list[str] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
+            console: list[str] = []
+            page.on("console", lambda msg: console.append(f"{msg.type}: {msg.text}") if msg.type == "error" else None)
+            for width, height in ((1440, 900), (390, 844)):
+                page.set_viewport_size({"width": width, "height": height})
+                for attempt in range(1, 31):
+                    arm()
+                    console.clear()
+                    if width < 500:
+                        page.locator('.mobile-lane-tabs button[data-lane="needs"]').click()
+                    page.get_by_text("Plan ready").wait_for(timeout=5000)
+                    appeared = time.time()
+                    born = page.evaluate(
+                        """() => {
+                          const button = [...document.querySelectorAll('button')]
+                            .find((el) => el.textContent.trim() === 'Approve plan');
+                          if (!button) return '';
+                          button.dataset.born = String(performance.now());
+                          return button.dataset.born;
+                        }"""
+                    )
+                    page.get_by_role("button", name="Approve plan").click()
+                    time.sleep(0.25)
+                    stage = _board(port).get("stage")
+                    if stage == "approve":
+                        replaced = page.evaluate(
+                            """(born) => {
+                              const button = [...document.querySelectorAll('button')]
+                                .find((el) => el.textContent.trim() === 'Approve plan');
+                              const needs = document.getElementById('needs');
+                              return {
+                                replaced: !button || button.dataset.born !== born,
+                                needs: needs ? needs.innerText.slice(0, 240) : '',
+                              };
+                            }""",
+                            born,
+                        )
+                        failures.append(
+                            f"{width} #{attempt} first click left stage=approve replaced={replaced} console={console}"
+                        )
+                        for delay in (0.5, 1.0, 2.0):
+                            remain = appeared + delay - time.time()
+                            if remain > 0:
+                                time.sleep(remain)
+                            if page.get_by_role("button", name="Approve plan").count() == 0:
+                                break
+                            page.get_by_role("button", name="Approve plan").click()
+                            time.sleep(0.2)
+                            if _board(port).get("stage") != "approve":
+                                break
+            browser.close()
+    finally:
+        gate = holder["gate"]
+        if gate is not None and gate.waiting():
+            gate.finish(False)
+        server.should_exit = True
+        thread.join(timeout=5)
+    assert failures == []

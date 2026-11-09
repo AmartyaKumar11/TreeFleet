@@ -92,6 +92,7 @@ class Approval:
         self.plan: Plan | None = None
         self._decision = threading.Event()
         self.ok = False
+        self.source = "http"
 
     def __call__(self, plan: Plan) -> bool:
         self.plan = plan
@@ -101,8 +102,9 @@ class Approval:
     def waiting(self) -> bool:
         return self.plan is not None and not self._decision.is_set()
 
-    def finish(self, ok: bool) -> None:
+    def finish(self, ok: bool, source: str = "http") -> None:
         self.ok = ok
+        self.source = "ui" if source == "ui" else "http"
         self._decision.set()
 
 
@@ -302,12 +304,25 @@ class Board:
             "report": report,
             "message": self.messages.get(run_id, ""),
             "stages": list(_STAGES),
+            "runs": self.run_catalog(),
         }
         if any(str(item.get("type") or "").startswith("pr.") for item in events):
             body["pr_mode"] = True
             body["pr_repo"] = self.settings.pr.repo
         clean_body, _count = redact_payload(body)
         return clean_body if isinstance(clean_body, dict) else body
+
+    def run_catalog(self) -> list[dict[str, float | str]]:
+        """In-process runs, then any run directory, newest first."""
+        rows: dict[str, float] = dict(self.started)
+        if self.runs.is_dir():
+            for path in self.runs.glob("*/run.json"):
+                try:
+                    rows.setdefault(path.parent.name, path.stat().st_mtime)
+                except OSError:
+                    continue
+        ordered = sorted(rows, key=lambda key: rows[key], reverse=True)
+        return [{"id": key, "started": rows[key]} for key in ordered]
 
 
 def create_app(
@@ -394,13 +409,16 @@ def create_app(
         return JSONResponse(body)
 
     @app.get("/api/board")
-    def current() -> JSONResponse:
+    def current(run: str = "") -> JSONResponse:
         if fixture is not None:
             body, _count = redact_payload(fixture)
             return JSONResponse(body)
-        run_id = next(iter(board.approvals), "")
-        if board.replay and board.replay_events:
-            run_id = str(board.replay_events[-1].get("run_id") or run_id)
+        run_id = run
+        if not run_id and board.replay and board.replay_events:
+            run_id = str(board.replay_events[-1].get("run_id") or "")
+        if not run_id:
+            catalog = board.run_catalog()
+            run_id = str(catalog[0]["id"]) if catalog else ""
         if not run_id:
             branch, head, clean = _head(repo)
             return JSONResponse(
@@ -419,6 +437,7 @@ def create_app(
                     "worktrees": worktree_rows(repo, board.base_sha),
                     "awaiting": None,
                     "report": None,
+                    "runs": [],
                 }
             )
         return JSONResponse(board.snapshot(run_id))
@@ -473,12 +492,13 @@ def create_app(
         return JSONResponse(body)
 
     @app.post("/api/runs/{run_id}/approve")
-    def approve(run_id: str) -> JSONResponse:
+    def approve(run_id: str, request: Request) -> JSONResponse:
         gate = board.approvals.get(run_id)
         if gate is None:
             return JSONResponse({"error": "unknown run"}, status_code=404)
-        gate.finish(True)
-        return JSONResponse({"ok": True})
+        client = request.headers.get("x-treefleet-client", "")
+        gate.finish(True, "ui" if client.strip().lower() == "ui" else "http")
+        return JSONResponse({"ok": True, "source": gate.source})
 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel(run_id: str) -> JSONResponse:
