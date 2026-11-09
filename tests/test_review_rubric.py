@@ -94,7 +94,9 @@ async def test_revise_feedback_is_stored_and_the_second_review_is_round_2() -> N
         emit=emit,
     )
     started = [item for item in seen if item[0] == "revise_started"]
-    assert started[0][2]["feedback"] == "fix the test"
-    assert len(started[0][2]["feedback"]) <= 600
+    feedback = started[0][2]["feedback"]
+    assert isinstance(feedback, str)
+    assert feedback == "fix the test"
+    assert len(feedback) <= 600
     rejected = [item for item in seen if item[0] == "review_verdict" and item[2].get("verdict") == "reject"]
     assert rejected[0][1] == 2
