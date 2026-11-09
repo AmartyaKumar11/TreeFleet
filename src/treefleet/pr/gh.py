@@ -178,7 +178,7 @@ def _state(number: int, payload: dict[str, Any]) -> PRState:
                 CheckRun(
                     name=str(item.get("name") or item.get("context") or "check"),
                     status=str(item.get("status") or "").lower(),
-                    conclusion=str(item.get("conclusion") or "").lower(),
+                    conclusion=str(item.get("conclusion") or item.get("state") or "").lower(),
                 )
             )
     merged = bool(payload.get("mergedAt"))
