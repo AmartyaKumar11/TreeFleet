@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-09 — Tool error arguments
+
+`tool.error` includes the tool arguments, each redacted and cut to 200 characters, when the caller passed them. A call with no arguments omits the field.
+
 ## 2026-11-09 — Board run and approval source
 
 `approval.granted` records `source` `ui` when the request sends `X-TreeFleet-Client: ui`, otherwise `http`. `run.json` stores `plan_approval`. `/api/board` returns the run named by `?run=`, and with no query it returns the most recently started run. The history list switches the board. A 30-by-30 first-click check at 1440 and 390 did not reproduce a missed Approve click.

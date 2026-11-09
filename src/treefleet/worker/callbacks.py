@@ -85,12 +85,19 @@ def on_tool_args(
     return json.dumps({"ok": False, "error": {"code": "PATH_ESCAPE", "message": message[:200]}})
 
 
+def _argument_text(value: Any) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    redacted, _count = redact(text)
+    return redacted[:200]
+
+
 def on_tool_result(
     raw: str,
     sink: EventSink | None,
     run_id: str,
     task_id: str | None,
     tool: str = "",
+    args: dict[str, Any] | None = None,
 ) -> str:
     text, count = redact(raw)
     if count and sink is not None:
@@ -112,6 +119,9 @@ def on_tool_result(
         return text
     message, name = _tool_failure(text, data, tool)
     if sink is not None:
+        payload: dict[str, Any] = {"tool": name, "message": message}
+        if args is not None:
+            payload["arguments"] = {str(key): _argument_text(value) for key, value in args.items()}
         sink.emit_sync(
             RunEvent(
                 run_id=run_id,
@@ -119,7 +129,7 @@ def on_tool_result(
                 source="worker",
                 type="tool.error",
                 task_id=task_id,
-                payload={"tool": name, "message": message},
+                payload=payload,
             )
         )
     if isinstance(data, dict) and "ok" in data:

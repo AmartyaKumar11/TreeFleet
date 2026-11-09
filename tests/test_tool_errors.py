@@ -63,10 +63,21 @@ async def test_read_file_path_alias_and_missing_argument(tmp_path: Path) -> None
     sink = EventSink(tmp_path)
     on_tool_result(json.dumps(missing), sink, "abc12345", "alpha", tool="read_file")
     on_tool_result(_VALIDATION, sink, "abc12345", "alpha")
+    on_tool_result(
+        json.dumps(missing),
+        sink,
+        "abc12345",
+        "alpha",
+        tool="read_file",
+        args={"path": "", "note": "sk-abcdefghij" + ("x" * 220)},
+    )
     text = (tmp_path / "abc12345" / "events.jsonl").read_text(encoding="utf-8")
     assert "guard.decision" not in text
     rows = [json.loads(line) for line in text.splitlines()]
-    assert [row["type"] for row in rows] == ["tool.error", "tool.error"]
+    assert [row["type"] for row in rows] == ["tool.error", "tool.error", "tool.error"]
     assert rows[0]["payload"] == {"tool": "read_file", "message": "path is required"}
     assert rows[1]["payload"]["tool"] == "read_file"
     assert "Field required" in rows[1]["payload"]["message"]
+    assert rows[2]["payload"]["arguments"]["path"] == ""
+    assert "sk-abcdefghij" not in text
+    assert len(rows[2]["payload"]["arguments"]["note"]) <= 200
