@@ -202,7 +202,8 @@ async def run_pipeline(
     if report is None:
         store.set_stage("failed")
         return RunOutcome(1, None, state, run_id, "run finished without a report")
-    store.set_stage("done")
+    if store.record.stage != "timed_out":
+        store.set_stage("done")
     from treefleet.contracts import RunEvent
     from treefleet.reactions import Event, reaction_payload, resolve
 

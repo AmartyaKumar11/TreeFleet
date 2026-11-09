@@ -69,6 +69,7 @@ def poll_once(
             hooks.note("pr.closed", item.task_id, {"number": item.number, "reason": "pull request closed"})
             continue
         comments = provider.list_comments(item.number, item.last_comment_id)  # type: ignore[attr-defined]
+        acted = False
         for comment in comments:
             item.last_comment_id = max(item.last_comment_id, comment.id)
             kind = comment_kind(comment, trusted)
@@ -78,7 +79,8 @@ def poll_once(
                 hooks.note("pr.comment_ignored", item.task_id, {"author": comment.author, "number": item.number})
                 continue
             _on_comment(item, comment.body, provider, policy, hooks)
-        if item.status in _DONE or item.status == "needs_review":
+            acted = True
+        if acted or item.status in _DONE or item.status == "needs_review":
             continue
         if state.mergeable == "CONFLICTING":
             _on_conflict(item, provider, policy, hooks)

@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args[1:])
     if args and args[0] == "ui":
         return _ui(args[1:])
+    if args and args[0] == "pr":
+        return _pr(args[1:])
     if args and args[0] == "demo":
         from treefleet.demo import main as demo_main
 
@@ -191,6 +193,109 @@ def _models() -> int:
     for model in discover(Path(settings.cursor.cli), settings.cursor.list_flag):
         print(f"{model.id} - {model.label}")
     return 0
+
+
+def _pr(argv: list[str]) -> int:
+    """watch reattaches the poller. status prints one row. merge is the only merge command."""
+    from treefleet.pr.stage import status_lines
+    from treefleet.sessions import load_run
+
+    if not argv or argv[0] not in {"watch", "status", "merge"}:
+        print("usage: treefleet pr watch|status|merge", file=sys.stderr)
+        return 2
+    settings = load_settings(Path.cwd() / "treefleet.toml")
+    runs = Path.cwd() / "runs"
+    if argv[0] in {"watch", "merge"} and not settings.pr.enabled:
+        print("pr is disabled", file=sys.stderr)
+        return 1
+    if argv[0] == "merge":
+        return _pr_merge(argv[1:], settings, runs)
+    if len(argv) != 2:
+        print("usage: treefleet pr watch|status RUN", file=sys.stderr)
+        return 2
+    path = runs / argv[1] / "run.json"
+    if not path.is_file():
+        print(f"no run {argv[1]}", file=sys.stderr)
+        return 1
+    record = load_run(path)
+    if argv[0] == "status":
+        print(
+            "\n".join(
+                status_lines(
+                    [
+                        {
+                            "task_id": task.task_id,
+                            "pr_number": task.pr_number,
+                            "pr_status": task.pr_status,
+                            "status": task.status,
+                            "pr_checks": task.pr_checks,
+                        }
+                        for task in record.tasks
+                    ]
+                )
+            )
+        )
+        return 0
+    return _pr_watch(record, settings)
+
+
+def _pr_merge(argv: list[str], settings: object, runs: Path) -> int:
+    from treefleet.pr.gh import GhProvider
+    from treefleet.pr.stage import merge_task
+    from treefleet.sessions import load_run
+
+    if len(argv) != 1 or "/" not in argv[0]:
+        print("usage: treefleet pr merge RUN/TASK", file=sys.stderr)
+        return 2
+    run_id, task_id = argv[0].split("/", 1)
+    path = runs / run_id / "run.json"
+    if not path.is_file():
+        print(f"no run {run_id}", file=sys.stderr)
+        return 1
+    record = load_run(path)
+    task = next((item for item in record.tasks if item.task_id == task_id), None)
+    if task is None or not task.pr_number:
+        print(f"no pull request for {task_id}", file=sys.stderr)
+        return 1
+    merge_task(GhProvider(settings.pr.repo), task.pr_number)  # type: ignore[attr-defined]
+    print(f"merged {task.pr_number}")
+    return 0
+
+
+def _pr_watch(record: object, settings: object) -> int:
+    from treefleet.pr.gh import GhProvider
+    from treefleet.pr.loop import PollHooks
+    from treefleet.pr.models import OpenPR
+    from treefleet.pr.stage import poll_until
+
+    tasks = record.tasks  # type: ignore[attr-defined]
+    opened = [
+        OpenPR(
+            task_id=task.task_id,
+            number=int(task.pr_number),
+            url=task.pr_url,
+            head=task.branch,
+            head_sha=task.pr_head_sha,
+            last_comment_id=task.pr_last_comment_id,
+            status=task.pr_status or "open",
+            checks=task.pr_checks or "pending",
+        )
+        for task in tasks
+        if task.pr_number and task.pr_open
+    ]
+
+    def emit(kind: str, task_id: str, _payload: dict[str, object]) -> None:
+        print(f"{kind} {task_id}")
+
+    outcome = poll_until(
+        opened,
+        GhProvider(settings.pr.repo),  # type: ignore[attr-defined]
+        PollHooks(revise=lambda _task, _feedback: None, resolve_conflict=lambda _task: None, emit=emit),
+        settings.pr,  # type: ignore[attr-defined]
+        login="",
+    )
+    print(outcome)
+    return 0 if outcome == "done" else 1
 
 
 def _sessions(argv: list[str]) -> int:

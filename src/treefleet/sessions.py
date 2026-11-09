@@ -39,6 +39,13 @@ class TaskRecord(BaseModel):
     verdict: str = ""
     reason: str = ""
     last_event_ts: str = ""
+    pr_number: int | None = None
+    pr_url: str = ""
+    pr_head_sha: str = ""
+    pr_last_comment_id: int = 0
+    pr_open: bool = False
+    pr_status: str = ""
+    pr_checks: str = ""
 
 
 class RunRecord(BaseModel):
@@ -82,7 +89,16 @@ def atomic_write(path: Path, text: str, *, replace: bool = True) -> None:
 
 
 def load_run(path: Path) -> RunRecord:
-    return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+    """Read the envelope. Windows can deny the read for a moment while the heartbeat replaces the file."""
+    last: PermissionError | None = None
+    for _attempt in range(5):
+        try:
+            return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        except PermissionError as exc:
+            last = exc
+            time.sleep(0.05)
+    assert last is not None
+    raise last
 
 
 def pid_matches(pid: int | None, started: float | None, *, tolerance: float = 2.0) -> bool:
@@ -103,6 +119,8 @@ def run_state(record: RunRecord, *, now: float | None = None) -> str:
         return "failed"
     if record.stage == "cancelled":
         return "cancelled"
+    if record.stage == "timed_out":
+        return "timed_out"
     moment = time.time() if now is None else now
     try:
         updated = datetime.fromisoformat(record.updated_at).timestamp()
@@ -112,6 +130,8 @@ def run_state(record: RunRecord, *, now: float | None = None) -> str:
     gone = not pid_matches(record.orchestrator_pid, record.orchestrator_started)
     if stale and gone:
         return "dead"
+    if record.stage == "awaiting_prs":
+        return "awaiting_prs"
     return "running"
 
 
@@ -530,10 +550,15 @@ def cleanup_session(
         if not path_allowed(str(item.path), worktree_root):
             return CommandResult(1, [f"refusing {item.path}"])
         worktrees.append(item)
+    open_branches = {task.branch for task in record.tasks if task.pr_open and task.branch} if record else set()
+    held = [item for item in worktrees if item.branch in open_branches]
+    worktrees = [item for item in worktrees if item.branch not in open_branches]
     integrated = f"tf/{run_id}/integrated"
     deletable: list[str] = []
     refused_branches: list[str] = []
     for name in _branches(repo, prefix):
+        if name in open_branches:
+            continue
         if name == integrated or include_unmerged or _merged(repo, name, integrated):
             deletable.append(name)
         else:
@@ -543,10 +568,11 @@ def cleanup_session(
         status = run_git(["status", "--porcelain"], cwd=item.path).stdout.strip()
         if status:
             dirty.append((item.path, status))
-    if not pids and not worktrees and not deletable and not refused_branches and not skipped:
+    if not pids and not worktrees and not held and not deletable and not refused_branches and not skipped:
         return CommandResult(0, ["nothing to clean"])
     lines = [f"pid {pid} {role}" for pid, role in pids]
     lines.extend(f"worktree {item.path}" for item in worktrees)
+    lines.extend(f"kept {item.path} open pr" for item in held)
     lines.extend(f"branch {name}" for name in deletable)
     lines.extend(f"refuse {name} unmerged" for name in refused_branches)
     for path, status in dirty:

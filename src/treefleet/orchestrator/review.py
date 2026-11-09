@@ -844,6 +844,159 @@ class ReviewerAgent(BaseAgent):
         yield _adk_event(ctx, self.name, delta)
 
 
+async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
+    """Push approved branches and watch their pull requests. Does not build an integrated branch."""
+    import asyncio
+    import concurrent.futures
+    import time
+
+    from treefleet.git.merge import conflict_revision_feedback, merge_tip_into_task
+    from treefleet.pr.loop import PollHooks
+    from treefleet.pr.stage import drive, git_push
+    from treefleet.sessions import note_stage, note_task
+
+    note_stage(bundle, "awaiting_prs")
+    plan = read_plan(ctx.session.state)
+    results = read_results(ctx.session.state)
+    verdicts = {
+        item.task_id: item
+        for item in (ReviewVerdict.model_validate(raw) for raw in ctx.session.state.get(StateKey.VERDICTS, []))
+    }
+    branches, _reasons = selected_branches(
+        plan,
+        results,
+        verdicts,
+        include_needs_review=bool(getattr(bundle.request, "include_needs_review", False)),
+    )
+    by_id = {task.id: task for task in plan.tasks}
+    rows: list[dict[str, str]] = []
+    for task_id in branches:
+        task = by_id[task_id]
+        verdict = verdicts.get(task_id)
+        note = ""
+        if verdict is not None and verdict.reasons:
+            note = str(verdict.reasons[0])
+        rows.append(
+            {
+                "id": task_id,
+                "title": task.title,
+                "goal": bundle.request.goal,
+                "scope": ", ".join(task.allowed_paths),
+                "verdict": note[:180],
+                "checks": "pending",
+            }
+        )
+
+    def emit(kind: str, task_id: str, payload: dict[str, object]) -> None:
+        _emit(bundle, kind, task_id, 0, {key: value for key, value in payload.items()})
+        fields: dict[str, object] = {}
+        if kind == "pr.opened":
+            fields = {
+                "branch": f"tf/{bundle.run_id}/{task_id}",
+                "pr_number": payload.get("number"),
+                "pr_url": str(payload.get("url") or ""),
+                "pr_head_sha": str(payload.get("sha") or ""),
+                "pr_open": True,
+                "pr_status": "open",
+                "pr_checks": "pending",
+            }
+        elif kind == "pr.merged":
+            fields = {"status": "done", "pr_status": "merged", "pr_open": False, "pr_checks": "passing"}
+        elif kind == "pr.closed":
+            fields = {
+                "status": "cancelled",
+                "pr_status": "closed",
+                "pr_open": False,
+                "reason": str(payload.get("reason") or "pull request closed"),
+            }
+        elif kind == "pr.checks" and payload.get("status") == "needs_review":
+            fields = {"status": "needs_review", "pr_status": "needs_review", "reason": "round limit reached"}
+        elif kind == "pr.checks" and payload.get("checks"):
+            state_name = "approved_green" if payload.get("checks") == "passing" else "open"
+            fields = {"pr_checks": payload.get("checks"), "pr_status": state_name}
+        if fields:
+            note_task(bundle, task_id, **fields)
+
+    def revise(task_id: str, feedback: str) -> str | None:
+        injected = getattr(bundle, "pr_revise", None)
+        if injected is not None:
+            return injected(task_id, feedback)
+        result = results.get(task_id)
+        attempt = (result.attempt + 1) if result is not None else 2
+
+        def _run() -> WorkerResult:
+            return asyncio.run(_redispatch(bundle, task_id, feedback, attempt))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                fresh = pool.submit(_run).result(timeout=bundle.settings.revise.round_budget_s + 60)
+            except Exception:
+                return None
+        if not fresh.commit_made:
+            return None
+        results[task_id] = fresh
+        try:
+            return git_push(bundle.repo, bundle.run_id, task_id, bundle.settings.pr)
+        except Exception:
+            return None
+
+    def resolve_conflict(task_id: str) -> str | None:
+        injected = getattr(bundle, "pr_resolve", None)
+        if injected is not None:
+            return injected(task_id)
+        worktree = bundle.worktree_root / bundle.run_id / task_id
+        try:
+            left = merge_tip_into_task(worktree, bundle.settings.pr.base)
+        except Exception:
+            return None
+        feedback = conflict_revision_feedback(left, bundle.settings.pr.base)
+        return revise(task_id, feedback)
+
+    provider = getattr(bundle, "pr_provider", None)
+    if provider is None:
+        from treefleet.pr.gh import GhProvider
+
+        provider = GhProvider(bundle.settings.pr.repo)
+    from treefleet.git.worktrees import run_git
+
+    remote = run_git(["remote", "get-url", "origin"], cwd=bundle.repo)
+    remote_url = remote.stdout.strip() if remote.returncode == 0 else ""
+    hooks = PollHooks(revise=revise, resolve_conflict=resolve_conflict, emit=emit)
+    opened, outcome = drive(
+        rows,
+        provider,
+        hooks,
+        bundle.settings.pr,
+        run_id=bundle.run_id,
+        remote_url=remote_url,
+        push=lambda task_id: (
+            git_push(bundle.repo, bundle.run_id, task_id, bundle.settings.pr)
+            if getattr(bundle, "pr_push", None) is None
+            else bundle.pr_push(task_id)
+        ),
+        login=str(getattr(bundle, "pr_login", "") or ""),
+        hook_hosts=list(getattr(bundle, "pr_hook_hosts", []) or []),
+        sleep=getattr(bundle, "pr_sleep", None) or time.sleep,
+        now=getattr(bundle, "pr_now", None) or time.monotonic,
+        deadline=getattr(bundle, "pr_deadline", None),
+    )
+    if outcome == "timed_out":
+        note_stage(bundle, "timed_out")
+    for item in opened:
+        note_task(
+            bundle,
+            item.task_id,
+            pr_number=item.number,
+            pr_url=item.url,
+            pr_head_sha=item.head_sha,
+            pr_last_comment_id=item.last_comment_id,
+            pr_open=item.status not in {"merged", "cancelled"},
+            pr_status=item.status,
+            pr_checks=item.checks,
+        )
+    return {}
+
+
 class IntegratorAgent(BaseAgent):
     bundle: Any
 
@@ -856,6 +1009,11 @@ class IntegratorAgent(BaseAgent):
 
         from treefleet.git.merge import conflict_revision_feedback, integrate, merge_tip_into_task
         from treefleet.sessions import note_stage
+
+        if getattr(self.bundle.settings, "pr", None) and self.bundle.settings.pr.enabled:
+            delta = await _run_pr(self.bundle, ctx)
+            yield _adk_event(ctx, self.name, delta)
+            return
 
         note_stage(self.bundle, "integrate")
 
