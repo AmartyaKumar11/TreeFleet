@@ -12,6 +12,7 @@ class FakeProvider:
         self.states: dict[int, PRState] = {}
         self.merged: list[int] = []
         self.posted: list[tuple[int, str]] = []
+        self.reads: list[tuple[str, int]] = []
         self._next = 1
         self._comment = 1
 
@@ -38,6 +39,7 @@ class FakeProvider:
         return pr
 
     def get_pr(self, number: int) -> PRState:
+        self.reads.append(("get", number))
         if number not in self.states:
             raise KeyError(number)
         return self.states[number]
@@ -62,6 +64,7 @@ class FakeProvider:
         return comment
 
     def list_comments(self, number: int, since_id: int) -> list[Comment]:
+        self.reads.append(("comments", number))
         return [item for item in self.comments.get(number, []) if item.id > since_id]
 
     def post_comment(self, number: int, body: str) -> Comment:

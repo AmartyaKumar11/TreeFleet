@@ -36,6 +36,7 @@ class Event(StrEnum):
     needs_review = "needs_review"
     approved_green = "approved_green"
     run_done = "run_done"
+    pr_comment = "pr_comment"
 
 
 class Action(StrEnum):
@@ -93,6 +94,7 @@ DEFAULTS: dict[Event, Reaction] = {
     Event.needs_review: _reaction(Action.notify, 0),
     Event.approved_green: _reaction(Action.ignore, 0),
     Event.run_done: _reaction(Action.notify, 0),
+    Event.pr_comment: _reaction(Action.send_to_agent, 2),
 }
 
 
