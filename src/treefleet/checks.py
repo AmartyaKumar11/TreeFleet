@@ -307,6 +307,23 @@ def select_checks(
     return SelectedChecks(kept_checks, _clip(notes), python_path, python_source)
 
 
+def unavailable_reason(checks: object) -> str:
+    """Why a check could not start. Empty when the check actually ran."""
+    if not isinstance(checks, list):
+        return ""
+    for item in checks:
+        code = getattr(item, "exit_code", None)
+        err = f"{getattr(item, 'stderr_tail', '')}\n{getattr(item, 'stdout_tail', '')}".lower()
+        name = str(getattr(item, "name", "check") or "check")
+        if "no module named" in err or "modulenotfounderror" in err:
+            return f"{name}: module missing"
+        missing = code == 127 or "not recognized as an internal or external command" in err
+        missing = missing or "no such file or directory" in err
+        if missing:
+            return f"{name}: command not found"
+    return ""
+
+
 def run_command(command: str, cwd: Path, path_prefix: str | None = None) -> tuple[int, str, str]:
     """One check. shell stays false. A missing program is exit 127."""
     try:

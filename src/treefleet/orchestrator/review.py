@@ -347,6 +347,24 @@ async def review_loop(
             _emit("review_verdict", task_id, 1, {"verdict": "reject", "reason": error[:300]})
             return task_id, result, verdict
         if any(not item.passed for item in result.checks):
+            from treefleet.checks import unavailable_reason
+
+            missing = unavailable_reason(result.checks)
+            if missing:
+                _emit("check.unavailable", task_id, 0, {"task": task_id, "reason": missing[:300]})
+                verdict = ReviewVerdict(
+                    task_id=task_id,  # type: ignore[arg-type]
+                    verdict="reject",
+                    confidence=1,
+                    reasons=[missing[:500]],
+                )
+                _emit(
+                    "review_verdict",
+                    task_id,
+                    0,
+                    {"verdict": "reject", "status": "needs_review", "reason": missing[:300]},
+                )
+                return task_id, result, verdict
             attempt = 1
             while True:
                 decision = _fired(Event.checks_failed, task_id, attempt)

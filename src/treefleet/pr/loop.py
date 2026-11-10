@@ -168,11 +168,27 @@ def _post(item: OpenPR, provider: object, attempt: int, diff: str, request: str)
     provider.post_comment(item.number, format_revision(attempt, diff, request))  # type: ignore[attr-defined]
 
 
+class CheckUnavailable(RuntimeError):
+    """A check could not start. This is not a revision round."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 def _revise(item: OpenPR, feedback: str, provider: object, hooks: PollHooks, *, attempt: int) -> str | None:
     """Push one revision. None means the worker made no commit."""
     item.pending_revision = True
     hooks.note("pr.revision_started", item.task_id, {"attempt": attempt, "number": item.number})
-    new_sha = hooks.revise(item.task_id, feedback)
+    try:
+        new_sha = hooks.revise(item.task_id, feedback)
+    except CheckUnavailable as exc:
+        item.pending_revision = False
+        item.status = "needs_review"
+        item.unresolved = True
+        item.last_failure = exc.reason[:1800]
+        hooks.note("check.unavailable", item.task_id, {"task": item.task_id, "reason": exc.reason[:300]})
+        raise
     item.pending_revision = False
     if not new_sha:
         hooks.note(
@@ -204,9 +220,12 @@ def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: Rea
     """Revise until the reviewer is satisfied or the comment's rounds are spent."""
     limit = resolve(Event.pr_comment, 1, table).max_attempts
     while tracked.status != "satisfied" and tracked.rounds_used < limit:
-        tracked.rounds_used += 1
         feedback = revision_request(tracked.body, reason=tracked.reason)
-        sha = _revise(item, feedback, provider, hooks, attempt=tracked.rounds_used)
+        try:
+            sha = _revise(item, feedback, provider, hooks, attempt=tracked.rounds_used + 1)
+        except CheckUnavailable:
+            return
+        tracked.rounds_used += 1
         if sha is None:
             tracked.status = "unsatisfied"
             tracked.reason = "revision made no commit"
@@ -261,7 +280,10 @@ def _on_checks(item: OpenPR, provider: object, table: ReactionTable, hooks: Poll
         _exhausted(item, summary, hooks)
         return
     item.checks = "revising"
-    sha = _revise(item, delimited_feedback(summary or "a check failed"), provider, hooks, attempt=attempt)
+    try:
+        sha = _revise(item, delimited_feedback(summary or "a check failed"), provider, hooks, attempt=attempt)
+    except CheckUnavailable:
+        return
     if sha is None:
         return
     _post(item, provider, attempt, _diff(item, hooks), "not satisfied (a check failed)")

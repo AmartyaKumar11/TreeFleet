@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from treefleet.checks import detect_checks, python_prefix, select_checks
+from treefleet.checks import detect_checks, python_prefix, select_checks, unavailable_reason
 from treefleet.config import load_settings
 from treefleet.contracts import RunRequest
 from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers  # noqa: F401
@@ -271,7 +271,7 @@ def _pr_watch(record: object, settings: object) -> int:
     from treefleet.events import EventSink
     from treefleet.git.worktrees import kill_tree
     from treefleet.orchestrator.fleet import dispatch
-    from treefleet.pr.accept import acceptance_prompt, bind_python, interpreter_for, parse_acceptance
+    from treefleet.pr.accept import acceptance_prompt, interpreter_for, parse_acceptance
     from treefleet.pr.gh import GhProvider
     from treefleet.pr.loop import PollHooks
     from treefleet.pr.models import OpenPR, TrackedComment
@@ -362,9 +362,9 @@ def _pr_watch(record: object, settings: object) -> int:
             run_id=record.run_id,
         )
         python = interpreter_for(record.python, str(settings.worker_python))  # type: ignore[attr-defined]
-        checks = {
-            name: bind_python(selected.checks[name], python) for name in spec.check_ids if name in selected.checks
-        }
+        # Checks use the interpreter select_checks already resolved. The same
+        # function builds the initial run's commands, so the two stay identical.
+        checks = {name: selected.checks[name] for name in spec.check_ids if name in selected.checks}
         extra = {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}  # type: ignore[attr-defined]
         prefix = python_prefix(checks)
         if prefix:
@@ -404,6 +404,11 @@ def _pr_watch(record: object, settings: object) -> int:
             return None
         finally:
             kill_tree(proc.pid)
+        missing = unavailable_reason(result.checks)
+        if missing:
+            from treefleet.pr.loop import CheckUnavailable
+
+            raise CheckUnavailable(missing)
         if not result.commit_made or not result.head_sha:
             print(f"revision made no commit for {task_id}", file=sys.stderr)
             return None
