@@ -401,6 +401,9 @@ function renderCard(task) {
     const passed = typeof check === "string" ? true : check.passed !== false;
     chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
   });
+  if (task.pr_chip && !task.pr_number) {
+    chips.push(`<span class="chip pr">${esc(task.pr_chip)}</span>`);
+  }
   if (task.pr_number) {
     const merged = task.pr_status === "merged" ? " merged" : "";
     chips.push(

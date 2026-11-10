@@ -31,6 +31,7 @@ pytestmark = pytest.mark.phase8
         (TaskLaneFacts(awaiting_verdict=True), "review"),
         (TaskLaneFacts(status="done"), "review"),
         (TaskLaneFacts(verdict="approve", integrated=True), "ready"),
+        (TaskLaneFacts(verdict="approve", pr_enabled=True), "review"),
         (TaskLaneFacts(verdict="approve", ready_to_merge=True), "ready"),
         (TaskLaneFacts(pr_status="merged", verdict="approve", status="done"), "done"),
         (TaskLaneFacts(pr_status="cancelled", verdict="approve"), "needs"),

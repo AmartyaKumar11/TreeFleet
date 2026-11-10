@@ -279,10 +279,12 @@ class Board:
             except json.JSONDecodeError:
                 report = None
         branch, head, clean = _head(self.repo)
-        tasks = tasks_from_snapshot(events, report, awaiting=waiting)
+        pr_on = bool(self.settings.pr.enabled)
+        tasks = tasks_from_snapshot(events, report, awaiting=waiting, pr_enabled=pr_on)
         goal = self.goals.get(run_id, "")
         if not goal and isinstance(report, dict):
             goal = str(report.get("goal") or "")
+        stage = _stage(events, waiting, run_id in self.finished or report is not None)
         body = {
             "repo": str(self.repo),
             "branch": branch,
@@ -293,13 +295,13 @@ class Board:
             "run_id": run_id,
             "goal": goal,
             "worker_model": self.worker_models.get(run_id, "router"),
-            "stage": _stage(events, waiting, run_id in self.finished or report is not None),
+            "stage": stage,
             "started_at": self.started.get(run_id, time.time()),
             "finished_at": self.ended.get(run_id),
             "awaiting": plan if waiting else None,
             "events": events[-400:],
             "tasks": tasks,
-            "needs_human": run_needs_human(events, report, awaiting=waiting),
+            "needs_human": run_needs_human(events, report, awaiting=waiting, pr_enabled=pr_on),
             "worktrees": rows_for_run(worktree_rows(self.repo, self.base_sha), run_id),
             "report": report,
             "message": self.messages.get(run_id, ""),

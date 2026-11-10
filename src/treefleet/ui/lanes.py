@@ -45,6 +45,7 @@ class TaskLaneFacts:
     pr_green: bool = False
     pr_checks: str = ""
     pr_status: str = ""
+    pr_enabled: bool = False
 
 
 def derive_lane(facts: TaskLaneFacts) -> Lane:
@@ -67,6 +68,9 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
     if facts.pr_revising:
         return "working"
     if facts.pr_open and not facts.pr_green:
+        return "review"
+    # A pull-request run is not Ready until the PR is open, green, and quiet.
+    if facts.pr_enabled and facts.verdict == "approve" and facts.pr_status != "approved_green":
         return "review"
     if facts.pr_green or facts.verdict == "approve":
         return "ready"
@@ -125,6 +129,7 @@ def tasks_from_snapshot(
     report: dict[str, Any] | None,
     *,
     awaiting: bool = False,
+    pr_enabled: bool = False,
 ) -> list[dict[str, Any]]:
     """Build task cards with a server-computed lane for each known task id."""
     by_id: dict[str, dict[str, Any]] = {}
@@ -339,16 +344,31 @@ def tasks_from_snapshot(
             pr_green=task.get("pr_status") == "approved_green",
             pr_checks=str(task.get("pr_checks") or ""),
             pr_status=str(task.get("pr_status") or ""),
+            pr_enabled=pr_enabled,
         )
         hidden = {"worker_active", "output_seen", "checks_failed", "guard_blocked", "policy_open", "needs_human"}
         card = {key: value for key, value in task.items() if key not in hidden}
         card["lane"] = derive_lane(facts)
+        if (
+            pr_enabled
+            and facts.verdict == "approve"
+            and not facts.pr_open
+            and facts.pr_status not in {"approved_green", "merged", "cancelled"}
+        ):
+            card["pr_chip"] = "opening PR"
         tasks.append(card)
     return tasks
 
 
-def run_needs_human(events: list[dict[str, Any]], report: dict[str, Any] | None, *, awaiting: bool) -> bool:
+def run_needs_human(
+    events: list[dict[str, Any]],
+    report: dict[str, Any] | None,
+    *,
+    awaiting: bool,
+    pr_enabled: bool = False,
+) -> bool:
     """True when the human must act: plan approval or any Needs you lane."""
     if awaiting:
         return True
-    return any(task.get("lane") == "needs" for task in tasks_from_snapshot(events, report, awaiting=False))
+    cards = tasks_from_snapshot(events, report, awaiting=False, pr_enabled=pr_enabled)
+    return any(task.get("lane") == "needs" for task in cards)
