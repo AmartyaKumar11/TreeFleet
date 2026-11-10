@@ -372,3 +372,28 @@ def run_needs_human(
         return True
     cards = tasks_from_snapshot(events, report, awaiting=False, pr_enabled=pr_enabled)
     return any(task.get("lane") == "needs" for task in cards)
+
+
+def status_line(stage: str, tasks: list[dict[str, Any]], *, pr_mode: bool) -> tuple[str, str] | None:
+    """Strip label and stepper stage while pull requests are on. None keeps the old strip."""
+    if not pr_mode:
+        return None
+    if stage in {"fleet", "plan", "approve", "guard"}:
+        return None
+    if stage == "timed_out":
+        return "Timed out", "pr"
+    merged = sum(1 for task in tasks if task.get("pr_status") == "merged")
+    if tasks and merged == len(tasks):
+        return ("done" if stage == "done" else f"{merged} merged"), "pr"
+    ready = sum(1 for task in tasks if task.get("lane") == "ready")
+    pending = any(task.get("lane") in {"working", "review", "needs"} for task in tasks)
+    if ready and not pending:
+        return f"{ready} ready to merge", "pr"
+    has_pr = any(task.get("pr_number") for task in tasks)
+    if has_pr or stage in {"pr", "awaiting_prs"}:
+        return "PRs open", "pr"
+    if stage == "review":
+        return "Reviewing", "review"
+    if stage == "done":
+        return "Done", "pr"
+    return None

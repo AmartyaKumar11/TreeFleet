@@ -20,7 +20,7 @@ from treefleet.contracts import Plan, RunRequest
 from treefleet.git.worktrees import run_git
 from treefleet.guards.input import deterministic_reasons, screen_goal
 from treefleet.guards.text import redact_payload
-from treefleet.ui.lanes import run_needs_human, tasks_from_snapshot
+from treefleet.ui.lanes import run_needs_human, status_line, tasks_from_snapshot
 
 _PAGE = Path(__file__).with_name("board.html")
 _STATIC = Path(__file__).with_name("static")
@@ -285,6 +285,7 @@ class Board:
         if not goal and isinstance(report, dict):
             goal = str(report.get("goal") or "")
         stage = _stage(events, waiting, run_id in self.finished or report is not None)
+        label = status_line(stage, tasks, pr_mode=pr_on)
         body = {
             "repo": str(self.repo),
             "branch": branch,
@@ -311,6 +312,8 @@ class Board:
         if any(str(item.get("type") or "").startswith("pr.") for item in events):
             body["pr_mode"] = True
             body["pr_repo"] = self.settings.pr.repo
+        if label is not None:
+            body["status_line"], body["status_stage"] = label
         clean_body, _count = redact_payload(body)
         return clean_body if isinstance(clean_body, dict) else body
 

@@ -302,6 +302,9 @@ function runStripState(data, counts) {
     return { line: `Blocked · ${why}`, stage: "guard" };
   }
   if (awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
+  if (data.status_line) {
+    return { line: `${data.status_line} · ${elapsed}`, stage: data.status_stage || stage };
+  }
   if (data.pr_mode && (stage === "done" || stage === "timed_out" || stage === "awaiting_prs" || stage === "pr")) {
     const label = stage === "timed_out" ? "Timed out" : stage === "done" ? "Done" : "PRs open";
     return { line: `${label} · ${elapsed}`, stage: "pr" };
