@@ -129,7 +129,17 @@ flowchart TB
 <details>
 <summary>SVG fallbacks</summary>
 
-`mmdc` was not run in CI here: `@mermaid-js/mermaid-cli` requires `chrome-headless-shell`, which was missing on the doc build host. Sources live in `docs/img/diagrams/*.mmd` if you want to render locally.
+If Mermaid does not render in your viewer, use the checked-in SVGs (generated with `@mermaid-js/mermaid-cli`):
+
+| Diagram | SVG |
+|---|---|
+| System context | [context.svg](docs/img/diagrams/context.svg) |
+| Run sequence | [sequence-run.svg](docs/img/diagrams/sequence-run.svg) |
+| Isolation | [isolation.svg](docs/img/diagrams/isolation.svg) |
+| PR lifecycle | [pr-lifecycle.svg](docs/img/diagrams/pr-lifecycle.svg) |
+| Board lanes | [lanes.svg](docs/img/diagrams/lanes.svg) |
+
+Sources: `docs/img/diagrams/*.mmd`
 </details>
 
 ### Run sequence (integrate or PR mode)
