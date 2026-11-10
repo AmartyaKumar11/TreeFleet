@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — Preflight shows who can comment
+
+When `[pr]` is enabled, preflight prints the effective trusted logins and the authenticated `gh` login. An empty set is a red line.
+
 ## 2026-11-10 — Ignored comments stay visible
 
 `pr.comment_ignored` carries `reason`, `comment_id`, and `created_at`. The board shows `comment ignored: <reason>`. The comment id is written to `pr_last_comment_id`.

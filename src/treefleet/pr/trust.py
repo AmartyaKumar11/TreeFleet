@@ -21,6 +21,21 @@ def provider_login(provider: object) -> str | None:
     return text
 
 
+def trust_line(settings: PrSettings, login: str) -> tuple[bool, str]:
+    """One preflight row. Logins only. Red when [pr] is on and nobody is trusted."""
+    named = [item.strip() for item in settings.trusted_commenters if item and item.strip()]
+    who = login.strip()
+    if not who or any(char.isspace() for char in who) or "/" in who:
+        who = ""
+    effective = named or ([who] if who else [])
+    shown = ", ".join(effective) if effective else "(none)"
+    label = who or "(unresolved)"
+    text = f"trusted commenters: {shown}; gh login {label}"
+    if not effective:
+        return False, f"red    {text}\n       fix: set pr.trusted_commenters or authenticate gh"
+    return True, f"green  {text}"
+
+
 def trusted_logins(settings: PrSettings, provider: object, *, fallback: str = "") -> tuple[set[str], str]:
     """Trusted logins, and a reason when the set would otherwise be empty.
 

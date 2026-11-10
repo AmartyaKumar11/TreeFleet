@@ -247,6 +247,10 @@ def preflight(
             lines.append((False, f"red    {exc}"))
         else:
             lines.append((True, "green  gh can read the pull request repo"))
+        from treefleet.pr.trust import trust_line
+
+        code, login_out, _err = gh(["api", "user", "--jq", ".login"])
+        lines.append(trust_line(settings.pr, login_out.strip() if code == 0 else ""))
     return lines
 
 

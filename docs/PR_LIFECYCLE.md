@@ -85,7 +85,7 @@ On run `c6dbaa59`, pull request 84's recorded comment is id `6743492754`, status
 - Worktrees for tasks with `pr_open` are left in place by session cleanup.
 - If a webhook host is not GitHub and `allow_external_hooks` is false, opening pull requests is refused. The demo repo has one hook on `backend-production-af37c.up.railway.app` for `pull_request` and `push`. That host is external, so the switch stays false until someone sets it.
 
-Preflight, only when `[pr]` is enabled: `gh auth status` succeeds, the login is known, the login can push to `repo`, origin matches `repo`, and `base` exists on the remote. A missing workflow on the base is a warning.
+Preflight, only when `[pr]` is enabled: `gh auth status` succeeds, the login is known, the login can push to `repo`, origin matches `repo`, and `base` exists on the remote. It also prints the effective trusted commenters and the `gh` login, and is red when that set is empty. A missing workflow on the base is a warning.
 
 ## Provider
 
