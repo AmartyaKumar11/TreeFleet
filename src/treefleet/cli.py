@@ -200,8 +200,8 @@ def _pr(argv: list[str]) -> int:
     from treefleet.pr.stage import status_lines, timings_for
     from treefleet.sessions import load_run
 
-    if not argv or argv[0] not in {"watch", "status", "merge"}:
-        print("usage: treefleet pr watch|status|merge", file=sys.stderr)
+    if not argv or argv[0] not in {"watch", "status", "merge", "retry"}:
+        print("usage: treefleet pr watch|status|merge|retry", file=sys.stderr)
         return 2
     settings = load_settings(Path.cwd() / "treefleet.toml")
     runs = Path.cwd() / "runs"
@@ -210,6 +210,8 @@ def _pr(argv: list[str]) -> int:
         return 1
     if argv[0] == "merge":
         return _pr_merge(argv[1:], settings, runs)
+    if argv[0] == "retry":
+        return _pr_retry(argv[1:], runs)
     if len(argv) != 2:
         print("usage: treefleet pr watch|status RUN", file=sys.stderr)
         return 2
@@ -238,6 +240,33 @@ def _pr(argv: list[str]) -> int:
         )
         return 0
     return _pr_watch(record, settings)
+
+
+def _pr_retry(argv: list[str], runs: Path) -> int:
+    from treefleet.pr.retry import rearm_comment
+    from treefleet.sessions import atomic_write, load_run
+
+    if len(argv) != 2 or not argv[1].isdigit():
+        print("usage: treefleet pr retry RUN PR", file=sys.stderr)
+        return 2
+    run_id = argv[0]
+    path = runs / run_id / "run.json"
+    if not path.is_file():
+        print(f"no run {run_id}", file=sys.stderr)
+        return 1
+    events_path = runs / run_id / "events.jsonl"
+    events: list[dict[str, object]] = []
+    if events_path.is_file():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                loaded = json.loads(line)
+                if isinstance(loaded, dict):
+                    events.append(loaded)
+    changed, message, updated = rearm_comment(load_run(path), events, int(argv[1]))
+    print(message)
+    if changed:
+        atomic_write(path, updated.model_dump_json(indent=2) + "\n")
+    return 0 if changed or message.startswith("comment ") else 1
 
 
 def _pr_merge(argv: list[str], settings: object, runs: Path) -> int:

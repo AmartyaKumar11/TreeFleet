@@ -1,0 +1,97 @@
+{
+  "run_id": "59180665",
+  "repo": "D:\\pr-sentinel-demo",
+  "base_sha": "e92286b0ee8d722a9b28eb77e66cb89c6cf3bb43",
+  "goal": "Add unit tests for src/notifications.py and, as a second task, add unit tests for src/admin.py.",
+  "routing_mode": "router",
+  "plan_approval": true,
+  "python": "D:\\TreeFleet\\.venv-orch\\Scripts\\python.exe",
+  "stage": "awaiting_prs",
+  "orchestrator_pid": 41228,
+  "orchestrator_started": 1794287819.2961752,
+  "updated_at": "2026-11-10T06:21:52+00:00",
+  "plan": {
+    "goal": "Add focused pytest unit-test coverage for src/notifications.py and src/admin.py.",
+    "rationale": "The repository already has pytest-based tests for auth, orders, and users, so adding dedicated test modules for notifications and admin follows the existing test layout. Both modules can be tested independently, allowing the two test-writing tasks to run in parallel. External side effects should be mocked so tests are deterministic and do not send real notifications or alter real admin state.",
+    "tasks": [
+      {
+        "id": "add-notifications-unit-tests",
+        "title": "Add unit tests for src/notifications.py",
+        "instructions": "Create tests/test_notifications.py using pytest. Import the public functions and classes from src.notifications and add tests for their normal behavior, boundary/input-validation cases, and error paths. Mock external dependencies such as email, HTTP, database, or queue clients with unittest.mock or pytest monkeypatch so no real notification is sent and tests are deterministic. Assert returned values and mocked call arguments where relevant. Keep the tests isolated and avoid depending on test execution order.",
+        "allowed_paths": [
+          "tests/test_notifications.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      },
+      {
+        "id": "add-admin-unit-tests",
+        "title": "Add unit tests for src/admin.py",
+        "instructions": "Create tests/test_admin.py using pytest. Import the public functions and classes from src.admin and add tests covering successful admin operations, permission or validation failures, and relevant edge cases. Mock dependencies including authentication, persistence, and any external services with unittest.mock or pytest monkeypatch so tests do not modify real data. Assert return values, raised exceptions, and mocked interactions as appropriate. Keep the tests isolated and avoid depending on test execution order.",
+        "allowed_paths": [
+          "tests/test_admin.py"
+        ],
+        "denied_paths": [],
+        "depends_on": [],
+        "check_ids": [
+          "pytest"
+        ],
+        "complexity": "moderate",
+        "model_override": null
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "add-notifications-unit-tests",
+      "title": "Add unit tests for src/notifications.py",
+      "branch": "tf/59180665/add-notifications-unit-tests",
+      "worktree": "C:\\wt\\59180665\\add-notifications-unit-tests",
+      "worker_pid": 43164,
+      "worker_started": 1794288001.9590085,
+      "status": "done",
+      "verdict": "approve",
+      "reason": "",
+      "last_event_ts": "2026-11-10T06:21:52+00:00",
+      "pr_number": 87,
+      "pr_url": "https://github.com/AmartyaKumar11/pr-sentinel-demo/pull/87",
+      "pr_head_sha": "cc1e88ac7e4fa715aff4730bd0ea1143a440f76b",
+      "pr_last_comment_id": 6760374466,
+      "pr_open": true,
+      "pr_status": "needs_review",
+      "pr_checks": "passing",
+      "comments": [
+        {
+          "id": 6760374466,
+          "status": "needs_human",
+          "rounds_used": 2
+        }
+      ]
+    },
+    {
+      "task_id": "add-admin-unit-tests",
+      "title": "Add unit tests for src/admin.py",
+      "branch": "tf/59180665/add-admin-unit-tests",
+      "worktree": "C:\\wt\\59180665\\add-admin-unit-tests",
+      "worker_pid": 8724,
+      "worker_started": 1794288002.1555576,
+      "status": "done",
+      "verdict": "approve",
+      "reason": "",
+      "last_event_ts": "2026-11-10T06:21:52+00:00",
+      "pr_number": 86,
+      "pr_url": "https://github.com/AmartyaKumar11/pr-sentinel-demo/pull/86",
+      "pr_head_sha": "c052d3c0282f192bc5065043c34e0503027a80c6",
+      "pr_last_comment_id": 0,
+      "pr_open": true,
+      "pr_status": "approved_green",
+      "pr_checks": "passing",
+      "comments": []
+    }
+  ]
+}
