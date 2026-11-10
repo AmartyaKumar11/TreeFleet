@@ -95,6 +95,20 @@ def test_a_recovered_tool_denial_never_moves_the_card() -> None:
         awaiting=False,
     )
     assert {card["id"]: card["lane"] for card in kept} == {"alpha": "working", "beta": "working"}
+    argued = tasks_from_snapshot(
+        [
+            {"type": "worker.spawned", "task_id": "alpha"},
+            {
+                "type": "tool.arg_error",
+                "task_id": "alpha",
+                "payload": {"tool": "read_file", "message": "read_file requires path (str)"},
+            },
+            {"type": "worker.exited", "task_id": "alpha", "payload": {"status": "done"}},
+        ],
+        None,
+    )
+    assert argued[0]["lane"] != "needs"
+    assert argued[0].get("status") != "failed"
     policy = {
         "type": "guard.decision",
         "task_id": "alpha",

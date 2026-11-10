@@ -46,6 +46,21 @@ def _err(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "data": None, "error": {"code": code, "message": message}}
 
 
+def required_argument_message(name: str, args: dict[str, Any] | None) -> str | None:
+    """Corrective text when a required file-tool argument is missing or blank."""
+    supplied = args or {}
+    if name == "read_file":
+        path = str(supplied.get("path") or "").strip()
+        alias = str(supplied.get("file_path") or "").strip()
+        if not path and not alias:
+            return "read_file requires path (str)"
+    elif name == "search" and not str(supplied.get("pattern") or "").strip():
+        return "search requires pattern (str)"
+    else:
+        return None
+    return None
+
+
 def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "data": data, "error": None}
 
@@ -182,7 +197,7 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
 
     @server.tool()
     def read_file(
-        path: str = "",
+        path: str,
         file_path: str = "",
         start_line: int = 1,
         end_line: int = 0,
@@ -191,9 +206,10 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
 
         Rejects binary and paths outside the worktree.
         """
+        missing = required_argument_message("read_file", {"path": path, "file_path": file_path})
+        if missing:
+            return _err("ARG_REQUIRED", missing)
         chosen = path or file_path
-        if not str(chosen).strip():
-            return _err("BAD_ARGS", "path is required")
         try:
             target = resolve_inside(root, chosen)
         except PathGuardError as exc:
@@ -212,7 +228,10 @@ def build_fs_server(root: Path, checks: dict[str, str]) -> MCPServer:
 
     @server.tool()
     def search(pattern: str, glob: str = "*") -> dict[str, Any]:
-        """Literal search. Caps the number of matches."""
+        """Literal search. Caps the number of matches. pattern is required."""
+        missing = required_argument_message("search", {"pattern": pattern})
+        if missing:
+            return _err("ARG_REQUIRED", missing)
         matches: list[dict[str, str | int]] = []
         for path in root.rglob(glob):
             if ".git" in path.parts or not path.is_file():

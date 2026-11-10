@@ -11,7 +11,7 @@ from treefleet.cursor_run import redact_line
 from treefleet.events import EventSink
 from treefleet.guards.paths import path_violation
 from treefleet.guards.text import redact
-from treefleet.mcp_servers.worktree_fs_server import PathGuardError, resolve_inside
+from treefleet.mcp_servers.worktree_fs_server import PathGuardError, required_argument_message, resolve_inside
 
 
 def emit_output_line(sink: EventSink, run_id: str, text: str) -> RunEvent:
@@ -117,6 +117,23 @@ def on_tool_result(
         data = None
     if isinstance(data, dict) and data.get("ok") is True:
         return text
+    hint = _required_hint(tool, text, data, args)
+    if hint is not None:
+        if sink is not None:
+            payload = {"tool": tool or _tool_name(text) or "tool", "message": hint}
+            if args is not None:
+                payload["arguments"] = {str(key): _argument_text(value) for key, value in args.items()}
+            sink.emit_sync(
+                RunEvent(
+                    run_id=run_id,
+                    seq=0,
+                    source="worker",
+                    type="tool.arg_error",
+                    task_id=task_id,
+                    payload=payload,
+                )
+            )
+        return json.dumps({"ok": False, "error": {"code": "ARG_REQUIRED", "message": hint}})
     message, name = _tool_failure(text, data, tool)
     if sink is not None:
         payload: dict[str, Any] = {"tool": name, "message": message}
@@ -135,6 +152,32 @@ def on_tool_result(
     if isinstance(data, dict) and "ok" in data:
         return text
     return json.dumps({"ok": False, "error": {"code": "BAD_ARGS", "message": message}})
+
+
+def _tool_name(text: str) -> str:
+    marker = "Error executing tool "
+    head = text.split(":", 1)[0]
+    if head.startswith(marker):
+        return head[len(marker) :].strip()
+    return ""
+
+
+def _required_hint(tool: str, text: str, data: Any, args: dict[str, Any] | None) -> str | None:
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict) and err.get("code") == "ARG_REQUIRED":
+            message = str(err.get("message") or "")
+            if message:
+                return message
+    name = tool or _tool_name(text)
+    if not name:
+        return None
+    blank = required_argument_message(name, args)
+    if blank is not None and (args is not None or "Field required" in text or "validation error" in text.lower()):
+        return blank
+    if "Field required" in text or "validation error" in text.lower():
+        return required_argument_message(name, {})
+    return None
 
 
 def _tool_failure(text: str, data: Any, tool: str) -> tuple[str, str]:

@@ -38,7 +38,7 @@ from treefleet.git.worktrees import git_out, run_git
 from treefleet.guards.artifacts import revert_undeclared
 from treefleet.guards.cost import usage_from_object
 from treefleet.guards.draft import draft_problems
-from treefleet.mcp_servers.worktree_fs_server import handshake, mcp_env, mcp_stdio
+from treefleet.mcp_servers.worktree_fs_server import handshake, mcp_env, mcp_stdio, required_argument_message
 from treefleet.timing import record_step, reset_steps
 from treefleet.worker.callbacks import emit_step, emit_task, on_tool_args, on_tool_result
 from treefleet.worker.cursor_tool import make_cursor_tool
@@ -161,6 +161,16 @@ class _FsTool(BaseTool):
         self._task_id = task_id
 
     def _run(self, **kwargs: Any) -> str:
+        missing = required_argument_message(self._tool_name, kwargs)
+        if missing:
+            return on_tool_result(
+                json.dumps({"ok": False, "error": {"code": "ARG_REQUIRED", "message": missing}}),
+                self._sink,
+                self._run_id,
+                self._task_id,
+                tool=self._tool_name,
+                args=kwargs,
+            )
         denial = on_tool_args(
             self._tool_name,
             kwargs,

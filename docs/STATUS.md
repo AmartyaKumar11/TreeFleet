@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — Empty tool arguments are a retry, not a failure
+
+`read_file` path and `search` pattern are required in the tool schema. A blank or missing value returns the required names and types and emits `tool.arg_error`. The card stays where it was.
+
 ## 2026-11-10 — Preflight shows who can comment
 
 When `[pr]` is enabled, preflight prints the effective trusted logins and the authenticated `gh` login. An empty set is a red line.
