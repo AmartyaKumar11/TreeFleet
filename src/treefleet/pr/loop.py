@@ -299,8 +299,7 @@ def _unavailable(item: OpenPR, tracked: TrackedComment, hooks: PollHooks, reason
 
 
 def _reviewer_block(hooks: PollHooks) -> str:
-    if hooks.judge is None:
-        return "reviewer unavailable"
+    """Only the shared builder marks a missing judge. A raw hook still runs the worker."""
     return str(getattr(hooks.judge, "blocked_reason", "") or "")
 
 
