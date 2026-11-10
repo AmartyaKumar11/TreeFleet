@@ -36,11 +36,30 @@ The integrated branch is not created in this mode. The stage strip shows `pr` in
 | Trusted comment | `pr_comment` (send to the agent, 2 retries) | Same re-dispatch, comment text passed as delimited data |
 | `mergeable` is `CONFLICTING` | `merge_conflict` | One `git merge --no-edit` of the base into the task branch, then resolve, commit, push |
 | Checks green, no unresolved trusted comment | `approved_green` | Card moves to Ready to merge. The global default stays `ignore`; this mode notifies when that default was not overridden |
-| Pull request merged | | Task `done` |
-| Pull request closed unmerged | | Task `cancelled`, reason recorded |
+| Pull request merged | | Task `done`, hidden from Ready to merge. Chip reads `PR #n merged` |
+| Pull request closed unmerged | | Task `cancelled`, Needs you, reason recorded |
+| Check cannot start | `check.unavailable` | Needs you with the reason. Not a failed round. Does not use a retry |
 | Round budget used up | | Task `needs_review` with the last failure summary |
 
-Events: `pr.opened`, `pr.checks`, `pr.comment`, `pr.comment_ignored`, `pr.revision_started`, `pr.revision_pushed`, `pr.conflict`, `pr.merged`, `pr.closed`.
+The lane is the latest `pr_status` for that task. `merged` is Done. `cancelled` is Needs you. An earlier `approve` does not keep a merged card in Ready.
+
+Events: `pr.opened`, `pr.checks`, `pr.comment`, `pr.comment_seen`, `pr.comment_ignored`, `pr.revision_started`, `pr.revision_pushed`, `pr.revision_failed`, `pr.checks_green`, `pr.unknown_check_state`, `check.unavailable`, `pr.conflict`, `pr.merged`, `pr.closed`.
+
+## Check interpreter
+
+The first worker run and a revision started by `treefleet pr watch` both call `select_checks`. That function keeps the first interpreter that can import pytest: the repo `.venv`, then `PATH`, then the orchestrator interpreter. It rewrites a bare `python` in the check command to that absolute path. Watch does not replace the path. The worker process is still the CrewAI interpreter. It is not the interpreter that runs pytest.
+
+Phase 11.14's first `bind_python` treated any token whose file name was `python.exe` as bare, including the absolute path `select_checks` had already chosen. It replaced that path with `.venv-worker`. That interpreter cannot import pytest, so the check exited at once with `No module named pytest`. Those two rounds were recorded as `pr.revision_failed` / "revision made no commit".
+
+## Round arithmetic
+
+`pr_comment` retries is 2. That is two counted revision dispatches for one trusted comment. Attempt 3 does not send the agent. `[revise] max_rounds` is the reviewer's re-dispatch cap (1 in this repo, at most 2). It does not raise the comment cap. The task envelope allows `attempt` 1 through 5. There is no separate per-task cap of 3.
+
+A revision that makes no commit counts as one of the two. Two such rounds set the comment to `needs_human` and the card to Needs you. A third dispatch does not run.
+
+A check that cannot start does not count. `rounds_used` stays where it was, and the card goes to Needs you with the `check.unavailable` reason. A later attempt still has both retries.
+
+On run `c6dbaa59`, pull request 84's recorded comment is id `6743492754`, status `satisfied`, `rounds_used` 1. The event log also has two earlier `pr.revision_failed` rows for the same comment. Those two were the pytest-not-found rounds. The loop stopped at 2. The committing round ran only after the local comment cursor and `rounds_used` were cleared. That reset is what allowed a third dispatch. With this rule those two would not have counted, and the commit would have been round 1 of 2.
 
 `treefleet pr status <run_id>` prints one row per task. `treefleet pr watch <run_id>` attaches the poller again from `run.json` after the orchestrator has stopped. `treefleet pr merge <run>/<task>` is the only command that merges, besides `auto_merge`.
 
