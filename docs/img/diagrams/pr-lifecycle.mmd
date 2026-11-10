@@ -1,5 +1,6 @@
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'noteBorderColor': '#334155', 'noteBkgColor': '#fef9c3', 'noteTextColor': '#0f172a'}}}%%
 stateDiagram-v2
+  direction TB
   [*] --> task_done: worker commits
   task_done --> awaiting_prs: PR opened
   awaiting_prs --> checks_pending: CI running

@@ -65,7 +65,7 @@ TreeFleet treats **one goal → many tasks → many branches** as the default sh
 Trust boundaries: the **operator UI/CLI** starts runs; the **orchestrator** holds secrets for planning/review; each **worker** gets a minimal env (model key, per-run A2A token, optional Cursor credential); **Cursor** is untrusted and may write only via its CLI in the worktree cwd.
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'clusterBkg': '#f1f5f9', 'clusterBorder': '#334155', 'edgeLabelBackground': '#ffffff', 'signalColor': '#334155', 'actorBorder': '#334155'}}}%%
 flowchart TB
   subgraph user_trust["Trust: operator machine"]
     U[Operator / browser]
@@ -145,7 +145,7 @@ Sources: `docs/img/diagrams/*.mmd`
 ### Run sequence (integrate or PR mode)
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'clusterBkg': '#f1f5f9', 'clusterBorder': '#334155', 'edgeLabelBackground': '#ffffff', 'signalColor': '#334155', 'actorBorder': '#334155'}}}%%
 sequenceDiagram
   autonumber
   actor Op as Operator
@@ -197,7 +197,7 @@ Deeper narrative: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - **Branch naming** — `tf/<run_id>/<task_id>` (integration: `tf/<run_id>/integrated` when not in PR mode).
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'clusterBkg': '#f1f5f9', 'clusterBorder': '#334155', 'edgeLabelBackground': '#ffffff', 'signalColor': '#334155', 'actorBorder': '#334155'}}}%%
 flowchart LR
   subgraph main["Main checkout"]
     MHEAD[HEAD + index]
@@ -229,8 +229,9 @@ flowchart LR
 When `[pr] enabled = true`, tasks move through poll-driven states. Lane labels on the board are derived from the **latest** `pr_status` and related facts ([`src/treefleet/ui/lanes.py`](src/treefleet/ui/lanes.py)).
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'clusterBkg': '#f1f5f9', 'clusterBorder': '#334155', 'edgeLabelBackground': '#ffffff', 'signalColor': '#334155', 'actorBorder': '#334155'}}}%%
 stateDiagram-v2
+  direction TB
   [*] --> task_done: worker commits
   task_done --> awaiting_prs: PR opened
   awaiting_prs --> checks_pending: CI running
@@ -247,6 +248,8 @@ stateDiagram-v2
   needs_review --> revision: retry armed
   needs_review --> needs_human: rounds exhausted
 ```
+
+![PR lifecycle (rendered)](docs/img/diagrams/pr-lifecycle.svg)
 
 | Event | Default action | retries | Notes |
 |---|---|---|---|
@@ -273,7 +276,7 @@ Full inventory: [`docs/REACTIONS.md`](docs/REACTIONS.md). Hard cap **5** attempt
 | **Done** | `pr_status == merged` or integrated flow complete | |
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#ffffff', 'primaryColor': '#e2e8f0', 'primaryTextColor': '#0f172a', 'primaryBorderColor': '#334155', 'lineColor': '#334155', 'secondaryColor': '#f1f5f9', 'tertiaryColor': '#ffffff', 'clusterBkg': '#f1f5f9', 'clusterBorder': '#334155', 'edgeLabelBackground': '#ffffff', 'signalColor': '#334155', 'actorBorder': '#334155'}}}%%
 flowchart TD
   F[facts from events + run.json] --> D{derive_lane}
   D -->|merged| DONE[Done]
@@ -538,27 +541,6 @@ Optional per-event overrides; see [`docs/REACTIONS.md`](docs/REACTIONS.md). `tre
 | PR | `tests/test_pr_*` | Fake provider + recorded fixtures |
 
 Never weaken a failing test to green the gate; fix the cause ([`docs/PHASES.md`](docs/PHASES.md)).
-
----
-
-## Comparison with Agent Orchestrator
-
-[Agent Orchestrator](https://github.com/OrchestratorInc/agent-orchestrator) (AO) is the Go + Electron product TreeFleet reimplements with a Python, ADK/CrewAI-only stack.
-
-| Dimension | Agent Orchestrator | TreeFleet |
-|---|---|---|
-| Runtime | Go daemon + Electron UI | Python CLI + FastAPI board |
-| Agent frameworks | Custom adapters | **Google ADK** + **CrewAI** only |
-| Worker transport | In-process / custom | **A2A JSON-RPC** per worker |
-| Coding agent | CLI agent in worktree | **cursor-agent** headless |
-| Isolation story | Worktrees + process model | Worktrees + **computed proofs** |
-| Contracts | OpenAPI / SQLite schema | Single `contracts.py` |
-| PR / CI loop | PR tracker, checks | Optional `[pr]` + `gh` provider |
-| Reactions | Product workflows | Declarative `[reactions]` + `resolve()` |
-| Distribution | Desktop releases | Local-first; you run from source |
-| Maturity | Shipped desktop product | Pre-1.0 research codebase |
-
-Parity intent: [`docs/ARCHITECTURE.md` § AO parity](docs/ARCHITECTURE.md).
 
 ---
 
