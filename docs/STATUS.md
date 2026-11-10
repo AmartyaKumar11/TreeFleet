@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — One poller, and the board follows the latest fact
+
+The in-run stage and `pr watch` both call `build_poll_hooks`. The revision comment uses `git diff HEAD~1`. A missing or failing reviewer emits `acceptance.unavailable` and does not spend a round; the card says `reviewer unavailable`. An approve verdict, or an approved green pull request with nobody waiting and no revision in flight, clears an earlier worker failure for the lane. Every poll refreshes the current head's checks. The card notice for an ignored comment is only `untrusted` or `stale`.
+
 ## 2026-11-10 — Empty tool arguments are a retry, not a failure
 
 `read_file` path and `search` pattern are required in the tool schema. A blank or missing value returns the required names and types and emits `tool.arg_error`. The card stays where it was.

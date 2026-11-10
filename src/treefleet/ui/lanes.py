@@ -48,6 +48,16 @@ class TaskLaneFacts:
     pr_enabled: bool = False
 
 
+def _failed_blocks(facts: TaskLaneFacts) -> bool:
+    """An earlier worker failure loses to a later approval when nothing is waiting on a person."""
+    if facts.status != "failed":
+        return False
+    if facts.verdict == "approve":
+        return False
+    quiet = facts.pr_status == "approved_green" and not facts.needs_human and not facts.pr_revising
+    return not quiet
+
+
 def derive_lane(facts: TaskLaneFacts) -> Lane:
     """Map facts to a board lane id. The latest pr state outranks an earlier approval."""
     if facts.pr_status == "merged":
@@ -62,7 +72,7 @@ def derive_lane(facts: TaskLaneFacts) -> Lane:
         or facts.guard_blocked
         or facts.needs_human
         or facts.verdict in {"revise", "reject"}
-        or facts.status == "failed"
+        or _failed_blocks(facts)
     ):
         return "needs"
     if facts.pr_revising:
@@ -296,7 +306,14 @@ def tasks_from_snapshot(
             task["reason"] = "PR polling failed"
             task["needs_human"] = True
         if kind == "pr.comment_ignored":
-            task["notice"] = f"comment ignored: {payload.get('reason') or 'untrusted'}"
+            reason = str(payload.get("reason") or "untrusted")
+            if reason in {"untrusted", "stale"}:
+                task["notice"] = f"comment ignored: {reason}"
+        if kind == "acceptance.unavailable":
+            task["status"] = "needs_review"
+            task["needs_human"] = True
+            task["pr_revising"] = False
+            task["reason"] = str(payload.get("reason") or "reviewer unavailable")
         if kind == "pr.trust_unresolved":
             task["status"] = "needs_review"
             task["needs_human"] = True
