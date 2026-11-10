@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — Ignored comments stay visible
+
+`pr.comment_ignored` carries `reason`, `comment_id`, and `created_at`. The board shows `comment ignored: <reason>`. The comment id is written to `pr_last_comment_id`.
+
 ## 2026-11-10 — In-run comment trust
 
 The in-run poller and `pr watch` both call `trusted_logins`. An empty `trusted_commenters` list is the authenticated login from the provider. If that login cannot be resolved, the run emits `pr.trust_unresolved` and the card goes to Needs you.

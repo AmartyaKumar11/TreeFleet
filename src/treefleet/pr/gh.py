@@ -120,7 +120,14 @@ class GhProvider:
                 continue
             user_raw = item.get("user")
             user = user_raw if isinstance(user_raw, dict) else {}
-            found.append(Comment(id=comment_id, author=str(user.get("login") or ""), body=str(item.get("body") or "")))
+            found.append(
+                Comment(
+                    id=comment_id,
+                    author=str(user.get("login") or ""),
+                    body=str(item.get("body") or ""),
+                    created_at=str(item.get("created_at") or ""),
+                )
+            )
         return found
 
     def post_comment(self, number: int, body: str) -> Comment:

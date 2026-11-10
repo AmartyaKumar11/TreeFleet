@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 from treefleet.guards.input import deterministic_reasons
@@ -103,9 +104,22 @@ def revision_comment(round_no: int, line: str, *, diff: str = "", request: str =
     return format_revision(round_no, diff, request)
 
 
-def comment_kind(comment: Comment, trusted: set[str]) -> str:
+def _earlier(created: str, opened: str) -> bool:
+    if not created or not opened:
+        return False
+    try:
+        left = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        right = datetime.fromisoformat(opened.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return left < right
+
+
+def comment_kind(comment: Comment, trusted: set[str], *, opened_at: str = "") -> str:
     if MARKER in comment.body:
         return "own"
+    if _earlier(comment.created_at, opened_at):
+        return "stale"
     if comment.author not in trusted:
         return "untrusted"
     return "trusted"

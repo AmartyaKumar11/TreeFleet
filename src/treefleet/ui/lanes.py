@@ -295,6 +295,8 @@ def tasks_from_snapshot(
             task["status"] = "needs_review"
             task["reason"] = "PR polling failed"
             task["needs_human"] = True
+        if kind == "pr.comment_ignored":
+            task["notice"] = f"comment ignored: {payload.get('reason') or 'untrusted'}"
         if kind == "pr.trust_unresolved":
             task["status"] = "needs_review"
             task["needs_human"] = True

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from treefleet.pr.config import PrSettings
@@ -101,6 +102,7 @@ def drive(
             url=pr.url,
             head=branch,
             head_sha=sha or pr.head_sha,
+            opened_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         opened.append(item)
         hooks.note("pr.opened", task_id, {"number": pr.number, "url": pr.url, "sha": item.head_sha})

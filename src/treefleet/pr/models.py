@@ -36,6 +36,7 @@ class Comment:
     id: int
     author: str
     body: str
+    created_at: str = ""
 
 
 @dataclass
@@ -66,3 +67,4 @@ class OpenPR:
     last_failure: str = ""
     comments: list[TrackedComment] = field(default_factory=list)
     pending_revision: bool = False
+    opened_at: str = ""

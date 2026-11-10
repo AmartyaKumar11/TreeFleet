@@ -119,11 +119,19 @@ def _poll_item(
     acted = False
     for comment in comments:
         item.last_comment_id = max(item.last_comment_id, comment.id)
-        kind = comment_kind(comment, trusted)
-        if kind == "own":
-            continue
-        if kind == "untrusted":
-            hooks.note("pr.comment_ignored", item.task_id, {"author": comment.author, "number": item.number})
+        kind = comment_kind(comment, trusted, opened_at=item.opened_at)
+        if kind != "trusted":
+            hooks.note(
+                "pr.comment_ignored",
+                item.task_id,
+                {
+                    "author": comment.author,
+                    "number": item.number,
+                    "reason": kind,
+                    "comment_id": comment.id,
+                    "created_at": comment.created_at,
+                },
+            )
             continue
         _on_comment(item, comment, provider, policy, hooks)
         acted = True

@@ -679,6 +679,14 @@ def _jev_note(bundle: RunBundle, task: Any, diff: str) -> str:
     return f"Jev in_scope noul={float(scores.get('in_scope', 0)):.2f}"
 
 
+def pr_comment_cursor(payload: dict[str, Any]) -> dict[str, int]:
+    """The cursor to store when a comment is ignored. Empty when the id is missing."""
+    comment_id = payload.get("comment_id")
+    if isinstance(comment_id, int) and not isinstance(comment_id, bool) and comment_id > 0:
+        return {"pr_last_comment_id": comment_id}
+    return {}
+
+
 def _emit(bundle: RunBundle, kind: str, task_id: str, round_no: int, payload: dict[str, Any]) -> None:
     bundle.sink.emit_sync(
         RunEvent(
@@ -977,6 +985,8 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
         elif kind == "pr.checks" and payload.get("checks"):
             state_name = "approved_green" if payload.get("checks") == "passing" else "open"
             fields = {"pr_checks": payload.get("checks"), "pr_status": state_name}
+        elif kind == "pr.comment_ignored":
+            fields = dict(pr_comment_cursor(payload))
         elif kind == "pr.trust_unresolved":
             fields = {
                 "status": "needs_review",

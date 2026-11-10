@@ -61,8 +61,8 @@ class FakeProvider:
         data.update(fields)
         self.states[number] = PRState(**data)  # type: ignore[arg-type]
 
-    def add_comment(self, number: int, author: str, body: str) -> Comment:
-        comment = Comment(id=self._comment, author=author, body=body)
+    def add_comment(self, number: int, author: str, body: str, created_at: str = "") -> Comment:
+        comment = Comment(id=self._comment, author=author, body=body, created_at=created_at)
         self._comment += 1
         self.comments[number].append(comment)
         return comment
