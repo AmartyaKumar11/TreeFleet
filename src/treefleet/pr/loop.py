@@ -176,12 +176,23 @@ class CheckUnavailable(RuntimeError):
         super().__init__(reason)
 
 
+class WorkerStartFailed(RuntimeError):
+    """The worker exited before its first step. This is not a revision round."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 def _revise(item: OpenPR, feedback: str, provider: object, hooks: PollHooks, *, attempt: int) -> str | None:
     """Push one revision. None means the worker made no commit."""
     item.pending_revision = True
     hooks.note("pr.revision_started", item.task_id, {"attempt": attempt, "number": item.number})
     try:
         new_sha = hooks.revise(item.task_id, feedback)
+    except WorkerStartFailed:
+        item.pending_revision = False
+        raise
     except CheckUnavailable as exc:
         item.pending_revision = False
         item.status = "needs_review"
@@ -225,6 +236,19 @@ def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: Rea
             sha = _revise(item, feedback, provider, hooks, attempt=tracked.rounds_used + 1)
         except CheckUnavailable:
             return
+        except WorkerStartFailed as exc:
+            tracked.status = "needs_human"
+            tracked.reason = exc.reason[:1800]
+            item.status = "needs_review"
+            item.unresolved = True
+            item.pending_revision = False
+            item.last_failure = tracked.reason
+            hooks.note(
+                "worker.start_failed",
+                item.task_id,
+                {"task": item.task_id, "reason": exc.reason[:300]},
+            )
+            return
         tracked.rounds_used += 1
         if sha is None:
             tracked.status = "unsatisfied"
@@ -251,6 +275,9 @@ def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: Rea
 def _on_comment(item: OpenPR, comment: object, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
     body = str(getattr(comment, "body", ""))
     comment_id = int(getattr(comment, "id", 0))
+    existing = next((row for row in item.comments if row.id == comment_id), None)
+    if existing is not None and existing.status in {"needs_human", "satisfied"}:
+        return
     attempt = _attempt(item, "pr_comment")
     decision = resolve(Event.pr_comment, attempt, table)
     hooks.note(
@@ -259,8 +286,12 @@ def _on_comment(item: OpenPR, comment: object, provider: object, table: Reaction
         {"comment_id": comment_id, "number": item.number, "attempt": attempt},
     )
     hooks.note("pr.comment", item.task_id, {"author_trusted": True, "number": item.number, "attempt": attempt})
-    tracked = TrackedComment(id=comment_id, body=body)
-    item.comments.append(tracked)
+    if existing is None:
+        tracked = TrackedComment(id=comment_id, body=body)
+        item.comments.append(tracked)
+    else:
+        existing.body = body
+        tracked = existing
     item.unresolved = True
     if decision.action != Action.send_to_agent:
         tracked.status = "needs_human"

@@ -279,6 +279,13 @@ def tasks_from_snapshot(
             task["pr_open"] = False
             task["pr_status"] = "cancelled"
             task["reason"] = str(payload.get("reason") or "pull request closed")
+        if kind == "worker.start_failed":
+            task["status"] = "needs_review"
+            task["needs_human"] = True
+            task["pr_revising"] = False
+            task["worker_active"] = False
+            reason = str(payload.get("reason") or "worker exited")
+            task["reason"] = f"worker could not start: {reason}"
         if kind == "check.unavailable":
             task["status"] = "needs_review"
             task["needs_human"] = True

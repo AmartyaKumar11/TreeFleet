@@ -273,11 +273,11 @@ def _pr_watch(record: object, settings: object) -> int:
     from treefleet.orchestrator.fleet import dispatch
     from treefleet.pr.accept import acceptance_prompt, parse_acceptance
     from treefleet.pr.gh import GhProvider
-    from treefleet.pr.loop import PollHooks
+    from treefleet.pr.loop import CheckUnavailable, PollHooks, WorkerStartFailed
     from treefleet.pr.models import OpenPR, TrackedComment
     from treefleet.pr.stage import git_push, poll_until
     from treefleet.sessions import RunRecord, RunStore
-    from treefleet.worker.spawner import before_spawn, crew_python, free_port, spawn_worker, worker_env
+    from treefleet.worker.spawner import before_spawn, crew_python, free_port, last_log_line, spawn_worker, worker_env
 
     if not isinstance(record, RunRecord):
         print("run record is unreadable", file=sys.stderr)
@@ -382,6 +382,7 @@ def _pr_watch(record: object, settings: object) -> int:
         )
         token = secrets.token_urlsafe(32)
         port = free_port(settings.workers.port_start, set())  # type: ignore[attr-defined]
+        log_path = runs / record.run_id / f"{task_id}-revision.log"
         try:
             before_spawn(worktree, record.run_id, sink, task_id)
             proc = spawn_worker(
@@ -392,11 +393,12 @@ def _pr_watch(record: object, settings: object) -> int:
                 token=token,
                 port=port,
                 env=worker_env(token, extra),
-                log_path=runs / record.run_id / f"{task_id}-revision.log",
+                log_path=log_path,
             )
         except (OSError, RuntimeError, TimeoutError) as exc:
-            print(f"worker did not start for {task_id}: {type(exc).__name__}", file=sys.stderr)
-            return None
+            reason = last_log_line(log_path) or type(exc).__name__
+            print(f"worker did not start for {task_id}: {reason}", file=sys.stderr)
+            raise WorkerStartFailed(reason) from exc
         try:
             result, _note = asyncio.run(dispatch(proc.url, token, envelope))
         except Exception as exc:
@@ -406,8 +408,6 @@ def _pr_watch(record: object, settings: object) -> int:
             kill_tree(proc.pid)
         missing = unavailable_reason(result.checks)
         if missing:
-            from treefleet.pr.loop import CheckUnavailable
-
             raise CheckUnavailable(missing)
         if not result.commit_made or not result.head_sha:
             print(f"revision made no commit for {task_id}", file=sys.stderr)
