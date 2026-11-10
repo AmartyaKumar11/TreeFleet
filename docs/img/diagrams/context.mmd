@@ -1,0 +1,59 @@
+%%{init: {'theme': 'neutral'}}%%
+flowchart TB
+  subgraph user_trust["Trust: operator machine"]
+    U[Operator / browser]
+    CLI[CLI]
+    UI[Web UI board]
+  end
+
+  subgraph orch_trust["Trust: orchestrator process"]
+    ORCH[ADK pipeline]
+    G1[Input guard]
+    RS[Repo scan]
+    PL[Planner]
+    PG[Plan guard]
+    RT[Router + Jev]
+    FL[Fleet]
+    VF[Isolation verifier]
+    RV[Reviewer]
+    IG[Integrator or PR stage]
+    RP[Reporter]
+    ORCH --> G1 --> RS --> PL --> PG --> RT --> FL --> VF --> RV --> IG --> RP
+  end
+
+  subgraph worker_trust["Trust boundary: one OS process per task"]
+    W1[Worker + CrewAI]
+    W2[Worker + CrewAI]
+    CU1[cursor-agent cwd = worktree]
+    CU2[cursor-agent cwd = worktree]
+    MCP1[worktree-fs-mcp read-only]
+    W1 --> MCP1
+    W1 --> CU1
+    W2 --> CU2
+  end
+
+  subgraph external["External services"]
+    GH[GitHub via gh]
+    DS[DeepSeek API]
+    JV[Jev API]
+    CR[Cursor API]
+  end
+
+  GIT[(Git: main checkout + worktrees)]
+
+  U --> UI
+  U --> CLI
+  UI --> ORCH
+  CLI --> ORCH
+  FL -. A2A JSON-RPC .-> W1
+  FL -. A2A JSON-RPC .-> W2
+  ORCH --> GIT
+  W1 --> GIT
+  W2 --> GIT
+  IG --> GH
+  PL --> DS
+  RV --> DS
+  W1 --> DS
+  RT --> JV
+  CU1 --> CR
+  CU2 --> CR

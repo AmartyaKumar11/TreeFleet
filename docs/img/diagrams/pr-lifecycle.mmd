@@ -1,0 +1,17 @@
+%%{init: {'theme': 'neutral'}}%%
+stateDiagram-v2
+  [*] --> task_done: worker commits
+  task_done --> awaiting_prs: PR opened
+  awaiting_prs --> checks_pending: CI running
+  checks_pending --> checks_green: all required checks pass
+  checks_pending --> revision: checks_failed reaction
+  awaiting_prs --> revision: trusted pr_comment
+  revision --> checks_pending: push new head
+  checks_green --> needs_review: comment unsatisfied or worker failure
+  checks_green --> approved_green: quiet + reviewer acceptance
+  approved_green --> merged: human merge or auto_merge
+  awaiting_prs --> closed: PR closed unmerged
+  merged --> [*]
+  closed --> [*]
+  needs_review --> revision: retry armed
+  needs_review --> needs_human: rounds exhausted

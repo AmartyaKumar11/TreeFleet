@@ -1,0 +1,41 @@
+%%{init: {'theme': 'neutral'}}%%
+sequenceDiagram
+  autonumber
+  actor Op as Operator
+  participant UI as Web UI
+  participant Orch as ADK orchestrator
+  participant W as CrewAI worker
+  participant Cur as cursor-agent
+  participant GH as GitHub
+  participant Rev as Reviewer
+
+  Op->>UI: Goal + approve plan
+  UI->>Orch: RunRequest
+  Orch->>Orch: Input + plan guards
+  Orch->>Orch: Create worktrees tf/run/task
+  Orch->>W: A2A WorkerTaskEnvelope
+  W->>Cur: cursor_code in worktree
+  Cur-->>W: JSON usage + edits
+  W->>W: run_check, commit on branch
+  W-->>Orch: WorkerResult
+  Orch->>Orch: IsolationProof + MainCheckoutProof
+  Orch->>Rev: Review diff
+  Rev-->>Orch: approve / revise / reject
+  opt revise within budget
+    Orch->>W: revision envelope
+    W->>Cur: cursor_code
+    W-->>Orch: WorkerResult
+  end
+  Orch->>GH: push branch, open PR
+  loop poll
+    Orch->>GH: checks + comments
+    alt trusted comment
+      Orch->>W: revision from comment
+      W->>GH: push + comment
+      Orch->>Rev: acceptance vs diff
+    else checks green
+      Orch->>Orch: pr_status approved_green
+    end
+  end
+  Op->>Orch: pr merge command
+  Orch->>GH: merge PR

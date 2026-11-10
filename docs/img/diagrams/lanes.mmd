@@ -1,0 +1,9 @@
+%%{init: {'theme': 'neutral'}}%%
+flowchart TD
+  F[facts from events + run.json] --> D{derive_lane}
+  D -->|merged| DONE[Done]
+  D -->|cancelled / needs_human / reject| NEEDS[Needs you]
+  D -->|pr_revising / active worker| WORK[Working]
+  D -->|pr open not green / reviewing| REV[In review]
+  D -->|approve + approved_green| READY[Ready to merge]
+  D -->|default in-flight| WORK

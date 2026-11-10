@@ -1,0 +1,25 @@
+%%{init: {'theme': 'neutral'}}%%
+flowchart LR
+  subgraph main["Main checkout"]
+    MHEAD[HEAD + index]
+    CAN[.treefleet_canary]
+  end
+
+  subgraph wt["Worktree tf/run/task"]
+    BR[branch tf/run/task]
+    IDX[own index + files]
+    PROC[worker + cursor cwd]
+  end
+
+  P1[process cwd matches worktree]
+  P2[rev-parse toplevel]
+  P3[worktree list registration]
+  P4[canary absent in worktree]
+  P5[diff within allowed_paths]
+
+  PROC --> P1
+  BR --> P2
+  BR --> P3
+  CAN -. monitor .-> main
+  CAN --> P4
+  IDX --> P5
