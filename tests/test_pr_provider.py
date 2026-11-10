@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from treefleet.config import ConfigError, load_settings
+from treefleet.config import ConfigError, config_path, load_settings
 from treefleet.pr.fake import FakeProvider
 from treefleet.pr.gh import GhError, GhProvider
 from treefleet.pr.loop import check_label
@@ -25,7 +25,7 @@ def _secrets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_missing_pr_table_stays_off(monkeypatch: pytest.MonkeyPatch) -> None:
     _secrets(monkeypatch)
-    settings = load_settings(ROOT / "treefleet.toml")
+    settings = load_settings()
     assert settings.pr.enabled is False
     assert settings.pr.allow_external_hooks is False
     assert settings.pr.poll_seconds == 15
@@ -34,7 +34,7 @@ def test_missing_pr_table_stays_off(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_poll_seconds_below_five_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _secrets(monkeypatch)
-    text = (ROOT / "treefleet.toml").read_text(encoding="utf-8")
+    text = config_path().read_text(encoding="utf-8")
     path = tmp_path / "treefleet.toml"
     path.write_text(text + "\n[pr]\nenabled = false\npoll_seconds = 4\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="poll_seconds"):

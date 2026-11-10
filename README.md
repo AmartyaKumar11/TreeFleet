@@ -429,14 +429,46 @@ Sources: `tests/fixtures/59180665-retry-events.jsonl` and `evidence/phase-12/reh
 - [`cursor-agent`](https://cursor.com) on `PATH` for live coding
 - `gh` authenticated when using `[pr]`
 
-### Install
+### Init and doctor
+
+From an empty directory (or the TreeFleet checkout):
 
 ```bash
-uv venv .venv-orch && uv pip install -p .venv-orch -e ".[orchestrator,dev]"
-uv venv .venv-worker && uv pip install -p .venv-worker -e ".[worker]"
+treefleet init          # writes treefleet.toml + .env.example; asks for worktree root and target repo
+treefleet init --yes --worktree-root /tmp/tf-wt   # non-interactive
+# Windows: keep the worktree root short (default C:\wt). Paths must stay under 120 characters
+# because each task lives at <root>/<run_id>/<task_id>.
 ```
 
-Use `.venv-orch` for CLI, UI, gate, and eval. Workers are spawned with `.venv-worker` (`[paths]` in `treefleet.toml`).
+`init` prints the two venv install commands. Add `--install` to run them. Then activate the orchestrator env so the `treefleet` command exists:
+
+```bash
+# Unix
+source .venv-orch/bin/activate
+# Windows
+.\.venv-orch\Scripts\activate
+```
+
+Set the names in `.env.example` as real environment variables (never commit values). Check the machine:
+
+```bash
+treefleet doctor
+treefleet doctor --repo <path-to-target-repo>
+treefleet doctor --pr --live   # also GitHub + provider auth probes
+```
+
+Config path: `TREEFLEET_CONFIG` (absolute or relative path to a `treefleet.toml`) overrides the default `./treefleet.toml` for CLI, UI, doctor, and runs. `treefleet init --help` / `treefleet doctor --help` mention this.
+
+### First look: `treefleet try`
+
+No GitHub and no repo of your own. After init + doctor:
+
+```bash
+treefleet try --yes
+# or: treefleet try --dir ~/treefleet-sample --goal "..."
+```
+
+Expected shape: doctor lines → confirmation (skipped with `--yes`) → a three-task run against a local sample under `~/treefleet-sample` → a results block with `run_id`, task branches `tf/<run>/<task>`, worktree root, report path, cost, and `git -C …` inspect/merge commands (shown, not executed). PR mode is forced off for this run. Your own repo comes after.
 
 ### Environment variables (names only)
 
@@ -449,33 +481,27 @@ Use `.venv-orch` for CLI, UI, gate, and eval. Workers are spawned with `.venv-wo
 | `LANGFUSE_SECRET_KEY` | Optional |
 | `LANGFUSE_BASE_URL` | Optional |
 
-### Demo repo
+### Run on your own repo
+
+Every CLI run prints a confirmation screen (repo, base branch, clean/dirty, PR mode, worktree root, agent CLI, budgets) unless `--yes` or `--no-approval`. Non-interactive sessions without `--yes` refuse with exit 2.
 
 ```bash
-treefleet demo preflight --repo <path-to-demo-repo>
-treefleet demo reset --repo <path-to-demo-repo>
-treefleet ui --repo <path-to-demo-repo> --port 8765
+treefleet ui --repo <path-to-target-repo> --port 8765
+# or
+treefleet "<your goal>" --repo <path-to-target-repo> --yes
 ```
 
-Open the board, submit a two-task goal (for example unit tests in two modules), approve the plan unless **Auto-run** is on.
-
-### Run a goal (CLI)
-
-```bash
-treefleet "<your goal>" --repo <path-to-demo-repo> --yes
-```
-
-`--yes` accepts detected checks without prompting. See `treefleet --help` for `--model`, `--no-approval`, `--check`, and other flags.
+Open the board, submit a goal, approve the plan unless **Auto-run** is on. `--yes` accepts confirmation and detected checks without prompting.
 
 ### Enable the PR loop
 
-Add to `treefleet.toml` (defaults in [`src/treefleet/pr/config.py`](src/treefleet/pr/config.py)):
+`treefleet init` can write `[pr]` after confirming `gh` auth (or pass `--enable-pr --pr-repo owner/name`). Defaults live in [`src/treefleet/pr/config.py`](src/treefleet/pr/config.py). Manual shape:
 
 ```toml
 [pr]
 enabled = true
 repo = "owner/name"
-base = "demo-base"
+base = "main"
 poll_seconds = 15
 max_wait_minutes = 60
 trusted_commenters = []   # empty → authenticated gh login

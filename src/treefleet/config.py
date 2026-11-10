@@ -152,8 +152,24 @@ def _python(venv: Path) -> Path:
     return venv / "bin" / "python"
 
 
-def load_settings(path: Path) -> Settings:
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+def config_path(explicit: Path | None = None) -> Path:
+    """Resolve treefleet.toml. TREEFLEET_CONFIG overrides the cwd default."""
+    if explicit is not None:
+        return explicit
+    override = os.environ.get("TREEFLEET_CONFIG")
+    if override and override.strip():
+        return Path(override.strip())
+    return Path.cwd() / "treefleet.toml"
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    path = config_path(path)
+    if not path.is_file():
+        raise ConfigError(f"{path.name} not found. Run treefleet init.")
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigError(f"could not read {path.name}. Run treefleet init.") from exc
     reactions_raw = data.pop("reactions", None)
     pr_raw = data.pop("pr", None)
     leaked = [key for key in _SECRET_KEYS if key in data]

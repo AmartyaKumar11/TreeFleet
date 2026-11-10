@@ -420,10 +420,23 @@ def interpreter_checks(repo: Path, worker_python: str) -> list[tuple[bool, str]]
     if imports_module(worker, "crewai"):
         rows = [(True, f"green  worker interpreter imports crewai ({worker})")]
     else:
-        rows = [(False, f"red    worker interpreter cannot import crewai ({worker})")]
+        rows = [
+            (
+                False,
+                f"red    worker interpreter cannot import crewai ({worker})\n"
+                '       fix: uv pip install -p .venv-worker -e ".[worker]"',
+            )
+        ]
     resolved, _source = resolve_python(repo)
     if resolved is None:
-        rows.append((False, "red    no check interpreter can import pytest"))
+        rows.append(
+            (
+                False,
+                "red    no check interpreter can import pytest\n"
+                '       fix: uv pip install -p .venv-orch -e ".[orchestrator,dev]" '
+                "(or pass --python to a pytest-capable interpreter)",
+            )
+        )
     else:
         rows.append((True, f"green  check interpreter imports pytest ({resolved})"))
     return rows

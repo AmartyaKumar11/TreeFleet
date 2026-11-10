@@ -173,7 +173,12 @@ def env_differs(env: Mapping[str, str], file_values: Mapping[str, str]) -> list[
         process = env.get(key) or ""
         filed = file_values.get(key) or ""
         if process and filed and process != filed:
-            rows.append((False, f"red    {key}: process env differs from .env"))
+            rows.append(
+                (
+                    False,
+                    f"red    {key}: process env differs from .env (process environment wins)",
+                )
+            )
     return rows
 
 
@@ -202,7 +207,7 @@ def preflight(
     cli = Path("cursor-agent")
     settings = None
     try:
-        settings = load_settings(Path.cwd() / "treefleet.toml")
+        settings = load_settings()
         cli = Path(settings.cursor.cli)
     except (MissingSecretError, OSError):
         pass
@@ -228,12 +233,30 @@ def preflight(
     if _clean(repo):
         lines.append((True, "green  working tree is clean"))
     else:
-        lines.append((False, f"red    working tree is dirty\n       fix: treefleet demo reset --repo {repo}"))
+        lines.append(
+            (
+                True,
+                f"yellow working tree is dirty (warning)\n"
+                f"       inspect: git -C {repo} status\n"
+                f"       optional: git -C {repo} stash\n"
+                "       nothing is deleted automatically",
+            )
+        )
     stale = _stale(repo)
     if not stale:
         lines.append((True, "green  no stale worktrees"))
     else:
-        lines.append((False, f"red    {len(stale)} stale worktree(s)\n       fix: treefleet demo reset --repo {repo}"))
+        listed = "\n".join(f"       inspect path: {path}" for path in stale[:8])
+        lines.append(
+            (
+                True,
+                f"yellow {len(stale)} stale worktree(s) (warning)\n"
+                f"       inspect: git -C {repo} worktree list\n"
+                f"{listed}\n"
+                "       optional: git worktree remove <path>  (no --force)\n"
+                "       nothing is deleted automatically",
+            )
+        )
     if settings is not None:
         from treefleet.checks import interpreter_checks
 
@@ -312,6 +335,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="treefleet demo")
     parser.add_argument("command", choices=("preflight", "reset"))
     parser.add_argument("--repo", required=True)
+    parser.add_argument(
+        "--i-understand",
+        action="store_true",
+        help="required for reset: hard-resets demo-base and runs git clean -fd",
+    )
     parsed = parser.parse_args(argv)
     repo = Path(parsed.repo)
     if parsed.command == "preflight":
@@ -319,6 +347,14 @@ def main(argv: list[str] | None = None) -> int:
         for _ok, text in rows:
             print(text)
         return 0 if all(ok for ok, _text in rows) else 1
+
+    if not parsed.i_understand:
+        print(
+            "treefleet demo reset hard-resets the repo to demo-base and runs git clean -fd. "
+            "Pass --i-understand to confirm.",
+            file=sys.stderr,
+        )
+        return 2
 
     def ask(branches: list[str]) -> bool:
         for name in branches:

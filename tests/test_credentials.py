@@ -95,8 +95,14 @@ def test_preflight_auth_is_red_without_the_key_and_differs_is_names_only(
     )
     printed = "\n".join(text for _ok, text in rows)
     _no_secret(printed)
-    assert any(not ok and text == "red    DEEPSEEK_API_KEY: process env differs from .env" for ok, text in rows)
-    assert any(not ok and text == "red    TYPESAFE_API_KEY: process env differs from .env" for ok, text in rows)
+    assert any(
+        not ok and text == "red    DEEPSEEK_API_KEY: process env differs from .env (process environment wins)"
+        for ok, text in rows
+    )
+    assert any(
+        not ok and text == "red    TYPESAFE_API_KEY: process env differs from .env (process environment wins)"
+        for ok, text in rows
+    )
     assert any(not ok and text == "red    DeepSeek authentication failed request req-deep1" for ok, text in rows)
     assert any(not ok and text == "red    Jev authentication failed request req-jev01" for ok, text in rows)
     assert env_differs({"DEEPSEEK_API_KEY": SECRET}, {"DEEPSEEK_API_KEY": SECRET}) == []
@@ -161,7 +167,7 @@ async def test_planner_auth_failure_ends_the_run(
     _git(repo)
     outcome = await run_pipeline(
         RunRequest(goal=GOAL, repo=str(repo), plan_approval=False),
-        load_settings(ROOT / "treefleet.toml"),
+        load_settings(),
         fakes=OfflineFakes(planner=_dying(), cursor_cli=ROOT / "spikes" / "s9_fakes.py"),
         runs_root=tmp_path / "runs",
         worktree_root=tmp_path / "wt",

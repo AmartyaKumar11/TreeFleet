@@ -35,6 +35,18 @@ def main(argv: list[str] | None = None) -> int:
         from treefleet.demo import main as demo_main
 
         return demo_main(args[1:])
+    if args and args[0] == "init":
+        from treefleet.onboarding import init_main
+
+        return init_main(args[1:])
+    if args and args[0] == "doctor":
+        from treefleet.onboarding import doctor_main
+
+        return doctor_main(args[1:])
+    if args and args[0] == "try":
+        from treefleet.try_cmd import try_main
+
+        return try_main(args[1:])
     return _run(args)
 
 
@@ -96,7 +108,7 @@ def _eval(argv: list[str]) -> int:
     parsed = parser.parse_args(argv)
     root = Path.cwd()
     load_env(root)
-    settings = load_settings(root / "treefleet.toml")
+    settings = load_settings()
     cap = settings.workers.max_workers
     folder = root / "eval"
     folder.mkdir(parents=True, exist_ok=True)
@@ -177,7 +189,7 @@ def _reactions(argv: list[str]) -> int:
     explain.add_argument("--run", required=True)
     parsed = parser.parse_args(argv)
     if parsed.cmd == "list":
-        settings = load_settings(Path.cwd() / "treefleet.toml")
+        settings = load_settings()
         print(format_list(settings.reactions))
         return 0
     path = Path.cwd() / "runs" / parsed.run / "events.jsonl"
@@ -189,7 +201,7 @@ def _reactions(argv: list[str]) -> int:
 
 
 def _models() -> int:
-    settings = load_settings(Path.cwd() / "treefleet.toml")
+    settings = load_settings()
     for model in discover(Path(settings.cursor.cli), settings.cursor.list_flag):
         print(f"{model.id} - {model.label}")
     return 0
@@ -203,7 +215,7 @@ def _pr(argv: list[str]) -> int:
     if not argv or argv[0] not in {"watch", "status", "merge", "retry"}:
         print("usage: treefleet pr watch|status|merge|retry", file=sys.stderr)
         return 2
-    settings = load_settings(Path.cwd() / "treefleet.toml")
+    settings = load_settings()
     runs = Path.cwd() / "runs"
     if argv[0] in {"watch", "merge"} and not settings.pr.enabled:
         print("pr is disabled", file=sys.stderr)
@@ -552,7 +564,7 @@ def _sessions(argv: list[str]) -> int:
         if skipped:
             print(skip_message(skipped))
         return 0
-    settings = load_settings(Path.cwd() / "treefleet.toml")
+    settings = load_settings()
     root = Path(settings.worktree_root)
     if parsed.cmd == "kill":
         if bool(parsed.task) == bool(parsed.run):
@@ -606,7 +618,7 @@ def _run(argv: list[str]) -> int:
     )
     parsed = parser.parse_args(argv)
     worker_model = parsed.model
-    settings = load_settings(Path.cwd() / "treefleet.toml")
+    settings = load_settings()
     cli = Path(settings.cursor.cli)
     try:
         require_known(worker_model, cli, settings.cursor.list_flag)
@@ -614,6 +626,18 @@ def _run(argv: list[str]) -> int:
     except UnknownModelError as exc:
         raise SystemExit(str(exc)) from None
     repo = Path(parsed.repo or Path.cwd())
+    from treefleet.confirm import confirm_run
+
+    conf_code, conf_lines = confirm_run(
+        repo,
+        settings,
+        yes=parsed.yes,
+        skip_prompt=parsed.no_approval,
+    )
+    for line in conf_lines:
+        print(line)
+    if conf_code != 0:
+        return conf_code
     checks, notes = _confirmed_checks(
         repo,
         parsed.no_checks,

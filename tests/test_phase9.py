@@ -136,7 +136,7 @@ def test_planner_default_is_flash_with_pro_escalation(monkeypatch: pytest.Monkey
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
-    fast, pro = planner_choice(load_settings(ROOT / "treefleet.toml"))
+    fast, pro = planner_choice(load_settings())
     assert fast == "deepseek/deepseek-flash"
     assert pro == "deepseek/deepseek-v4-pro"
 

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from treefleet.config import ConfigError, load_settings
+from treefleet.config import ConfigError, config_path, load_settings
 from treefleet.contracts import CheckResult, Plan, ReviewVerdict, SelfReportedIsolation, TaskSpec, WorkerResult
 from treefleet.orchestrator.review import MAX_REVISIONS, review_loop, selected_branches
 from treefleet.reactions import (
@@ -93,7 +93,7 @@ def test_defaults_match_the_inventory() -> None:
 
 def test_loaded_toml_marks_every_event_default(monkeypatch: pytest.MonkeyPatch) -> None:
     _secrets(monkeypatch)
-    text = format_list(load_settings(ROOT / "treefleet.toml").reactions)
+    text = format_list(load_settings().reactions)
     for event in Event:
         assert f"{event.value} " in text
         assert "configured" not in text.split(event.value, 1)[1].split("\n", 1)[0]
@@ -277,7 +277,7 @@ def test_startup_rejects_a_bad_reactions_table(tmp_path: Path, monkeypatch: pyte
     _secrets(monkeypatch)
     path = tmp_path / "treefleet.toml"
     path.write_text(
-        (ROOT / "treefleet.toml").read_text(encoding="utf-8") + '\n[reactions.nope]\naction = "ignore"\n',
+        config_path().read_text(encoding="utf-8") + '\n[reactions.nope]\naction = "ignore"\n',
         encoding="utf-8",
     )
     with pytest.raises(ConfigError) as caught:

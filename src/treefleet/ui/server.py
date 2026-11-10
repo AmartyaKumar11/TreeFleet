@@ -341,7 +341,7 @@ def create_app(
     runs: Path | None = None,
 ) -> FastAPI:
     base = root or Path.cwd()
-    settings = load_settings(base / "treefleet.toml")
+    settings = load_settings()
     board = Board(repo, settings, token or secrets.token_urlsafe(18), runs or base / "runs")
     app = FastAPI()
     app.state.board = board

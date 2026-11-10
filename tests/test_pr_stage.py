@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from treefleet.cli import main
-from treefleet.config import load_settings
+from treefleet.config import config_path, load_settings
 from treefleet.pr.config import PrSettings
 from treefleet.pr.fake import FakeProvider
 from treefleet.pr.loop import PollHooks, poll_once
@@ -242,7 +242,7 @@ def test_status_prints_one_row_and_merge_stays_off(tmp_path: Path, monkeypatch: 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
-    (tmp_path / "treefleet.toml").write_text((ROOT / "treefleet.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "treefleet.toml").write_text(config_path().read_text(encoding="utf-8"), encoding="utf-8")
     store = RunStore.start(
         tmp_path / "runs" / "run" / "run.json",
         run_id="run",

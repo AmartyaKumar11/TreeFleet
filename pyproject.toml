@@ -44,7 +44,7 @@ treefleet = "treefleet.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-treefleet = ["ui/*.html"]
+treefleet = ["ui/*.html", "sample/templates/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -68,6 +68,6 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
-exclude = ["spikes", ".venv*", ".venv-orch", ".venv-worker"]
+exclude = ["spikes", ".venv*", ".venv-orch", ".venv-worker", "src/treefleet/sample/templates"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"

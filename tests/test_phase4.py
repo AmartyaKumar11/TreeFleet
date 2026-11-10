@@ -223,7 +223,7 @@ async def _run(
     llm, calls = _scripted(replies)
     outcome = await run_pipeline(
         RunRequest(goal=GOAL, repo=str(repo), plan_approval=approval),
-        load_settings(ROOT / "treefleet.toml"),
+        load_settings(),
         approve=approve,
         fakes=OfflineFakes(planner=llm, cursor_cli=FAKE, fake_sleep=sleep, kill_task=kill, mock_llm=mock),
         runs_root=tmp_path / "runs",
@@ -290,7 +290,7 @@ async def test_dirty_checkout_is_refused(tmp_path: Path, monkeypatch: pytest.Mon
     _secrets(monkeypatch)
     outcome = await run_pipeline(
         RunRequest(goal=GOAL, repo=str(repo), plan_approval=False),
-        load_settings(ROOT / "treefleet.toml"),
+        load_settings(),
     )
     assert outcome.code == 2
     assert "dirty checkout" in outcome.message
@@ -947,6 +947,6 @@ def test_cli_yes_no_checks_and_explicit_check(
     assert main([GOAL, "--repo", str(repo), "--no-checks", "--no-approval"]) == 0
     assert _payload(capsys.readouterr().out)["checks"] == {}
     ok = f'{sys.executable} -c "import sys; raise SystemExit(0)"'
-    assert main([GOAL, "--repo", str(repo), "--no-checks", "--check", f"pyok={ok}"]) == 0
+    assert main([GOAL, "--repo", str(repo), "--no-checks", "--check", f"pyok={ok}", "--yes"]) == 0
     explicit = _payload(capsys.readouterr().out)
     assert explicit["checks"] == {"pyok": ok}

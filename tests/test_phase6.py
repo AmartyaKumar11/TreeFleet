@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from treefleet.cli import main
-from treefleet.config import Pricing, load_settings
+from treefleet.config import Pricing, config_path, load_settings
 from treefleet.contracts import (
     CheckResult,
     CursorCall,
@@ -175,7 +175,7 @@ def test_single_task_speedup_is_not_applicable() -> None:
 def test_official_rates_match_the_fetched_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
-    pricing = load_settings(ROOT / "treefleet.toml").pricing
+    pricing = load_settings().pricing
     assert pricing.deepseek_flash_input_per_million == 0.15
     assert pricing.deepseek_flash_cache_hit_per_million == 0.003
     assert pricing.deepseek_flash_output_per_million == 0.6
@@ -188,7 +188,7 @@ def test_official_rates_match_the_fetched_pages(monkeypatch: pytest.MonkeyPatch)
     assert pricing.cursor_composer_fast_input_per_million == 3
     assert pricing.cursor_composer_fast_cache_read_per_million == 0.5
     assert pricing.cursor_composer_fast_output_per_million == 15
-    text = (ROOT / "treefleet.toml").read_text(encoding="utf-8")
+    text = config_path().read_text(encoding="utf-8")
     assert "https://api-docs.deepseek.com/quick_start/pricing" in text
     assert "https://cursor.com/docs/models" in text
     assert "2026-10-27" in text
@@ -279,7 +279,7 @@ async def test_revise_then_approve_is_attempt_two_on_the_same_branch(
     assert results["alpha"].branch == "tf/abc12345/alpha"
     assert verdicts["alpha"].verdict == "approve"
     assert proved == 1
-    loaded = load_settings(ROOT / "treefleet.toml")
+    loaded = load_settings()
     assert loaded.revise.max_rounds == 1
     assert loaded.revise.round_budget_s == 240
     assert MAX_REVISIONS == loaded.revise.max_rounds
@@ -964,7 +964,7 @@ async def test_no_new_diff_keeps_the_cursor_message() -> None:
 def test_unknown_cursor_id_falls_back_to_the_default_tier(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret-value")
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
-    settings = load_settings(ROOT / "treefleet.toml")
+    settings = load_settings()
     plan = Plan(
         goal="Add one sentence to README.md about pull requests.",
         rationale="The readme is the only file this task should touch.",

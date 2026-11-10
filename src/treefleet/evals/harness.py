@@ -258,7 +258,7 @@ def run_live(
                 from treefleet.evals.conflict_run import run_deterministic_conflict
 
                 try:
-                    row = run_deterministic_conflict(root, repo, load_settings(root / "treefleet.toml"))
+                    row = run_deterministic_conflict(root, repo, load_settings())
                 except Exception as exc:
                     row = _failed_row(scenario, label, index, f"{type(exc).__name__}: {exc}")
                 counts[label] = counts.get(label, 0) + 1

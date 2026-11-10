@@ -17,6 +17,14 @@ class GitError(RuntimeError):
     """A git command failed or a repository is not usable."""
 
 
+def worktree_budget(root: Path, *, limit: int | None = None) -> tuple[bool, int, int]:
+    """Whether root leaves room for run_id/task_id. Returns ok, projected, limit."""
+    # Worst-case leaf: RunId max 12 + Slug max 39 + two separators.
+    cap = _MAX_PATH if limit is None else limit
+    projected = len(str(Path(root) / ("r" * 12) / ("t" * 39)))
+    return projected < cap, projected, cap
+
+
 @dataclass(frozen=True)
 class Worktree:
     path: Path

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _settings():
     os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
     os.environ.setdefault("TYPESAFE_API_KEY", "test-key")
-    return load_settings(ROOT / "treefleet.toml")
+    return load_settings()
 
 
 def test_fleet_and_revision_argv_import_crewai(tmp_path: Path) -> None:

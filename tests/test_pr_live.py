@@ -15,7 +15,7 @@ def test_list_comments_and_get_pr_85() -> None:
     from treefleet.config import load_settings
     from treefleet.pr.gh import GhProvider
 
-    settings = load_settings(ROOT / "treefleet.toml")
+    settings = load_settings()
     if not settings.pr.enabled:
         pytest.skip("pr is off")
     provider = GhProvider(settings.pr.repo)

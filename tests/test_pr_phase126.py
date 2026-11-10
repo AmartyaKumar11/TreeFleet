@@ -175,7 +175,7 @@ def _play(tmp_path: Path, verdicts: list[str]) -> tuple[FakeProvider, list[dict[
     os.environ.setdefault("TYPESAFE_API_KEY", "local-test-key")
     repo = tmp_path / "wt" / "run126" / "notify"
     _worktree(repo)
-    settings = load_settings(ROOT / "treefleet.toml").model_copy(
+    settings = load_settings().model_copy(
         update={
             "pr": PrSettings(
                 enabled=True,

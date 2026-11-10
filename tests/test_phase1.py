@@ -190,7 +190,7 @@ def test_parse_cursor_model_list_fixture() -> None:
 
 def test_committed_router_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
     _secrets(monkeypatch)
-    settings = load_settings(ROOT / "treefleet.toml")
+    settings = load_settings()
     assert settings.models.router.simple == "composer-2.5-fast"
     assert settings.models.router.moderate == "composer-2.5"
     assert settings.models.router.complex == "cursor-grok-4.6-high"
@@ -211,8 +211,9 @@ def test_cli_default_is_router(
         return RunOutcome(0, None, {}, "")
 
     monkeypatch.setattr("treefleet.cli.run_blocking", _stop)
-    assert main([GOAL, "--repo", str(tmp_path)]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    assert main([GOAL, "--repo", str(tmp_path), "--yes"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads([line for line in out.splitlines() if line.startswith("{")][-1])
     assert payload["worker_model"] == "router"
     assert payload["plan_approval"] is True
     assert payload["repo"] == str(tmp_path)
@@ -232,8 +233,9 @@ def test_cli_auto_is_a_cursor_model(
         return RunOutcome(0, None, {}, "")
 
     monkeypatch.setattr("treefleet.cli.run_blocking", _stop)
-    assert main([GOAL, "--model", "auto", "--repo", str(tmp_path)]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    assert main([GOAL, "--model", "auto", "--repo", str(tmp_path), "--yes"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads([line for line in out.splitlines() if line.startswith("{")][-1])
     assert payload["worker_model"] == "auto"
 
 
@@ -265,7 +267,7 @@ def test_missing_tier_id_is_rejected(
     _write(tmp_path, text)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("treefleet.cli.run_blocking", lambda *_args, **_kwargs: RunOutcome(0, None, {}, ""))
-    assert main([GOAL, "--model", "router", "--repo", str(tmp_path)]) == 0
+    assert main([GOAL, "--model", "router", "--repo", str(tmp_path), "--yes"]) == 0
     with pytest.raises(UnknownModelError) as caught:
         require_tiers(["missing-tier-id"], cli, "--list-models")
     assert "missing-tier-id" in str(caught.value)

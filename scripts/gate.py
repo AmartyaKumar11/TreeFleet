@@ -21,11 +21,12 @@ def _venv_python(name: str) -> Path:
 def _orch_targets() -> list[str]:
     """src, tests and scripts, without the worker package, which has its own environment."""
     worker = ROOT / "src" / "treefleet" / "worker"
+    sample_templates = ROOT / "src" / "treefleet" / "sample" / "templates"
     if not worker.exists():
         return ["src", "tests", "scripts"]
     targets = ["tests", "scripts"]
     for path in (ROOT / "src").rglob("*.py"):
-        if worker in path.parents:
+        if worker in path.parents or sample_templates in path.parents:
             continue
         targets.append(path.relative_to(ROOT).as_posix())
     return targets

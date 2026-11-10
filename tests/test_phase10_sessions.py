@@ -15,7 +15,7 @@ import psutil
 import pytest
 
 from treefleet.cli import main
-from treefleet.config import load_settings
+from treefleet.config import config_path, load_settings
 from treefleet.contracts import RunRequest
 from treefleet.git.worktrees import branch_name, list_worktrees, remove_worktree, run_git
 from treefleet.orchestrator.pipeline import OfflineFakes, cleanup_run, run_pipeline
@@ -216,7 +216,7 @@ async def test_a_stub_run_writes_the_envelope(tmp_path: Path, monkeypatch: pytes
     try:
         outcome = await run_pipeline(
             RunRequest(goal=GOAL, repo=str(repo), plan_approval=False),
-            load_settings(ROOT / "treefleet.toml"),
+            load_settings(),
             fakes=OfflineFakes(
                 planner=_scripted([_plan(["alpha"])]),
                 cursor_cli=FAKE,
@@ -295,7 +295,7 @@ def _launch(tmp_path: Path, repo: Path, run_id: str, sleep: str) -> tuple[subpro
                 "    fake = Path(root) / 'spikes' / 's9_fakes.py'",
                 "    await run_pipeline(",
                 "        RunRequest(goal=goal, repo=repo, plan_approval=False),",
-                "        load_settings(Path(root) / 'treefleet.toml'),",
+                "        load_settings(),",
                 "        fakes=OfflineFakes(planner=Scripted(model='scripted'),",
                 "            cursor_cli=fake,",
                 "            fake_sleep=sleep, mock_llm='1'),",
@@ -349,7 +349,7 @@ def _stop(pids: list[int]) -> None:
 
 def test_pid_reuse_is_not_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "treefleet.toml").write_text((ROOT / "treefleet.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "treefleet.toml").write_text(config_path().read_text(encoding="utf-8"), encoding="utf-8")
     _secrets(monkeypatch)
     path = tmp_path / "runs" / "s10reuse" / "run.json"
     store = RunStore.start(
@@ -387,7 +387,32 @@ def test_killing_the_orchestrator_kills_the_workers(tmp_path: Path, monkeypatch:
     path = tmp_path / "runs" / run_id / "run.json"
     record = None
     try:
-        record = _wait_workers(path, 3)
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            if path.is_file():
+                loaded = load_run(path)
+                if len([task.worker_pid for task in loaded.tasks if task.worker_pid]) >= 3:
+                    record = loaded
+                    break
+            if proc.poll() is not None:
+                break
+            time.sleep(0.3)
+        if record is None and path.is_file():
+            loaded = load_run(path)
+            if len([task.worker_pid for task in loaded.tasks if task.worker_pid]) >= 3:
+                record = loaded
+        if record is None:
+            raw = log.read_text(encoding="utf-8")[-1500:] if log.is_file() else ""
+            tail = "\n".join(
+                line
+                for line in raw.splitlines()
+                if not any(word in line.upper() for word in ("KEY", "TOKEN", "BEARER", "SECRET"))
+            )
+            statuses = ""
+            if path.is_file():
+                loaded = load_run(path)
+                statuses = " ".join(f"{task.task_id}={task.status}:{task.reason}" for task in loaded.tasks)
+            raise AssertionError(f"workers were not listening; orchestrator={proc.poll()}; {statuses}; {tail}")
         worker_pids = [task.worker_pid for task in record.tasks if task.worker_pid]
         assert len(worker_pids) == 3
         subprocess.run(["taskkill", "/F", "/PID", str(record.orchestrator_pid)], check=False, shell=False)
@@ -400,8 +425,13 @@ def test_killing_the_orchestrator_kills_the_workers(tmp_path: Path, monkeypatch:
         assert _descendants(run_id) == []
         assert (WT / run_id / "alpha").is_dir()
         assert any(item.branch == branch_name(run_id, "alpha") for item in list_worktrees(repo))
-        time.sleep(21)
-        shown = format_ls(list_runs(tmp_path / "runs"))
+        deadline = time.time() + 40
+        shown = ""
+        while time.time() < deadline:
+            shown = format_ls(list_runs(tmp_path / "runs"))
+            if run_id in shown and "dead" in shown:
+                break
+            time.sleep(0.5)
         assert f"{run_id}" in shown and "dead" in shown
     finally:
         if record is not None:
@@ -578,9 +608,7 @@ def test_cleanup_reads_the_repo_from_the_run_and_stops_when_repo_differs(
         assert mismatch.lines == [f"--repo {other}", f"run.json {recorded}"]
         assert run_git(["rev-parse", "--verify", branch], cwd=recorded).returncode == 0
         _secrets(monkeypatch)
-        (tmp_path / "treefleet.toml").write_text(
-            (ROOT / "treefleet.toml").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        (tmp_path / "treefleet.toml").write_text(config_path().read_text(encoding="utf-8"), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
         assert main(["sessions", "cleanup", run_id, "--repo", str(other)]) == 2
         printed = capsys.readouterr().out
@@ -596,7 +624,7 @@ def test_cli_lists_a_run_and_a_dead_board_says_dead(
 ) -> None:
     _git(tmp_path / "repo")
     _secrets(monkeypatch)
-    (tmp_path / "treefleet.toml").write_text((ROOT / "treefleet.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "treefleet.toml").write_text(config_path().read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "runs" / "s10dead1" / "run.json"
     store = RunStore.start(

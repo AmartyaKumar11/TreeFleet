@@ -41,7 +41,7 @@ def test_preflight_prints_trusted_commenters_and_fails_when_empty(
     subprocess.run(["git", "init", "-b", "demo-base"], cwd=repo, check=True, shell=False)
     monkeypatch.setattr(
         "treefleet.demo.load_settings",
-        lambda _path: type(
+        lambda _path=None: type(
             "Settings",
             (),
             {
