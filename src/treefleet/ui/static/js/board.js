@@ -240,12 +240,46 @@ function setLaneCounts(tasks, awaiting) {
     const tab = document.querySelector(`.mobile-lane-tabs [data-lane="${id}"]`);
     if (tab) tab.textContent = `${tab.dataset.label} ${counts[id]}`;
   });
-  const showDone = counts.done > 0;
-  const doneLane = document.getElementById("lane-done");
+  syncDoneLane(counts.done > 0);
+  const doneCount = document.querySelector("#lane-done .n");
+  if (doneCount) doneCount.textContent = String(counts.done);
   const doneTab = document.querySelector('.mobile-lane-tabs [data-lane="done"]');
-  if (doneLane) doneLane.hidden = !showDone;
-  if (doneTab) doneTab.hidden = !showDone;
+  if (doneTab) doneTab.textContent = `Done ${counts.done}`;
   return counts;
+}
+
+function syncDoneLane(show) {
+  const lanes = document.querySelector(".lanes");
+  const tabs = document.querySelector(".mobile-lane-tabs");
+  const lane = document.getElementById("lane-done");
+  const tab = tabs ? tabs.querySelector('[data-lane="done"]') : null;
+  if (!show) {
+    if (lane) lane.remove();
+    if (tab) tab.remove();
+    if (mobileLane === "done") mobileLane = "working";
+    return;
+  }
+  if (!lane && lanes) {
+    const created = document.createElement("div");
+    created.className = "lane";
+    created.id = "lane-done";
+    created.innerHTML =
+      '<h2><span class="dot green"></span>Done <span class="n">0</span></h2><div class="stack" id="done"></div>';
+    lanes.appendChild(created);
+  }
+  if (!tab && tabs) {
+    const created = document.createElement("button");
+    created.type = "button";
+    created.dataset.lane = "done";
+    created.dataset.label = "Done";
+    created.setAttribute("aria-selected", "false");
+    created.textContent = "Done 0";
+    created.addEventListener("click", () => {
+      mobileLane = "done";
+      applyMobileLane();
+    });
+    tabs.appendChild(created);
+  }
 }
 
 function runStripState(data, counts) {
