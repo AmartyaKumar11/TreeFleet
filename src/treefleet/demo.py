@@ -220,10 +220,11 @@ def preflight(
         lines.append((False, f"red    {repo} is not a git repository\n       fix: git init"))
         return lines
     branch = _branch(repo)
-    if branch == "demo-base":
-        lines.append((True, "green  repo is on demo-base"))
+    expected = settings.pr.base if settings is not None and settings.pr.enabled and settings.pr.base else "demo-base"
+    if branch == expected:
+        lines.append((True, f"green  repo is on {expected}"))
     else:
-        lines.append((False, f"red    repo is on {branch}\n       fix: git -C {repo} checkout demo-base"))
+        lines.append((False, f"red    repo is on {branch}\n       fix: git -C {repo} checkout {expected}"))
     if _clean(repo):
         lines.append((True, "green  working tree is clean"))
     else:
