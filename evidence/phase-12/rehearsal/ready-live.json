@@ -1,0 +1,24 @@
+{
+  "run_id": "59180665",
+  "stage": "pr",
+  "status_line": "2 ready to merge",
+  "strip": "2 ready to merge \u00b7 0:00",
+  "cards": [
+    {
+      "id": "add-notifications-unit-tests",
+      "lane": "ready",
+      "pr_number": 87,
+      "pr_checks": "passing",
+      "pr_status": "approved_green",
+      "pr_chip": null
+    },
+    {
+      "id": "add-admin-unit-tests",
+      "lane": "ready",
+      "pr_number": 86,
+      "pr_checks": "passing",
+      "pr_status": "approved_green",
+      "pr_chip": null
+    }
+  ]
+}
