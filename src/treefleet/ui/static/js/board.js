@@ -457,6 +457,7 @@ function renderCard(task) {
     )}</span></span>
     ${action}
     ${verdict}
+    ${task.notice ? `<div class="note">${esc(task.notice)}</div>` : ""}
     ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
     ${mergeBtn}
   `;

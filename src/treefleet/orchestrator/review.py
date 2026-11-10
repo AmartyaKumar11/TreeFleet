@@ -977,6 +977,12 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
         elif kind == "pr.checks" and payload.get("checks"):
             state_name = "approved_green" if payload.get("checks") == "passing" else "open"
             fields = {"pr_checks": payload.get("checks"), "pr_status": state_name}
+        elif kind == "pr.trust_unresolved":
+            fields = {
+                "status": "needs_review",
+                "pr_status": "needs_review",
+                "reason": str(payload.get("reason") or "authenticated login could not be resolved"),
+            }
         if fields:
             note_task(bundle, task_id, **fields)
 

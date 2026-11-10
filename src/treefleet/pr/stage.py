@@ -20,6 +20,7 @@ from treefleet.pr.loop import (
 from treefleet.pr.models import OpenPR
 from treefleet.pr.preflight import external_hook_block
 from treefleet.pr.safety import PrSafetyError, pr_body, push_refspec, task_branch
+from treefleet.pr.trust import trusted_logins
 
 Push = Callable[[str], str]
 
@@ -69,7 +70,16 @@ def drive(
     blocked = external_hook_block(settings, list(hook_hosts or []))
     if blocked:
         raise PrSafetyError(blocked)
-    trusted = set(settings.trusted_commenters) or ({login} if login else set())
+    # login is only for a provider with no user() lookup. GhProvider and FakeProvider both have one.
+    trusted, problem = trusted_logins(
+        settings,
+        provider,
+        fallback="" if callable(getattr(provider, "user", None)) else login,
+    )
+    if problem:
+        for task in tasks:
+            hooks.note("pr.trust_unresolved", task["id"], {"reason": problem})
+        return [], "needs_review"
     opened: list[OpenPR] = []
     for task in tasks:
         task_id = task["id"]

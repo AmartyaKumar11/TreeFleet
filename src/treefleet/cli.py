@@ -340,7 +340,6 @@ def _pr_watch(record: object, settings: object) -> int:
         for task in tasks
         if task.pr_number and task.pr_open
     ]
-    login = _gh_login()
 
     def emit(kind: str, task_id: str, payload: dict[str, object]) -> None:
         print(f"{kind} {task_id}")
@@ -370,6 +369,11 @@ def _pr_watch(record: object, settings: object) -> int:
                 {"id": comment.id, "status": comment.status, "rounds_used": comment.rounds_used}
                 for comment in item.comments
             ],
+            **(
+                {"status": "needs_review", "reason": str(payload.get("reason") or "")}
+                if kind == "pr.trust_unresolved"
+                else {}
+            ),
         )
 
     def revise(task_id: str, feedback: str) -> str | None:
@@ -480,12 +484,23 @@ def _pr_watch(record: object, settings: object) -> int:
         )
         return parse_acceptance(text)
 
+    from treefleet.pr.trust import trusted_logins
+
+    provider = GhProvider(settings.pr.repo)  # type: ignore[attr-defined]
+    trusted, problem = trusted_logins(settings.pr, provider)  # type: ignore[attr-defined]
+    if problem:
+        for item in opened:
+            item.status = "needs_review"
+            emit("pr.trust_unresolved", item.task_id, {"reason": problem, "number": item.number})
+        print(problem, file=sys.stderr)
+        return 1
+
     outcome = poll_until(
         opened,
-        GhProvider(settings.pr.repo),  # type: ignore[attr-defined]
+        provider,
         PollHooks(revise=revise, resolve_conflict=lambda _task: None, emit=emit, judge=judge, diff=diff_of),
         settings.pr,  # type: ignore[attr-defined]
-        login=login,
+        trusted=trusted,
     )
     for item in opened:
         store.upsert_task(
@@ -502,22 +517,6 @@ def _pr_watch(record: object, settings: object) -> int:
         )
     print(outcome)
     return 0 if outcome == "done" else 1
-
-
-def _gh_login() -> str:
-    import subprocess
-
-    proc = subprocess.run(
-        ["gh", "api", "user", "--jq", ".login"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        shell=False,
-        check=False,
-    )
-    if proc.returncode != 0:
-        return ""
-    return proc.stdout.strip()
 
 
 def _cursor_model(runs: Path, run_id: str, task_id: str) -> str:

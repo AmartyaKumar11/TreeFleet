@@ -15,6 +15,10 @@ class FakeProvider:
         self.reads: list[tuple[str, int]] = []
         self._next = 1
         self._comment = 1
+        self.login = ""
+
+    def user(self) -> str:
+        return self.login
 
     def open_pr(self, head: str, base: str, title: str, body: str) -> PR:
         number = self._next

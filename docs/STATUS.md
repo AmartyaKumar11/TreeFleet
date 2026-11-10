@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — In-run comment trust
+
+The in-run poller and `pr watch` both call `trusted_logins`. An empty `trusted_commenters` list is the authenticated login from the provider. If that login cannot be resolved, the run emits `pr.trust_unresolved` and the card goes to Needs you.
+
 ## 2026-11-10 — Worker interpreter and a start that is not a round
 
 The fleet spawn and `pr watch` both start the worker with `settings.worker_python`. `select_checks` still chooses the pytest interpreter, and that path stays on the check command. A worker that exits before its first step emits `worker.start_failed`, leaves the card in Needs you, and does not spend or retry a revision round. `treefleet pr retry RUN PR` re-arms only that failure, or `check.unavailable`.

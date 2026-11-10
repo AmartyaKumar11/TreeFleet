@@ -295,6 +295,11 @@ def tasks_from_snapshot(
             task["status"] = "needs_review"
             task["reason"] = "PR polling failed"
             task["needs_human"] = True
+        if kind == "pr.trust_unresolved":
+            task["status"] = "needs_review"
+            task["needs_human"] = True
+            task["reason"] = str(payload.get("reason") or "authenticated login could not be resolved")
+            task["notice"] = task["reason"]
 
     if report and isinstance(report.get("results"), list):
         for result in report["results"]:

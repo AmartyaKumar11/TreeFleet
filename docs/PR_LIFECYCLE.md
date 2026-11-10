@@ -16,7 +16,7 @@ auto_merge = false
 allow_external_hooks = false
 ```
 
-`poll_seconds` is at least 5. `repo` is required only when `enabled` is true, and it must be `owner/name`. An empty `trusted_commenters` list means the authenticated `gh` login. Unknown keys are a startup error, same as `[reactions]`.
+`poll_seconds` is at least 5. `repo` is required only when `enabled` is true, and it must be `owner/name`. An empty `trusted_commenters` list means the authenticated `gh` login, resolved by `trusted_logins` for both the in-run poller and `pr watch`. If that login cannot be resolved, the run emits `pr.trust_unresolved` and the tasks go to Needs you. It does not poll with an empty trusted set. Unknown keys are a startup error, same as `[reactions]`.
 
 `treefleet.toml` in this repo does not contain `[pr]`. That is the off path.
 

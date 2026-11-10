@@ -123,6 +123,7 @@ def test_e8_fail_then_comment_then_green_without_merge() -> None:
 
 def test_e9_one_conflict_round_then_green() -> None:
     fake = FakeProvider()
+    fake.login = "ada"
     box: list[OpenPR] = []
     hooks, seen = _hooks(fake, box)
     opened, _outcome = drive(
@@ -151,6 +152,7 @@ def test_e9_one_conflict_round_then_green() -> None:
 
 def test_round_limit_ends_in_needs_review() -> None:
     fake = FakeProvider()
+    fake.login = "ada"
     box: list[OpenPR] = []
     hooks, _seen = _hooks(fake, box)
     opened, _outcome = drive(
@@ -188,6 +190,7 @@ def test_round_limit_ends_in_needs_review() -> None:
 
 def test_remote_mismatch_aborts_before_open() -> None:
     fake = FakeProvider()
+    fake.login = "ada"
     hooks = PollHooks(revise=lambda *_a: None, resolve_conflict=lambda *_a: None, emit=lambda *_a: None)
     with pytest.raises(PrSafetyError, match="origin does not match pr.repo"):
         drive(

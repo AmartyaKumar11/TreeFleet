@@ -65,6 +65,10 @@ class GhProvider:
             raise GhError(last or "gh failed")
         raise GhError(last or "gh failed")
 
+    def user(self) -> str:
+        proc = self._call(["api", "user", "--jq", ".login"])
+        return proc.stdout.strip()
+
     def open_pr(self, head: str, base: str, title: str, body: str) -> PR:
         proc = self._call(
             ["pr", "create", "--repo", self.repo, "--base", base, "--head", head, "--title", title, "--body", body]
