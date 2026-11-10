@@ -1,17 +1,35 @@
 # TreeFleet
 
-Parallel coding agents in isolated git worktrees, with a pull-request, CI, and review feedback loop—built only on **Google ADK** and **CrewAI**.
+Parallel coding agents in isolated git worktrees, with a pull-request, CI, and review feedback loop. **Agent frameworks: only Google ADK and CrewAI.**
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-| Desktop board (1440) | Mobile board (390) |
+| Desktop — Done (run `aa68e041`, both PRs merged) | Mobile |
 |---|---|
-| ![Kanban board](docs/img/board-desktop-1440.png) | ![Kanban mobile](docs/img/board-mobile-390.png) |
+| ![Board with both tasks in Done after PR merge](docs/img/hero-board-done-1440.png) | ![Mobile Done board](docs/img/hero-board-done-390.png) |
 
-| PR rehearsal — ready lane | Live PR session |
-|---|---|
-| ![Rehearsal ready](docs/img/rehearsal-ready-1440.png) | ![PR ready desktop](docs/img/pr-ready-desktop-1440.png) |
+Captured with **Playwright** against a fixture built from recorded run `aa68e041` (no browser chrome).
+
+## Contents
+
+- [Status](#status)
+- [Why TreeFleet](#why-treefleet)
+- [Feature overview](#feature-overview)
+- [Architecture](#architecture)
+- [Design decisions](#design-decisions)
+- [Security model](#security-model)
+- [Cost and performance (measured)](#cost-and-performance-measured)
+- [Quickstart](#quickstart)
+- [Configuration reference](#configuration-reference)
+- [Repository layout](#repository-layout)
+- [Testing strategy](#testing-strategy)
+- [Limitations and known issues](#limitations-and-known-issues)
+- [Roadmap](#roadmap)
+- [Inspired by](#inspired-by)
+- [Documentation map](#documentation-map)
+- [Contributing and security](#contributing-and-security)
+- [License](#license)
 
 ---
 
@@ -154,7 +172,8 @@ sequenceDiagram
   participant W as CrewAI worker
   participant Cur as cursor-agent
   participant GH as GitHub
-  participant Rev as Reviewer
+  participant Rev as Pre-PR reviewer
+  participant Acc as Acceptance judge
 
   Op->>UI: Goal + approve plan
   UI->>Orch: RunRequest
@@ -173,22 +192,30 @@ sequenceDiagram
     W->>Cur: cursor_code
     W-->>Orch: WorkerResult
   end
-  Orch->>GH: push branch, open PR
+  Orch->>Orch: git push task branch
+  Orch->>GH: open_pr via gh
   loop poll
-    Orch->>GH: checks + comments
-    alt trusted comment
-      Orch->>W: revision from comment
-      W->>GH: push + comment
-      Orch->>Rev: acceptance vs diff
-    else checks green
+    Orch->>GH: get_pr + list_comments + checks
+    alt trusted PR comment
+      Orch->>W: revision envelope
+      W->>Cur: cursor_code
+      W->>W: commit on branch
+      W-->>Orch: WorkerResult
+      Orch->>Orch: git push task branch
+      Orch->>GH: post_comment TreeFleet revision
+      Orch->>Acc: acceptance on diff vs comment
+      Acc-->>Orch: satisfied / unsatisfied
+    else checks green + quiet
       Orch->>Orch: pr_status approved_green
     end
   end
-  Op->>Orch: pr merge command
-  Orch->>GH: merge PR
+  Op->>Orch: treefleet pr merge
+  Orch->>GH: merge via gh (unless auto_merge)
 ```
 
-Deeper narrative: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Push, `open_pr`, revision comments, and merge run in **orchestrator Python** (`src/treefleet/pr/stage.py`, `loop.py`), not in workers. Acceptance uses `acceptance_judge` in `src/treefleet/orchestrator/review.py`. Deeper narrative: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/PR_LIFECYCLE.md`](docs/PR_LIFECYCLE.md).
+
+![Run sequence (rendered)](docs/img/diagrams/sequence-run.svg)
 
 ### Worktree isolation model
 
@@ -321,7 +348,9 @@ flowchart TD
 
 ## Cost and performance (measured)
 
-**Method.** Dollar figures come from `metrics.costs` / `total_usd` in each run’s `report.json`, built by `src/treefleet/guards/cost.py` using rates in `treefleet.toml` `[pricing]` (fetched 2026-10-27 from DeepSeek and Cursor docs). Cursor rows are labeled **estimate** where the CLI usage is mapped to published Composer rates. Worker **brain** token counts are often `usage not reported` when CrewAI/LiteLLM callbacks are empty—those rows are not invented.
+**Method.** Dollar figures come from `metrics.costs` / `total_usd` in each run’s `report.json`, built by `src/treefleet/guards/cost.py` using rates in `treefleet.toml` `[pricing]` (fetched 2026-10-27 from DeepSeek and Cursor docs). Cursor rows are labeled **estimate** where the CLI usage is mapped to published Composer rates.
+
+**Worker brain tokens:** CrewAI/LiteLLM often report empty usage. Every **total USD** below **excludes worker-brain DeepSeek tokens (not reported by the framework)** unless a future report row records them.
 
 **Pricing inputs (configurable).** DeepSeek flash/pro per-million fields, Composer 2.5 / Fast fields, `jev_usd_per_million_input`. See `[pricing]` in `treefleet.toml` and vendor pages linked there.
 
@@ -329,10 +358,13 @@ flowchart TD
 
 | Run ID / label | Tasks | Wall (s) | Fleet wall (s) | Total USD | Source |
 |---|---|---:|---:|---:|---|
+| `aa68e041` rehearsal-3 | 2 | 746.5 | 262.3 | 0.115 | `evidence/phase-12/rehearsal-3/report-metrics.json` |
 | `d89593f5` clean live | 3 | 434.7 | 170.5 | 0.085 | `evidence/phase-6/live-clean/report.json` |
 | UI live-real | 2 | 257.7 | 218.8 | 0.077 | `evidence/phase-8/ui-v2/live-real/report.json` |
 | E2#1 eval | 3 | 249.6 | 192.6 | 0.119 | `eval/report.md` |
 | E2#2 eval | 3 | 515.2 | 212.6 | 0.190 | `eval/report.md` |
+
+Each **Total USD** excludes worker-brain DeepSeek tokens when the framework did not report them.
 
 ### Component split (example: two-task UI run `evidence/phase-8/ui-v2/live-real/report.json`)
 
@@ -342,20 +374,17 @@ flowchart TD
 | planner (flash) | 0.0005 |
 | reviewer (flash) | 0.002 |
 | jev | 0.0001 |
-| worker brain | 0 (not reported) |
+| worker brain | not reported |
 
-### Wall-clock timeline — PR rehearsal run `59180665` (two tasks, `pr-sentinel-demo`, 2026-11-10)
+### Wall-clock timelines (PR mode, two tasks)
 
-Timestamps from `tests/fixtures/59180665-retry-events.jsonl` (same run as `evidence/phase-12/rehearsal/`).
-
-| Milestone | Δ from run start | Δ from previous |
+| Milestone | Rehearsal fixture `59180665` | Rehearsal-3 `aa68e041` |
 |---|---:|---:|
-| Input guard allow | 0 s | — |
-| Plan approved (UI) | 116 s | — |
-| First PR opened | **300.6 s** | 184 s after approval |
-| Both PRs checks green | **326.9 s** | 26.3 s after first PR |
+| First `pr.opened` | 300.6 s | 343.3 s |
+| Both `pr.checks_green` | 326.9 s | (see events) |
+| Both `pr.merged` | — | **746.0 s** |
 
-The long span before the first PR is planner wait-for-approval, fleet (parallel Cursor edits), review, and PR open—not idle polling.
+Sources: `tests/fixtures/59180665-retry-events.jsonl` and `evidence/phase-12/rehearsal-3/timeline.json`. Gaps before the first PR are plan approval, fleet, pre-PR review, and open—not idle polling.
 
 ### Parallel speedup (why often &lt; 2× end-to-end)
 
@@ -424,10 +453,19 @@ Use `.venv-orch` for CLI, UI, gate, and eval. Workers are spawned with `.venv-wo
 
 ```bash
 treefleet demo preflight --repo <path-to-demo-repo>
+treefleet demo reset --repo <path-to-demo-repo>
 treefleet ui --repo <path-to-demo-repo> --port 8765
 ```
 
 Open the board, submit a two-task goal (for example unit tests in two modules), approve the plan unless **Auto-run** is on.
+
+### Run a goal (CLI)
+
+```bash
+treefleet "<your goal>" --repo <path-to-demo-repo> --yes
+```
+
+`--yes` accepts detected checks without prompting. See `treefleet --help` for `--model`, `--no-approval`, `--check`, and other flags.
 
 ### Enable the PR loop
 
@@ -453,17 +491,34 @@ treefleet pr retry <run_id> <pr_number>
 treefleet pr merge <run_id>/<task_id>
 ```
 
-### Sessions
+### Sessions and cleanup
 
 ```bash
 treefleet sessions ls
 treefleet sessions show <run_id>
 treefleet sessions kill --task <run_id>/<task_id>
 treefleet sessions kill --run <run_id>
-treefleet sessions cleanup <run_id> --yes
+treefleet sessions cleanup <run_id> --yes [--force] [--include-unmerged] [--repo <path>]
 ```
 
-CLI entry point after install: `treefleet` (module `treefleet.cli:main`).
+`treefleet cleanup <run_id>` is an alias for `treefleet sessions cleanup` (same flags).
+
+### Eval and reactions
+
+```bash
+treefleet eval --repo <path-to-demo-repo> [--scenarios eval/scenarios.toml] [--only E1,E2]
+treefleet reactions list
+treefleet reactions explain --run <run_id>
+```
+
+### UI replay
+
+```bash
+treefleet ui --run <run_id> [--port 8765]
+treefleet ui --replay <path-to-events.jsonl> --repo <path-to-demo-repo>
+```
+
+CLI entry point after install: `treefleet` (`treefleet.cli:main`). `treefleet models` lists Cursor models and requires the same environment keys as a normal run.
 
 ---
 
@@ -544,6 +599,32 @@ Never weaken a failing test to green the gate; fix the cause ([`docs/PHASES.md`]
 
 ---
 
+## Limitations and known issues
+
+- **Pre-1.0** — APIs, config keys, and board lanes still move with phases; read [`docs/STATUS.md`](docs/STATUS.md) before depending on behavior.
+- **Windows Cursor** — No supported sandbox; isolation relies on proofs and scope revert, not kernel enforcement.
+- **Worker brain usage** — Token counts from CrewAI are often missing; cost totals omit that component.
+- **No resume** — A dead orchestrator cannot continue mid-task; inspect `run.json` and `events.jsonl`, then clean up.
+- **Local-first** — Loopback UI; not a hardened multi-tenant service.
+- **Phase 7 observability** — Langfuse wiring is deferred in the default build.
+
+## Roadmap (planned, not implemented)
+
+| Item | Intent |
+|---|---|
+| Plugin slots | Third-party tools at guarded boundaries |
+| Tracker intake | Open work from GitHub issues into tasks |
+| Live conflict-resolution run | End-to-end demo of merge conflict + resolve round |
+| Chat notifier / fixer integration | Route human messages into the reaction table |
+| Observability export | Langfuse or OpenTelemetry as a supported path |
+| Cloud runtime | Hosted orchestrator with the same contracts |
+
+## Inspired by
+
+TreeFleet is **inspired by** [Agent Orchestrator](https://github.com/OrchestratorInc/agent-orchestrator) (OrchestratorInc). There is **no affiliation**, no parity guarantee, and no copied text or images from that project. TreeFleet is a separate Python codebase built on ADK and CrewAI.
+
+---
+
 ## Documentation map
 
 | Doc | Topic |
@@ -556,6 +637,13 @@ Never weaken a failing test to green the gate; fix the cause ([`docs/PHASES.md`]
 | [`docs/PHASES.md`](docs/PHASES.md) | Build phases and gate protocol |
 | [`docs/STATUS.md`](docs/STATUS.md) | What is done vs deferred |
 | [`AGENTS.md`](AGENTS.md) | Contributor hard rules |
+
+---
+
+## Contributing and security
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — gates, conventions, scope.
+- [SECURITY.md](SECURITY.md) — how to report issues and what we treat as in scope.
 
 ---
 

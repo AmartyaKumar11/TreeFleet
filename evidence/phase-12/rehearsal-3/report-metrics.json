@@ -1,0 +1,10 @@
+{
+  "run_id": "aa68e041",
+  "label": "rehearsal-3 (PR mode, both tasks merged)",
+  "task_count": 2,
+  "wall_seconds": 746.515,
+  "fleet_wall_seconds": 262.328,
+  "total_usd": 0.114587,
+  "recorded_on": "2026-11-10",
+  "note": "Metrics copied from a local run report; worker-brain DeepSeek tokens were not reported by the framework."
+}

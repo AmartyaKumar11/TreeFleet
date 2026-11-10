@@ -7,7 +7,8 @@ sequenceDiagram
   participant W as CrewAI worker
   participant Cur as cursor-agent
   participant GH as GitHub
-  participant Rev as Reviewer
+  participant Rev as Pre-PR reviewer
+  participant Acc as Acceptance judge
 
   Op->>UI: Goal + approve plan
   UI->>Orch: RunRequest
@@ -26,16 +27,22 @@ sequenceDiagram
     W->>Cur: cursor_code
     W-->>Orch: WorkerResult
   end
-  Orch->>GH: push branch, open PR
+  Orch->>Orch: git push task branch
+  Orch->>GH: open_pr via gh
   loop poll
-    Orch->>GH: checks + comments
-    alt trusted comment
-      Orch->>W: revision from comment
-      W->>GH: push + comment
-      Orch->>Rev: acceptance vs diff
-    else checks green
+    Orch->>GH: get_pr + list_comments + checks
+    alt trusted PR comment
+      Orch->>W: revision envelope
+      W->>Cur: cursor_code
+      W->>W: commit on branch
+      W-->>Orch: WorkerResult
+      Orch->>Orch: git push task branch
+      Orch->>GH: post_comment TreeFleet revision
+      Orch->>Acc: acceptance on diff vs comment
+      Acc-->>Orch: satisfied / unsatisfied
+    else checks green + quiet
       Orch->>Orch: pr_status approved_green
     end
   end
-  Op->>Orch: pr merge command
-  Orch->>GH: merge PR
+  Op->>Orch: treefleet pr merge
+  Orch->>GH: merge via gh (unless auto_merge)

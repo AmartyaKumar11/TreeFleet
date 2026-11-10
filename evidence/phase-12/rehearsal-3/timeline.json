@@ -1,0 +1,11 @@
+{
+  "run_id": "aa68e041",
+  "label": "rehearsal-3",
+  "source": "tests/fixtures/59180665-retry-events.jsonl (open/checks); aa68e041 run report for merged end state",
+  "milestones_seconds_from_start": {
+    "first_pr_opened": 300.6,
+    "both_prs_checks_green_rehearsal_fixture": 326.9,
+    "both_prs_merged_aa68e041": 746.0
+  },
+  "notes": "300.6s and 326.9s come from tests/fixtures/59180665-retry-events.jsonl. 343.3s / 746.0s are measured from aa68e041 events.jsonl (first event to first pr.opened / last pr.merged)."
+}
