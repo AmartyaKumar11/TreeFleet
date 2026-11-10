@@ -271,13 +271,13 @@ def _pr_watch(record: object, settings: object) -> int:
     from treefleet.events import EventSink
     from treefleet.git.worktrees import kill_tree
     from treefleet.orchestrator.fleet import dispatch
-    from treefleet.pr.accept import acceptance_prompt, interpreter_for, parse_acceptance
+    from treefleet.pr.accept import acceptance_prompt, parse_acceptance
     from treefleet.pr.gh import GhProvider
     from treefleet.pr.loop import PollHooks
     from treefleet.pr.models import OpenPR, TrackedComment
     from treefleet.pr.stage import git_push, poll_until
     from treefleet.sessions import RunRecord, RunStore
-    from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
+    from treefleet.worker.spawner import before_spawn, crew_python, free_port, spawn_worker, worker_env
 
     if not isinstance(record, RunRecord):
         print("run record is unreadable", file=sys.stderr)
@@ -361,9 +361,9 @@ def _pr_watch(record: object, settings: object) -> int:
             worktree_root=Path(settings.worktree_root),  # type: ignore[attr-defined]
             run_id=record.run_id,
         )
-        python = interpreter_for(record.python, str(settings.worker_python))  # type: ignore[attr-defined]
-        # Checks use the interpreter select_checks already resolved. The same
-        # function builds the initial run's commands, so the two stay identical.
+        # The worker process is the CrewAI interpreter. select_checks above
+        # already wrote the pytest interpreter into the check commands.
+        python = crew_python(str(settings.worker_python))  # type: ignore[attr-defined]
         checks = {name: selected.checks[name] for name in spec.check_ids if name in selected.checks}
         extra = {"TREEFLEET_RUNS": str(runs), "TREEFLEET_CURSOR_CLI": settings.cursor.cli}  # type: ignore[attr-defined]
         prefix = python_prefix(checks)
@@ -385,7 +385,7 @@ def _pr_watch(record: object, settings: object) -> int:
         try:
             before_spawn(worktree, record.run_id, sink, task_id)
             proc = spawn_worker(
-                python=Path(python),
+                python=python,
                 worktree=worktree,
                 run_id=record.run_id,
                 task_id=task_id,

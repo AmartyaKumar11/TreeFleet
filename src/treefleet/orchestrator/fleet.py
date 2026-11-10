@@ -27,7 +27,7 @@ from treefleet.git.cursor_scope import ScopeViolation
 from treefleet.git.proofs import snapshot_main, snapshot_siblings
 from treefleet.git.worktrees import GitError, branch_name, create_worktree, kill_tree, run_git
 from treefleet.orchestrator.agents import RunBundle, _adk_event, _phase, read_plan, read_routing
-from treefleet.worker.spawner import before_spawn, free_port, spawn_worker, worker_env
+from treefleet.worker.spawner import before_spawn, crew_python, free_port, spawn_worker, worker_env
 
 _WAIT_S = 600
 _START = b"<a2a_datapart_json>"
@@ -324,7 +324,7 @@ def _fleet_base():
             try:
                 proc = await asyncio.to_thread(
                     spawn_worker,
-                    python=Path(self.bundle.settings.worker_python),
+                    python=crew_python(self.bundle.settings.worker_python),
                     worktree=worktree,
                     run_id=self.bundle.run_id,
                     task_id=task.id,

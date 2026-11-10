@@ -17,6 +17,10 @@ Spec complete. Phases 1 through 6 are in the tree.
 | 10 | Cloud deployment | step 2 session lifecycle | `docs/SESSIONS.md` |
 | 11 | Pull requests | off unless `[pr] enabled` | `docs/PR_LIFECYCLE.md` |
 
+## 2026-11-10 — Worker interpreter and a start that is not a round
+
+The fleet spawn and `pr watch` both start the worker with `settings.worker_python`. `select_checks` still chooses the pytest interpreter, and that path stays on the check command. A worker that exits before its first step emits `worker.start_failed`, leaves the card in Needs you, and does not spend or retry a revision round. `treefleet pr retry RUN PR` re-arms only that failure, or `check.unavailable`.
+
 ## 2026-11-10 — Pull request lanes and check availability
 
 A merged pull request is Done. A closed unmerged pull request is cancelled in Needs you. The lane uses the latest `pr_status`. A check that cannot start emits `check.unavailable`, shows that reason on the card, and does not use a revision round. Comment revisions and the first worker run use the same `select_checks` interpreter.

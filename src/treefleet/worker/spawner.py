@@ -84,6 +84,49 @@ def free_port(start: int, taken: set[int]) -> int:
     raise RuntimeError(f"no free worker port from {start}")
 
 
+def crew_python(worker_python: str) -> Path:
+    """The CrewAI interpreter. The path recorded on a run is the check interpreter."""
+    return Path(worker_python)
+
+
+def worker_command(
+    *,
+    python: Path,
+    worktree: Path,
+    run_id: str,
+    task_id: str,
+    token: str,
+    port: int,
+    events: Path,
+) -> list[str]:
+    """Argv for one worker process. `python` is the CrewAI interpreter."""
+    return [
+        str(python),
+        "-m",
+        "treefleet.worker.main",
+        "--port",
+        str(port),
+        "--worktree",
+        str(worktree),
+        # One argument. token_urlsafe can start with "-", which argparse reads as a flag.
+        f"--token={token}",
+        "--run-id",
+        run_id,
+        "--task-id",
+        task_id,
+        "--events",
+        str(events),
+    ]
+
+
+def last_log_line(path: Path) -> str:
+    """The last non-empty line of a worker log. Empty when the log was not written."""
+    if not path.is_file():
+        return ""
+    lines = [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    return lines[-1][:300] if lines else ""
+
+
 def spawn_worker(
     *,
     python: Path,
@@ -99,23 +142,15 @@ def spawn_worker(
     """Start the worker venv interpreter and wait until its agent card answers."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("w", encoding="utf-8")
-    command = [
-        str(python),
-        "-m",
-        "treefleet.worker.main",
-        "--port",
-        str(port),
-        "--worktree",
-        str(worktree),
-        # One argument. token_urlsafe can start with "-", which argparse reads as a flag.
-        f"--token={token}",
-        "--run-id",
-        run_id,
-        "--task-id",
-        task_id,
-        "--events",
-        str(log_path.parent / "events.jsonl"),
-    ]
+    command = worker_command(
+        python=python,
+        worktree=worktree,
+        run_id=run_id,
+        task_id=task_id,
+        token=token,
+        port=port,
+        events=log_path.parent / "events.jsonl",
+    )
     if sys.platform == "win32":
         # Suspend until the process is in the job, so the interpreter it spawns inherits the job.
         proc = subprocess.Popen(

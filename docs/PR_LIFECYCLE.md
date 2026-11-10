@@ -39,15 +39,24 @@ The integrated branch is not created in this mode. The stage strip shows `pr` in
 | Pull request merged | | Task `done`, hidden from Ready to merge. Chip reads `PR #n merged` |
 | Pull request closed unmerged | | Task `cancelled`, Needs you, reason recorded |
 | Check cannot start | `check.unavailable` | Needs you with the reason. Not a failed round. Does not use a retry |
+| Worker exits before its first step | `worker.start_failed` | Needs you with `worker could not start: <reason>`. Not a revision round. Not retried |
 | Round budget used up | | Task `needs_review` with the last failure summary |
 
 The lane is the latest `pr_status` for that task. `merged` is Done. `cancelled` is Needs you. An earlier `approve` does not keep a merged card in Ready.
 
-Events: `pr.opened`, `pr.checks`, `pr.comment`, `pr.comment_seen`, `pr.comment_ignored`, `pr.revision_started`, `pr.revision_pushed`, `pr.revision_failed`, `pr.checks_green`, `pr.unknown_check_state`, `check.unavailable`, `pr.conflict`, `pr.merged`, `pr.closed`.
+Events: `pr.opened`, `pr.checks`, `pr.comment`, `pr.comment_seen`, `pr.comment_ignored`, `pr.revision_started`, `pr.revision_pushed`, `pr.revision_failed`, `pr.checks_green`, `pr.unknown_check_state`, `check.unavailable`, `worker.start_failed`, `pr.conflict`, `pr.merged`, `pr.closed`.
 
-## Check interpreter
+## Two interpreters
 
-The first worker run and a revision started by `treefleet pr watch` both call `select_checks`. That function keeps the first interpreter that can import pytest: the repo `.venv`, then `PATH`, then the orchestrator interpreter. It rewrites a bare `python` in the check command to that absolute path. Watch does not replace the path. The worker process is still the CrewAI interpreter. It is not the interpreter that runs pytest.
+The worker process and the check command are different programs.
+
+The worker spawn, both the first fleet dispatch and a revision from `treefleet pr watch`, uses `settings.worker_python` (`.venv-worker`). That interpreter must import `crewai`. The path recorded on the run is not used for the spawn. That recorded path is whatever `select_checks` chose for pytest, which on this machine is the orchestrator interpreter.
+
+`select_checks` chooses the check command. It keeps the first interpreter that can import pytest: the repo `.venv`, then `PATH`, then the orchestrator interpreter. It rewrites a bare `python` in the check command to that absolute path. Watch does not replace that path. `.venv-worker` cannot import pytest, so it must not run the check.
+
+Phase 11.14's first `bind_python` treated any token whose file name was `python.exe` as bare, including the absolute path `select_checks` had already chosen. It replaced that path with `.venv-worker`. That interpreter cannot import pytest, so the check exited at once with `No module named pytest`. Those two rounds were recorded as `pr.revision_failed` / "revision made no commit".
+
+Phase 11.15 then spawned the revision worker with that same recorded path. The recorded path was the orchestrator interpreter, which cannot import `crewai`, so the worker exited during import. The poller recorded that as "revision made no commit" and spent both rounds.
 
 Phase 11.14's first `bind_python` treated any token whose file name was `python.exe` as bare, including the absolute path `select_checks` had already chosen. It replaced that path with `.venv-worker`. That interpreter cannot import pytest, so the check exited at once with `No module named pytest`. Those two rounds were recorded as `pr.revision_failed` / "revision made no commit".
 
@@ -59,9 +68,11 @@ A revision that makes no commit counts as one of the two. Two such rounds set th
 
 A check that cannot start does not count. `rounds_used` stays where it was, and the card goes to Needs you with the `check.unavailable` reason. A later attempt still has both retries.
 
+A worker that exits before its first step does not count either. The event is `worker.start_failed` and the reason is the last line of the worker log. The card reads `worker could not start: <reason>`. The loop does not spawn a second time. `treefleet pr retry <run_id> <pr_number>` sets that comment, or a `check.unavailable` comment, back to `open` with `rounds_used` 0 so the next poll can start one round. Any other `needs_human` comment is refused.
+
 On run `c6dbaa59`, pull request 84's recorded comment is id `6743492754`, status `satisfied`, `rounds_used` 1. The event log also has two earlier `pr.revision_failed` rows for the same comment. Those two were the pytest-not-found rounds. The loop stopped at 2. The committing round ran only after the local comment cursor and `rounds_used` were cleared. That reset is what allowed a third dispatch. With this rule those two would not have counted, and the commit would have been round 1 of 2.
 
-`treefleet pr status <run_id>` prints one row per task. `treefleet pr watch <run_id>` attaches the poller again from `run.json` after the orchestrator has stopped. `treefleet pr merge <run>/<task>` is the only command that merges, besides `auto_merge`.
+`treefleet pr status <run_id>` prints one row per task. `treefleet pr watch <run_id>` attaches the poller again from `run.json` after the orchestrator has stopped. `treefleet pr retry <run_id> <pr_number>` re-arms one comment after `worker.start_failed` or `check.unavailable`. `treefleet pr merge <run>/<task>` is the only command that merges, besides `auto_merge`.
 
 ## Safety
 
