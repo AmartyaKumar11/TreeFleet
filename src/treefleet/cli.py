@@ -300,9 +300,9 @@ def _pr_watch(record: object, settings: object) -> int:
     from treefleet.events import EventSink
     from treefleet.git.worktrees import kill_tree
     from treefleet.orchestrator.fleet import dispatch
-    from treefleet.pr.accept import acceptance_prompt, parse_acceptance
     from treefleet.pr.gh import GhProvider
-    from treefleet.pr.loop import CheckUnavailable, PollHooks, WorkerStartFailed
+    from treefleet.pr.hooks import hooks_for_watch, task_diff
+    from treefleet.pr.loop import CheckUnavailable, WorkerStartFailed
     from treefleet.pr.models import OpenPR, TrackedComment
     from treefleet.pr.stage import git_push, poll_until
     from treefleet.sessions import RunRecord, RunStore
@@ -371,7 +371,7 @@ def _pr_watch(record: object, settings: object) -> int:
             ],
             **(
                 {"status": "needs_review", "reason": str(payload.get("reason") or "")}
-                if kind == "pr.trust_unresolved"
+                if kind in {"pr.trust_unresolved", "acceptance.unavailable"}
                 else {}
             ),
         )
@@ -452,55 +452,36 @@ def _pr_watch(record: object, settings: object) -> int:
             return None
 
     def diff_of(task_id: str) -> str:
-        import subprocess
-
         task_row = next((row for row in tasks if row.task_id == task_id), None)
         if task_row is None or not task_row.worktree:
             return ""
-        proc = subprocess.run(
-            ["git", "diff", "HEAD~1"],
-            cwd=task_row.worktree,
-            shell=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
-        return proc.stdout
+        return task_diff(Path(task_row.worktree))
 
-    def judge(task_id: str, comment: str, diff: str) -> tuple[str, str]:
-        from google.adk.models.lite_llm import LiteLlm
-
-        from treefleet.orchestrator.agents import _complete
-
-        text = asyncio.run(
-            _complete(
-                LiteLlm(model=settings.models.fast),  # type: ignore[attr-defined]
-                acceptance_prompt(comment, diff),
-                instruction="Reply with one line: satisfied or unsatisfied, then a short reason.",
-            )
-        )
-        return parse_acceptance(text)
-
-    from treefleet.pr.trust import trusted_logins
+    from treefleet.orchestrator.review import acceptance_judge
 
     provider = GhProvider(settings.pr.repo)  # type: ignore[attr-defined]
-    trusted, problem = trusted_logins(settings.pr, provider)  # type: ignore[attr-defined]
-    if problem:
+    hooks = hooks_for_watch(
+        revise=revise,
+        resolve_conflict=lambda _task: None,
+        judge=acceptance_judge(settings.models.fast),  # type: ignore[attr-defined]
+        emit=emit,
+        diff=diff_of,
+        provider=provider,
+        settings=settings.pr,  # type: ignore[attr-defined]
+    )
+    if hooks.trust_problem:
         for item in opened:
             item.status = "needs_review"
-            emit("pr.trust_unresolved", item.task_id, {"reason": problem, "number": item.number})
-        print(problem, file=sys.stderr)
+            emit("pr.trust_unresolved", item.task_id, {"reason": hooks.trust_problem, "number": item.number})
+        print(hooks.trust_problem, file=sys.stderr)
         return 1
 
     outcome = poll_until(
         opened,
         provider,
-        PollHooks(revise=revise, resolve_conflict=lambda _task: None, emit=emit, judge=judge, diff=diff_of),
+        hooks,
         settings.pr,  # type: ignore[attr-defined]
-        trusted=trusted,
+        trusted=set(hooks.trusted),
     )
     for item in opened:
         store.upsert_task(

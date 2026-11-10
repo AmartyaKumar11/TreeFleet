@@ -8,7 +8,9 @@ import pytest
 
 from tests.test_pr_stage import _hooks, _settings, _tasks
 from treefleet.cli import _pr_watch
+from treefleet.orchestrator.review import _run_pr
 from treefleet.pr.fake import FakeProvider
+from treefleet.pr.hooks import build_poll_hooks
 from treefleet.pr.loop import PollHooks
 from treefleet.pr.stage import drive
 from treefleet.pr.trust import UNRESOLVED, trusted_logins
@@ -96,8 +98,11 @@ def test_drive_and_watch_compute_the_same_trusted_set() -> None:
     named = _settings(trusted_commenters=("sam",))
     first.login = ""
     assert trusted_logins(named, first) == ({"sam"}, "")
+    assert "hooks_for_stage(" in inspect.getsource(_run_pr)
+    assert "hooks_for_watch(" in inspect.getsource(_pr_watch)
+    assert "PollHooks(" not in inspect.getsource(_run_pr)
+    assert "PollHooks(" not in inspect.getsource(_pr_watch)
+    assert "trusted_logins(" in inspect.getsource(build_poll_hooks)
     assert "trusted_logins(" in inspect.getsource(drive)
-    watch = inspect.getsource(_pr_watch)
-    assert "trusted_logins(" in watch
-    assert "_gh_login(" not in watch
+    assert "_gh_login(" not in inspect.getsource(_pr_watch)
     assert "if login else set()" not in inspect.getsource(drive)

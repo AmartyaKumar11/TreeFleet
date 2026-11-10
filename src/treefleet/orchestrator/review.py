@@ -901,6 +901,40 @@ class ReviewerAgent(BaseAgent):
         yield _adk_event(ctx, self.name, delta)
 
 
+def acceptance_judge(model: str) -> Callable[[str, str, str], tuple[str, str]]:
+    """The reviewer `pr watch` and the in-run poller both use."""
+    from google.adk.models.lite_llm import LiteLlm
+
+    from treefleet.orchestrator.agents import _complete
+    from treefleet.pr.accept import acceptance_prompt, parse_acceptance
+
+    def judge(_task_id: str, comment: str, diff: str) -> tuple[str, str]:
+        def _call() -> str:
+            import asyncio
+
+            return asyncio.run(
+                _complete(
+                    LiteLlm(model=model),
+                    acceptance_prompt(comment, diff),
+                    instruction="Reply with one line: satisfied or unsatisfied, then a short reason.",
+                )
+            )
+
+        import asyncio
+        import concurrent.futures
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            text = _call()
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                text = pool.submit(_call).result()
+        return parse_acceptance(text)
+
+    return judge
+
+
 def _pr_push(bundle: RunBundle) -> Callable[[str], str]:
     """Use an injected pusher in tests. Otherwise push the task branch."""
     from treefleet.pr.stage import git_push
@@ -922,7 +956,7 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
     import time
 
     from treefleet.git.merge import conflict_revision_feedback, merge_tip_into_task
-    from treefleet.pr.loop import PollHooks
+    from treefleet.pr.hooks import hooks_for_stage, task_diff
     from treefleet.pr.stage import drive, git_push
     from treefleet.sessions import note_stage, note_task
 
@@ -983,8 +1017,17 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
         elif kind == "pr.checks" and payload.get("status") == "needs_review":
             fields = {"status": "needs_review", "pr_status": "needs_review", "reason": "round limit reached"}
         elif kind == "pr.checks" and payload.get("checks"):
-            state_name = "approved_green" if payload.get("checks") == "passing" else "open"
-            fields = {"pr_checks": payload.get("checks"), "pr_status": state_name}
+            if payload.get("approved") is False:
+                fields = {"pr_checks": payload.get("checks")}
+            else:
+                state_name = "approved_green" if payload.get("checks") == "passing" else "open"
+                fields = {"pr_checks": payload.get("checks"), "pr_status": state_name}
+        elif kind == "acceptance.unavailable":
+            fields = {
+                "status": "needs_review",
+                "pr_status": "needs_review",
+                "reason": str(payload.get("reason") or "reviewer unavailable"),
+            }
         elif kind == "pr.comment_ignored":
             fields = dict(pr_comment_cursor(payload))
         elif kind == "pr.trust_unresolved":
@@ -1040,7 +1083,24 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
 
     remote = run_git(["remote", "get-url", "origin"], cwd=bundle.repo)
     remote_url = remote.stdout.strip() if remote.returncode == 0 else ""
-    hooks = PollHooks(revise=revise, resolve_conflict=resolve_conflict, emit=emit)
+
+    def diff_of(task_id: str) -> str:
+        injected = getattr(bundle, "pr_diff", None)
+        if injected is not None:
+            return str(injected(task_id))
+        return task_diff(bundle.worktree_root / bundle.run_id / task_id)
+
+    judge = bundle.pr_judge if bundle.pr_judge is not None else acceptance_judge(bundle.settings.models.fast)
+    hooks = hooks_for_stage(
+        revise=revise,
+        resolve_conflict=resolve_conflict,
+        judge=judge,
+        emit=emit,
+        diff=diff_of,
+        login=str(getattr(bundle, "pr_login", "") or ""),
+        provider=provider,
+        settings=bundle.settings.pr,
+    )
     opened, outcome = drive(
         rows,
         provider,

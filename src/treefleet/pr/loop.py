@@ -26,6 +26,10 @@ class PollHooks:
     emit: Callable[[str, str, dict[str, object]], None]
     judge: Callable[[str, str, str], tuple[str, str]] | None = None
     diff: Callable[[str], str] | None = None
+    login: str = ""
+    trusted: set[str] = field(default_factory=set)
+    trust_problem: str = ""
+    trust_checked: bool = False
     events: list[tuple[str, str, dict[str, object]]] = field(default_factory=list)
 
     def note(self, kind: str, task_id: str, payload: dict[str, object]) -> None:
@@ -135,15 +139,21 @@ def _poll_item(
             continue
         _on_comment(item, comment, provider, policy, hooks)
         acted = True
+    previous_head = item.head_sha
+    label, unknown = check_parts(state)
+    for value in unknown:
+        hooks.note("pr.unknown_check_state", item.task_id, {"value": value, "number": item.number})
+    head_changed = bool(state.head_sha) and state.head_sha != previous_head
+    label_changed = item.checks != label
+    if state.head_sha:
+        item.head_sha = state.head_sha
     if acted or item.status in _DONE or item.status == "needs_review":
+        _publish_checks(item, state, label, hooks, changed=head_changed or label_changed)
         return
     if state.mergeable == "CONFLICTING":
         _on_conflict(item, provider, policy, hooks)
         return
-    label, unknown = check_parts(state)
-    for value in unknown:
-        hooks.note("pr.unknown_check_state", item.task_id, {"value": value, "number": item.number})
-    if label == "failing" and state.head_sha == item.head_sha and item.checks != "revising":
+    if label == "failing" and state.head_sha == previous_head and item.checks != "revising":
         _on_checks(item, provider, policy, hooks)
         return
     if (
@@ -153,6 +163,32 @@ def _poll_item(
         and item.status != "approved_green"
     ):
         _on_green(item, provider, policy, auto_merge, hooks)
+        return
+    _publish_checks(item, state, label, hooks, changed=head_changed or label_changed)
+
+
+def _publish_checks(
+    item: OpenPR,
+    state: object,
+    label: str,
+    hooks: PollHooks,
+    *,
+    changed: bool,
+) -> None:
+    """Record the current head's checks without treating that as approval."""
+    if not changed or (item.checks == "revising" and label == "failing"):
+        return
+    item.checks = label
+    hooks.note(
+        "pr.checks",
+        item.task_id,
+        {
+            "checks": label,
+            "number": item.number,
+            "sha": getattr(state, "head_sha", ""),
+            "approved": False,
+        },
+    )
 
 
 def _attempt(item: OpenPR, name: str) -> int:
@@ -174,6 +210,14 @@ def _diff(item: OpenPR, hooks: PollHooks) -> str:
 
 def _post(item: OpenPR, provider: object, attempt: int, diff: str, request: str) -> None:
     provider.post_comment(item.number, format_revision(attempt, diff, request))  # type: ignore[attr-defined]
+
+
+class AcceptanceUnavailable(RuntimeError):
+    """The reviewer cannot be asked. This is not a revision round."""
+
+    def __init__(self, reason: str = "reviewer unavailable") -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 class CheckUnavailable(RuntimeError):
@@ -219,14 +263,21 @@ def _revise(item: OpenPR, feedback: str, provider: object, hooks: PollHooks, *, 
     item.head_sha = new_sha
     item.checks = "pending"
     item.unresolved = False
+    if item.status == "approved_green":
+        item.status = "open"
     hooks.note("pr.revision_pushed", item.task_id, {"attempt": attempt, "sha": new_sha, "number": item.number})
     return new_sha
 
 
 def _judge(item: OpenPR, body: str, diff: str, hooks: PollHooks) -> tuple[str, str]:
     if hooks.judge is None:
-        return "unsatisfied", "no reviewer"
-    verdict, reason = hooks.judge(item.task_id, body, diff)
+        raise AcceptanceUnavailable("reviewer unavailable")
+    try:
+        verdict, reason = hooks.judge(item.task_id, body, diff)
+    except AcceptanceUnavailable:
+        raise
+    except Exception as exc:
+        raise AcceptanceUnavailable("reviewer unavailable") from exc
     if verdict not in {"satisfied", "unsatisfied"}:
         verdict, reason = parse_acceptance(verdict)
     reason = public_text(reason)[:120] or "does not match the request"
@@ -235,8 +286,30 @@ def _judge(item: OpenPR, body: str, diff: str, hooks: PollHooks) -> tuple[str, s
     return verdict, reason
 
 
+def _unavailable(item: OpenPR, tracked: TrackedComment, hooks: PollHooks, reason: str) -> None:
+    """Needs you, with no round spent and no 'not satisfied' comment."""
+    why = reason or "reviewer unavailable"
+    tracked.status = "needs_human"
+    tracked.reason = why[:1800]
+    item.status = "needs_review"
+    item.unresolved = True
+    item.pending_revision = False
+    item.last_failure = tracked.reason
+    hooks.note("acceptance.unavailable", item.task_id, {"task": item.task_id, "reason": why[:300]})
+
+
+def _reviewer_block(hooks: PollHooks) -> str:
+    if hooks.judge is None:
+        return "reviewer unavailable"
+    return str(getattr(hooks.judge, "blocked_reason", "") or "")
+
+
 def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: ReactionTable, hooks: PollHooks) -> None:
     """Revise until the reviewer is satisfied or the comment's rounds are spent."""
+    blocked = _reviewer_block(hooks)
+    if blocked:
+        _unavailable(item, tracked, hooks, blocked)
+        return
     limit = resolve(Event.pr_comment, 1, table).max_attempts
     while tracked.status != "satisfied" and tracked.rounds_used < limit:
         feedback = revision_request(tracked.body, reason=tracked.reason)
@@ -257,13 +330,18 @@ def _satisfy(item: OpenPR, tracked: TrackedComment, provider: object, table: Rea
                 {"task": item.task_id, "reason": exc.reason[:300]},
             )
             return
-        tracked.rounds_used += 1
         if sha is None:
+            tracked.rounds_used += 1
             tracked.status = "unsatisfied"
             tracked.reason = "revision made no commit"
             continue
         diff = _diff(item, hooks)
-        verdict, reason = _judge(item, tracked.body, diff, hooks)
+        try:
+            verdict, reason = _judge(item, tracked.body, diff, hooks)
+        except AcceptanceUnavailable as exc:
+            _unavailable(item, tracked, hooks, exc.reason or "reviewer unavailable")
+            return
+        tracked.rounds_used += 1
         tracked.reason = reason
         tracked.status = verdict
         request = "satisfied" if verdict == "satisfied" else f"not satisfied ({reason[:120]})"

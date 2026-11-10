@@ -130,6 +130,18 @@ class RunBundle:
         self.review_seconds = 0.0
         self.revise_seconds = 0.0
         self.integration_seconds = 0.0
+        # Injected by tests. Production leaves these empty and uses gh, git, and the real reviewer.
+        self.pr_provider: Any = None
+        self.pr_push: Any = None
+        self.pr_revise: Any = None
+        self.pr_resolve: Any = None
+        self.pr_judge: Any = None
+        self.pr_diff: Any = None
+        self.pr_sleep: Any = None
+        self.pr_now: Any = None
+        self.pr_deadline: float | None = None
+        self.pr_login: str = ""
+        self.pr_hook_hosts: list[str] = []
 
 
 def _phase(bundle: RunBundle, name: str, duration_s: float) -> None:

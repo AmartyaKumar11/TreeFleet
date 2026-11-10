@@ -72,11 +72,15 @@ def drive(
     if blocked:
         raise PrSafetyError(blocked)
     # login is only for a provider with no user() lookup. GhProvider and FakeProvider both have one.
-    trusted, problem = trusted_logins(
-        settings,
-        provider,
-        fallback="" if callable(getattr(provider, "user", None)) else login,
-    )
+    # Hooks from the shared builder already resolved this. Raw test hooks have not.
+    if hooks.trust_checked:
+        trusted, problem = set(hooks.trusted), hooks.trust_problem
+    else:
+        trusted, problem = trusted_logins(
+            settings,
+            provider,
+            fallback="" if callable(getattr(provider, "user", None)) else login,
+        )
     if problem:
         for task in tasks:
             hooks.note("pr.trust_unresolved", task["id"], {"reason": problem})
