@@ -390,6 +390,45 @@ def path_pythons() -> list[Path]:
     return found
 
 
+def imports_module(exe: Path, module: str) -> bool:
+    """True when this interpreter can import one fixed module. The module name is not a path."""
+    if module not in {"pytest", "crewai"} or not exe.is_file():
+        return False
+    env = check_env()
+    for key in ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    try:
+        proc = subprocess.run(
+            [str(exe), "-c", f"import {module}"],
+            capture_output=True,
+            timeout=60,
+            shell=False,
+            check=False,
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def interpreter_checks(repo: Path, worker_python: str) -> list[tuple[bool, str]]:
+    """Worker interpreter must import crewai. The repo's check interpreter must import pytest."""
+    worker = Path(worker_python)
+    if imports_module(worker, "crewai"):
+        rows = [(True, f"green  worker interpreter imports crewai ({worker})")]
+    else:
+        rows = [(False, f"red    worker interpreter cannot import crewai ({worker})")]
+    resolved, _source = resolve_python(repo)
+    if resolved is None:
+        rows.append((False, "red    no check interpreter can import pytest"))
+    else:
+        rows.append((True, f"green  check interpreter imports pytest ({resolved})"))
+    return rows
+
+
 def imports_pytest(exe: Path) -> bool:
     if not exe.is_file():
         return False

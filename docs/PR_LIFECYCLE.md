@@ -52,7 +52,7 @@ The worker process and the check command are different programs.
 
 The worker spawn, both the first fleet dispatch and a revision from `treefleet pr watch`, uses `settings.worker_python` (`.venv-worker`). That interpreter must import `crewai`. The path recorded on the run is not used for the spawn. That recorded path is whatever `select_checks` chose for pytest, which on this machine is the orchestrator interpreter.
 
-`select_checks` chooses the check command. It keeps the first interpreter that can import pytest: the repo `.venv`, then `PATH`, then the orchestrator interpreter. It rewrites a bare `python` in the check command to that absolute path. Watch does not replace that path. `.venv-worker` cannot import pytest, so it must not run the check.
+`select_checks` chooses the check command. It keeps the first interpreter that can import pytest: the repo `.venv`, then `PATH`, then the orchestrator interpreter. It rewrites a bare `python` in the check command to that absolute path. Watch does not replace that path. `.venv-worker` cannot import pytest, so it must not run the check. `treefleet demo preflight` prints both interpreters: the worker interpreter must import `crewai`, and the check interpreter must import pytest.
 
 Phase 11.14's first `bind_python` treated any token whose file name was `python.exe` as bare, including the absolute path `select_checks` had already chosen. It replaced that path with `.venv-worker`. That interpreter cannot import pytest, so the check exited at once with `No module named pytest`. Those two rounds were recorded as `pr.revision_failed` / "revision made no commit".
 

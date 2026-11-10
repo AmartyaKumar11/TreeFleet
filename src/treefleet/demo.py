@@ -234,6 +234,10 @@ def preflight(
         lines.append((True, "green  no stale worktrees"))
     else:
         lines.append((False, f"red    {len(stale)} stale worktree(s)\n       fix: treefleet demo reset --repo {repo}"))
+    if settings is not None:
+        from treefleet.checks import interpreter_checks
+
+        lines.extend(interpreter_checks(repo, settings.worker_python))
     if gh is not None and settings is not None and settings.pr.enabled:
         from treefleet.pr.preflight import PreflightError, gh_smoke
 
