@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-Lane = Literal["needs", "working", "review", "ready"]
+Lane = Literal["needs", "working", "review", "ready", "done"]
 
 # A later event of one of these kinds means the task kept going after a tool denial.
 _CONTINUED = {
@@ -43,10 +43,16 @@ class TaskLaneFacts:
     pr_open: bool = False
     pr_revising: bool = False
     pr_green: bool = False
+    pr_checks: str = ""
+    pr_status: str = ""
 
 
 def derive_lane(facts: TaskLaneFacts) -> Lane:
-    """Map facts to a board lane id. Needs you outranks every other signal."""
+    """Map facts to a board lane id. The latest pr state outranks an earlier approval."""
+    if facts.pr_status == "merged":
+        return "done"
+    if facts.pr_status == "cancelled":
+        return "needs"
     if (
         facts.awaiting_approval
         or facts.status == "needs_review"
@@ -266,7 +272,13 @@ def tasks_from_snapshot(
         if kind == "pr.closed":
             task["status"] = "cancelled"
             task["pr_open"] = False
+            task["pr_status"] = "cancelled"
             task["reason"] = str(payload.get("reason") or "pull request closed")
+        if kind == "check.unavailable":
+            task["status"] = "needs_review"
+            task["needs_human"] = True
+            task["pr_revising"] = False
+            task["reason"] = str(payload.get("reason") or "check could not run")
         if kind == "pr.poll_failed":
             task["status"] = "needs_review"
             task["reason"] = "PR polling failed"
@@ -325,6 +337,8 @@ def tasks_from_snapshot(
             pr_open=bool(task.get("pr_open")),
             pr_revising=bool(task.get("pr_revising")),
             pr_green=task.get("pr_status") == "approved_green",
+            pr_checks=str(task.get("pr_checks") or ""),
+            pr_status=str(task.get("pr_status") or ""),
         )
         hidden = {"worker_active", "output_seen", "checks_failed", "guard_blocked", "policy_open", "needs_human"}
         card = {key: value for key, value in task.items() if key not in hidden}

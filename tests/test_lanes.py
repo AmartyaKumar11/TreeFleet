@@ -32,6 +32,8 @@ pytestmark = pytest.mark.phase8
         (TaskLaneFacts(status="done"), "review"),
         (TaskLaneFacts(verdict="approve", integrated=True), "ready"),
         (TaskLaneFacts(verdict="approve", ready_to_merge=True), "ready"),
+        (TaskLaneFacts(pr_status="merged", verdict="approve", status="done"), "done"),
+        (TaskLaneFacts(pr_status="cancelled", verdict="approve"), "needs"),
     ],
 )
 def test_derive_lane_table_rows(facts: TaskLaneFacts, want: str) -> None:

@@ -544,6 +544,16 @@ select {
   height: min(62vh, 640px);
 }
 
+@media (min-width: 901px) {
+  .lanes:has(#lane-done:not([hidden])) {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.lane[hidden] {
+  display: none !important;
+}
+
 .lane {
   min-width: 0;
   min-height: 0;

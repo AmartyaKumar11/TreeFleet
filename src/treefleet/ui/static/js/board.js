@@ -230,7 +230,7 @@ function taskAge(task) {
 }
 
 function setLaneCounts(tasks, awaiting) {
-  const counts = { working: 0, needs: awaiting ? 1 : 0, review: 0, ready: 0 };
+  const counts = { working: 0, needs: awaiting ? 1 : 0, review: 0, ready: 0, done: 0 };
   tasks.forEach((task) => {
     counts[lane(task)] = (counts[lane(task)] || 0) + 1;
   });
@@ -240,6 +240,11 @@ function setLaneCounts(tasks, awaiting) {
     const tab = document.querySelector(`.mobile-lane-tabs [data-lane="${id}"]`);
     if (tab) tab.textContent = `${tab.dataset.label} ${counts[id]}`;
   });
+  const showDone = counts.done > 0;
+  const doneLane = document.getElementById("lane-done");
+  const doneTab = document.querySelector('.mobile-lane-tabs [data-lane="done"]');
+  if (doneLane) doneLane.hidden = !showDone;
+  if (doneTab) doneTab.hidden = !showDone;
   return counts;
 }
 
@@ -329,7 +334,7 @@ function reviewNote(task) {
     if (/no new diff|no new change|no changes|unchanged/.test(blob)) text = "No new changes since last review";
     else if (/conflict/.test(blob)) text = "Merge conflict";
     else if (/git\s+-c|[a-z]:\\/.test(raw) || /[/\\]/.test(raw)) text = "A check failed";
-    else if (task.pr_number && task.status === "needs_review" && raw) text = raw;
+    else if (task.pr_number && (task.status === "needs_review" || task.pr_status === "cancelled") && raw) text = raw;
     else text = "Needs a human decision";
   } else if (task.pr_number && raw === "revision made no commit") {
     tone = "needs";
@@ -338,7 +343,7 @@ function reviewNote(task) {
     tone = "ok";
     text = suggestions.length ? "Approved with notes" : "Checks passed";
   }
-  const limit = task.pr_number && task.status === "needs_review" ? 120 : 60;
+  const limit = task.pr_number && (task.status === "needs_review" || task.pr_status === "cancelled") ? 120 : 60;
   return { text: text.slice(0, limit), tone };
 }
 
@@ -363,7 +368,10 @@ function renderCard(task) {
     chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
   });
   if (task.pr_number) {
-    chips.push(`<span class="chip pr" data-pr-url="${esc(task.pr_url || "")}">PR #${esc(task.pr_number)}</span>`);
+    const merged = task.pr_status === "merged" ? " merged" : "";
+    chips.push(
+      `<span class="chip pr" data-pr-url="${esc(task.pr_url || "")}">PR #${esc(task.pr_number)}${merged}</span>`,
+    );
     const failing = task.pr_checks === "failing";
     const passing = task.pr_checks === "passing";
     const label = passing ? "checks passing" : failing ? "checks failing" : "checks pending";
@@ -582,8 +590,9 @@ function render(data) {
   updateRunStrip(data, counts);
   if (laneKey !== laneSig) {
     laneSig = laneKey;
-  ["needs", "working", "review", "ready"].forEach((id) => {
-    document.getElementById(id).innerHTML = "";
+  ["needs", "working", "review", "ready", "done"].forEach((id) => {
+    const stack = document.getElementById(id);
+    if (stack) stack.innerHTML = "";
   });
 
   if (data.awaiting) {
