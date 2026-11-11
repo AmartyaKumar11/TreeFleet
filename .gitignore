@@ -11,6 +11,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 treefleet.demo.toml
+tests/fixtures/readme-repo/
 # Default worktree roots live outside the checkout (C:\wt, /tmp/tf-wt).
 # Ignore a mistaken in-repo copy of the short Windows root:
 /wt/
