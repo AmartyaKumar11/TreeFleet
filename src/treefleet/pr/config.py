@@ -16,7 +16,7 @@ class PrSettings(BaseModel):
 
     enabled: bool = False
     repo: str = ""
-    base: str = "demo-base"
+    base: str = ""
     poll_seconds: int = Field(default=15, ge=5, le=3600)
     max_wait_minutes: int = Field(default=60, ge=1, le=24 * 60)
     trusted_commenters: tuple[str, ...] = ()
@@ -27,6 +27,8 @@ class PrSettings(BaseModel):
     def _repo_when_enabled(self) -> Self:
         if self.enabled and "/" not in self.repo:
             raise ValueError("pr.repo must be owner/name when pr.enabled is true")
+        if self.enabled and not self.base.strip():
+            raise ValueError("set [pr].base, or run treefleet init --enable-pr")
         return self
 
 
@@ -49,9 +51,14 @@ def load_pr(raw: object) -> PrSettings:
         raise PrConfigError("pr.trusted_commenters must be a list of logins.")
     payload = dict(raw)
     payload["trusted_commenters"] = tuple(commenters)
+    if payload.get("enabled") and not str(payload.get("base") or "").strip():
+        raise PrConfigError("set [pr].base, or run treefleet init --enable-pr")
     try:
         return PrSettings.model_validate(payload)
     except ValidationError as exc:
         err = exc.errors()[0]
+        msg = str(err.get("msg") or "")
+        if "set [pr].base" in msg:
+            raise PrConfigError("set [pr].base, or run treefleet init --enable-pr") from exc
         loc = ".".join(str(part) for part in err["loc"]) or "pr"
         raise PrConfigError(f"pr.{loc} is invalid.") from exc

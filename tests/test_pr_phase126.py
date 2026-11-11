@@ -42,7 +42,7 @@ _SHA = "a" * 40
 def test_stage_and_watch_build_the_same_hooks() -> None:
     fake = FakeProvider()
     fake.login = "ada"
-    settings = PrSettings(enabled=True, repo="octo/demo")
+    settings = PrSettings(enabled=True, repo="octo/demo", base="main")
     calls: list[str] = []
 
     def revise(task: str, feedback: str) -> str:
@@ -373,7 +373,7 @@ def test_missing_judge_does_not_spend_a_round() -> None:
         emit=lambda *_args: None,
         diff=lambda _task: "diff --git a/tests/test_notifications.py b/tests/test_notifications.py\n+x\n",
         provider=fake,
-        settings=PrSettings(enabled=True, repo="octo/demo", trusted_commenters=("ada",)),
+        settings=PrSettings(enabled=True, repo="octo/demo", base="main", trusted_commenters=("ada",)),
     )
     poll_once([item], fake, trusted={"ada"}, hooks=hooks)
     assert item.comments[0].rounds_used == 0
@@ -405,7 +405,7 @@ def test_raising_judge_does_not_try_again() -> None:
         emit=lambda *_args: None,
         diff=lambda _task: "diff --git a/tests/test_notifications.py b/tests/test_notifications.py\n+x\n",
         provider=fake,
-        settings=PrSettings(enabled=True, repo="octo/demo", trusted_commenters=("ada",)),
+        settings=PrSettings(enabled=True, repo="octo/demo", base="main", trusted_commenters=("ada",)),
     )
     poll_once([item], fake, trusted={"ada"}, hooks=hooks)
     assert calls["n"] == 1

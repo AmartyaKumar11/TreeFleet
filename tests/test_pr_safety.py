@@ -123,9 +123,9 @@ def test_untrusted_and_own_comments_are_not_acted_on() -> None:
 
 def test_external_hook_refuses_until_the_switch_is_true() -> None:
     hosts = ["backend-production-af37c.up.railway.app"]
-    off = PrSettings(enabled=True, repo="octo/demo")
+    off = PrSettings(enabled=True, repo="octo/demo", base="main")
     assert external_hook_block(off, hosts)
-    on = PrSettings(enabled=True, repo="octo/demo", allow_external_hooks=True)
+    on = PrSettings(enabled=True, repo="octo/demo", base="main", allow_external_hooks=True)
     assert external_hook_block(on, hosts) is None
     assert external_hook_block(off, ["github.com"]) is None
 

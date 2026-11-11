@@ -50,7 +50,7 @@ def _hooks() -> PollHooks:
 
 
 def _settings() -> PrSettings:
-    return PrSettings(enabled=True, repo="octo/demo", poll_seconds=15, max_wait_minutes=20)
+    return PrSettings(enabled=True, repo="octo/demo", base="main", poll_seconds=15, max_wait_minutes=20)
 
 
 def test_poll_survives_three_failures_then_a_merged_pull_request() -> None:

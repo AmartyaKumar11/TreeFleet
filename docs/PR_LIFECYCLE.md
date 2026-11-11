@@ -8,7 +8,7 @@
 [pr]
 enabled = false
 repo = "owner/name"
-base = "demo-base"
+base = "main"
 poll_seconds = 15
 max_wait_minutes = 60
 trusted_commenters = []
@@ -16,7 +16,7 @@ auto_merge = false
 allow_external_hooks = false
 ```
 
-`poll_seconds` is at least 5. `repo` is required only when `enabled` is true, and it must be `owner/name`. An empty `trusted_commenters` list means the authenticated `gh` login, resolved by `trusted_logins` for both the in-run poller and `pr watch`. If that login cannot be resolved, the run emits `pr.trust_unresolved` and the tasks go to Needs you. It does not poll with an empty trusted set. Unknown keys are a startup error, same as `[reactions]`.
+`poll_seconds` is at least 5. When `enabled` is true, `repo` must be `owner/name` and `base` must be set (no shipped default). `treefleet init --enable-pr` writes `base` from the detected default branch. An empty `trusted_commenters` list means the authenticated `gh` login, resolved by `trusted_logins` for both the in-run poller and `pr watch`. If that login cannot be resolved, the run emits `pr.trust_unresolved` and the tasks go to Needs you. It does not poll with an empty trusted set. Unknown keys are a startup error, same as `[reactions]`.
 
 `treefleet.toml` in this repo does not contain `[pr]`. That is the off path.
 

@@ -32,9 +32,12 @@ def test_preflight_names_the_crewai_and_pytest_interpreters() -> None:
 def test_preflight_prints_trusted_commenters_and_fails_when_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    empty, missing = trust_line(PrSettings(enabled=True, repo="octo/demo"), "")
+    empty, missing = trust_line(PrSettings(enabled=True, repo="octo/demo", base="main"), "")
     assert not empty and "trusted commenters: (none)" in missing and "gh login (unresolved)" in missing
-    ok, named = trust_line(PrSettings(enabled=True, repo="octo/demo", trusted_commenters=("sam",)), "ada")
+    ok, named = trust_line(
+        PrSettings(enabled=True, repo="octo/demo", base="main", trusted_commenters=("sam",)),
+        "ada",
+    )
     assert ok and named == "green  trusted commenters: sam; gh login ada"
     repo = tmp_path / "repo"
     repo.mkdir()

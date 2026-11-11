@@ -391,6 +391,33 @@ def test_init_cli_bad_args() -> None:
     assert init_main(["--enable-pr", "--no-pr"]) == 2
 
 
+def test_pr_enabled_requires_explicit_base(tmp_path: Path, allow_long_wt: None) -> None:
+    from treefleet.pr.config import PrConfigError, load_pr
+
+    with pytest.raises(PrConfigError, match=r"set \[pr\]\.base"):
+        load_pr({"enabled": True, "repo": "acme/widgets"})
+    with pytest.raises(PrConfigError, match=r"set \[pr\]\.base"):
+        load_pr({"enabled": True, "repo": "acme/widgets", "base": "  "})
+    off = load_pr({"enabled": False})
+    assert off.enabled is False
+    assert off.base == ""
+    ok = load_pr({"enabled": True, "repo": "acme/widgets", "base": "main"})
+    assert ok.base == "main"
+
+    folder = tmp_path / "tf"
+    wt = tmp_path / "wt"
+    assert run_init(folder, yes=True, worktree_root=str(wt), enable_pr=False)[0] == 0
+    body = (folder / "treefleet.toml").read_text(encoding="utf-8")
+    assert 'base = "demo-base"' not in body
+    assert "[pr]" not in body
+    (folder / "treefleet.toml").write_text(
+        body + '\n[pr]\nenabled = true\nrepo = "acme/widgets"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match=r"set \[pr\]\.base"):
+        load_settings(folder / "treefleet.toml")
+
+
 def test_preflight_messages_never_suggest_demo_reset(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _git(repo, branch="other")
