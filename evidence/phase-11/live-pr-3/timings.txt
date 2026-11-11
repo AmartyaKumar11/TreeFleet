@@ -8,4 +8,4 @@ first_attempt 2026-11-09T14:01:24Z made no commit; the check had no Python on PA
 pr.comment text absent from events.jsonl
 revision did not add a docstring to test_send_email_returns_true
 prs_80_and_77 unchanged
-webhook 684748816 active false
+webhook <webhook-id> active false
