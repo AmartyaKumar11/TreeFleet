@@ -435,22 +435,37 @@ Sources: `tests/fixtures/59180665-retry-events.jsonl` and `evidence/phase-12/reh
 Two directories matter:
 
 1. **Clone** — the TreeFleet git checkout. Create the two virtualenvs here.
-2. **Project dir** — where `treefleet.toml` lives (can be the clone, or a separate folder). `init` records absolute paths to the clone’s venvs when it finds them.
+2. **Project dir** — where `treefleet.toml` lives (**not** the TreeFleet source checkout). `init` records absolute paths to the clone’s venvs when it finds them.
+
+> **Do not run `treefleet init` inside the TreeFleet source checkout.** That tree already ships `treefleet.toml`. Init detects `pyproject.toml` with project name `treefleet` next to `src/treefleet` and exits without writing: run init in your own project directory (`treefleet init <dir>`).
 
 ```bash
-# In the TreeFleet clone:
+# In the TreeFleet clone (venvs only):
 uv venv .venv-orch && uv pip install -p .venv-orch -e ".[orchestrator,dev]"
 uv venv .venv-worker && uv pip install -p .venv-worker -e ".[worker]"
-# Unix: source .venv-orch/bin/activate
-# Windows:
-.\.venv-orch\Scripts\activate
+```
 
-# Project dir (clone or another folder). TREEFLEET_CONFIG can point here later.
-treefleet init          # writes treefleet.toml + .env.example; asks for worktree root and target repo
-treefleet init --yes --worktree-root /tmp/tf-wt   # non-interactive
-# Windows: keep the worktree root short (default C:\wt). Paths must stay under 120 characters
+**PowerShell** (activate + init in a separate project folder):
+
+```powershell
+.\.venv-orch\Scripts\activate
+mkdir $env:USERPROFILE\my-tf-project
+treefleet init $env:USERPROFILE\my-tf-project --yes --worktree-root C:\wt
+# Keep the worktree root short (default C:\wt). Paths must stay under 120 characters
 # because each task lives at <root>/<run_id>/<task_id>.
 ```
+
+**bash**:
+
+```bash
+source .venv-orch/bin/activate
+mkdir -p ~/my-tf-project
+treefleet init ~/my-tf-project --yes --worktree-root /tmp/tf-wt
+# Keep the worktree root short. Paths must stay under 120 characters
+# because each task lives at <root>/<run_id>/<task_id>.
+```
+
+`init` rejects a worktree root that is not absolute for the running OS (for example `/tmp/tf-wt` on Windows, or `C:\wt` on Linux) and never writes a malformed path into `treefleet.toml`.
 
 `init --install` creates the venvs inside the detected TreeFleet checkout (the clone that provides the running `treefleet`) and prints those absolute paths. If no venvs exist yet, `init` omits the path keys and prints the create commands.
 
@@ -619,14 +634,25 @@ Optional per-event overrides; see [`docs/REACTIONS.md`](docs/REACTIONS.md). `tre
 
 ## Testing strategy
 
-| Layer | Command | What it proves |
-|---|---|---|
-| Fast gate | `python scripts/gate.py --phase N` | Ruff, pyright (orch + worker), pytest `phase0…N` |
-| Live gate | `python scripts/gate.py --phase N --live` | Adds API-marked tests |
-| Real spawn | Tests under `tests/test_phase3.py`, fleet tests | Real worker subprocess + fake LLM |
-| UI | Playwright tests `test_ui_v2_*` | Board lanes, drawer, replay |
-| Eval | `treefleet eval` | `eval/scenarios.toml` expectations |
-| PR | `tests/test_pr_*` | Fake provider + recorded fixtures |
+One-time browser install (orchestrator/dev venv, where Playwright lives):
+
+```bash
+# after creating .venv-orch
+.venv-orch/bin/playwright install chromium          # Unix
+.\.venv-orch\Scripts\playwright.exe install chromium  # Windows
+```
+
+| Layer | Command | What it proves | Rough time |
+|---|---|---|---|
+| Quick (no UI) | `pytest -m "not ui"` | Unit/integration without Playwright | ~1–2 min |
+| Fast gate | `python scripts/gate.py --phase N` | Ruff, pyright (orch + worker), pytest `phase0…N` (UI required) | ~4–8 min (phase 11) |
+| Live gate | `python scripts/gate.py --phase N --live` | Adds API-marked tests | varies |
+| Real spawn | Tests under `tests/test_phase3.py`, fleet tests | Real worker subprocess + fake LLM | — |
+| UI | Playwright tests marked `ui` | Board lanes, drawer, replay | included in gate |
+| Eval | `treefleet eval` | `eval/scenarios.toml` expectations | — |
+| PR | `tests/test_pr_*` | Fake provider + recorded fixtures | — |
+
+`scripts/gate.py` sets `TREEFLEET_REQUIRE_UI=1`: missing Chromium fails the gate with `run: playwright install chromium` instead of skipping UI tests. Plain `pytest` without that env skips `ui` tests with the same message when browsers are missing.
 
 Never weaken a failing test to green the gate; fix the cause ([`docs/PHASES.md`](docs/PHASES.md)).
 
