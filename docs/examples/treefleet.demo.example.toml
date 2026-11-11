@@ -1,0 +1,19 @@
+# Placeholder demo config. Copy beside your checkout and point TREEFLEET_CONFIG at the copy.
+# Fill every REPLACE_* value. Do not commit real secrets; keys stay in the environment.
+
+[paths]
+worktree_windows = "REPLACE_SHORT_WORKTREE_ROOT"
+worktree_other = "/tmp/tf-wt"
+orchestrator_venv = ".venv-orch"
+worker_venv = ".venv-worker"
+
+[pr]
+enabled = true
+repo = "REPLACE_OWNER/REPLACE_REPO"
+# Real demo: demo-prof | Rehearsal: demo-rehearsal
+base = "REPLACE_PR_BASE_BRANCH"
+poll_seconds = 15
+max_wait_minutes = 60
+trusted_commenters = ["REPLACE_TRUSTED_LOGIN"]
+auto_merge = false
+allow_external_hooks = false

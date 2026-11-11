@@ -1,5 +1,7 @@
 # Demo
 
+> Superseded by docs/DEMO_RUNBOOK.md; contains machine-specific paths
+
 Two agents edit `D:\pr-sentinel-demo` in separate worktrees. The board is on this machine only. Say that the yellow REPLAY bar means a recording. A live run has no such bar.
 
 ## Before anyone is watching
