@@ -17,9 +17,11 @@ from treefleet.onboarding import (
     default_toml_text,
     doctor_main,
     init_main,
+    is_treefleet_source_checkout,
     run_doctor,
     run_init,
     validate_local_repo,
+    validate_worktree_root,
 )
 
 pytestmark = pytest.mark.phase11
@@ -472,3 +474,79 @@ def test_preflight_messages_never_suggest_demo_reset(tmp_path: Path) -> None:
     assert "demo reset" not in printed
     assert "nothing is deleted automatically" in printed
     assert any(ok and "yellow working tree is dirty" in text for ok, text in rows)
+
+
+def test_validate_worktree_root_os_rules() -> None:
+    assert validate_worktree_root(r"C:\wt", platform="win32") is None
+    assert validate_worktree_root(r"\\server\share\wt", platform="win32") is None
+    bad_posix_on_win = validate_worktree_root("/tmp/tf-wt", platform="win32")
+    assert bad_posix_on_win is not None
+    assert "Windows" in bad_posix_on_win and "C:\\wt" in bad_posix_on_win
+    assert validate_worktree_root("wt", platform="win32") is not None
+
+    assert validate_worktree_root("/tmp/tf-wt", platform="linux") is None
+    bad_win_on_posix = validate_worktree_root(r"C:\wt", platform="linux")
+    assert bad_win_on_posix is not None
+    assert "Windows" in bad_win_on_posix and "/tmp/tf-wt" in bad_win_on_posix
+    assert validate_worktree_root("relative/wt", platform="linux") is not None
+    assert validate_worktree_root(r"\\server\share", platform="darwin") is not None
+
+
+def test_init_rejects_posix_worktree_root_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_long_wt: None
+) -> None:
+    monkeypatch.setattr("treefleet.onboarding.sys.platform", "win32")
+    folder = tmp_path / "proj"
+    code, notes = run_init(folder, yes=True, worktree_root="/tmp/tf-wt", enable_pr=False)
+    assert code == 2
+    assert any("Windows" in note and "C:\\wt" in note for note in notes)
+    assert not (folder / "treefleet.toml").exists()
+
+
+def test_init_rejects_windows_worktree_root_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_long_wt: None
+) -> None:
+    monkeypatch.setattr("treefleet.onboarding.sys.platform", "linux")
+    folder = tmp_path / "proj"
+    code, notes = run_init(folder, yes=True, worktree_root=r"C:\wt", enable_pr=False)
+    assert code == 2
+    assert any("Windows" in note and "/tmp/tf-wt" in note for note in notes)
+    assert not (folder / "treefleet.toml").exists()
+
+
+def test_doctor_flags_invalid_worktree_root_for_os(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_long_wt: None
+) -> None:
+    folder = tmp_path / "tf"
+    folder.mkdir()
+    bad_toml = default_toml_text(windows="/tmp/tf-wt", other="/tmp/tf-wt")
+    (folder / "treefleet.toml").write_text(bad_toml, encoding="utf-8")
+    monkeypatch.setattr("treefleet.onboarding.sys.platform", "win32")
+    code, rows = run_doctor(
+        cwd=folder,
+        env={"DEEPSEEK_API_KEY": "present", "TYPESAFE_API_KEY": "present"},
+        login=lambda _cli: (True, ""),
+        models=lambda _cli: (True, ""),
+        interpreter=lambda _repo, _py: [],
+    )
+    printed = "\n".join(text for _ok, text in rows)
+    assert code == 1
+    assert "worktree root invalid for this OS" in printed
+    assert "C:\\wt" in printed
+
+
+def test_init_refuses_treefleet_source_checkout(tmp_path: Path, allow_long_wt: None) -> None:
+    root = tmp_path / "TreeFleet"
+    (root / "src" / "treefleet").mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "treefleet"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    assert is_treefleet_source_checkout(root)
+    assert is_treefleet_source_checkout(root / "src")
+    code, notes = run_init(root, yes=True, worktree_root=str(tmp_path / "wt"), enable_pr=False)
+    assert code == 0
+    assert any("TreeFleet source checkout" in note for note in notes)
+    assert any("treefleet init <dir>" in note for note in notes)
+    assert not (root / "treefleet.toml").exists()
+    assert not (root / ".env.example").exists()

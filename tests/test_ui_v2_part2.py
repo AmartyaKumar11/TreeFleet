@@ -288,6 +288,7 @@ def _fixture_finished(repo: Path) -> dict:
     )
 
 
+@pytest.mark.ui
 def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -394,6 +395,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
         ),
     ],
 )
+@pytest.mark.ui
 def test_orchestrator_thread_states_and_screenshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -455,6 +457,7 @@ def test_orchestrator_thread_states_and_screenshots(
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_orchestrator_jump_to_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

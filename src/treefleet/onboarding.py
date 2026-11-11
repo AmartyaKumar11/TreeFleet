@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from urllib.parse import urlparse
 
@@ -345,8 +345,67 @@ def _ensure_gitignore(folder: Path) -> str | None:
     return "wrote .gitignore with .env"
 
 
-def _default_worktree() -> str:
-    return r"C:\wt" if sys.platform == "win32" else "/tmp/tf-wt"
+def _default_worktree(*, platform: str | None = None) -> str:
+    plat = platform if platform is not None else sys.platform
+    return r"C:\wt" if plat == "win32" else "/tmp/tf-wt"
+
+
+def is_treefleet_source_checkout(path: Path) -> bool:
+    """True if path is (or is inside) a TreeFleet source tree (pyproject name + src/treefleet)."""
+    try:
+        cur = path.resolve()
+    except OSError:
+        return False
+    for candidate in (cur, *cur.parents):
+        pyproject = candidate / "pyproject.toml"
+        pkg = candidate / "src" / "treefleet"
+        if not pyproject.is_file() or not pkg.is_dir():
+            continue
+        try:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError, UnicodeError):
+            continue
+        project = data.get("project")
+        if isinstance(project, dict) and project.get("name") == "treefleet":
+            return True
+    return False
+
+
+def validate_worktree_root(raw: str, *, platform: str | None = None) -> str | None:
+    """Return an error message if raw is not a valid absolute root for this OS; else None."""
+    plat = platform if platform is not None else sys.platform
+    suggested = _default_worktree(platform=plat)
+    text = raw.strip()
+    if not text:
+        return f"worktree root is empty. Use an absolute path such as {suggested}."
+    if plat == "win32":
+        # POSIX-style /tmp/... becomes \tmp\... on Windows and has no drive letter.
+        if text.startswith("/") and not text.startswith("//"):
+            return (
+                f"worktree root {text!r} is not valid on Windows "
+                f"(drive letter or UNC required). Suggested default: {suggested}"
+            )
+        path = PureWindowsPath(text)
+        if not path.drive and not text.startswith("\\\\"):
+            return (
+                f"worktree root {text!r} is not an absolute Windows path "
+                f"(drive letter or UNC required). Suggested default: {suggested}"
+            )
+        return None
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        return (
+            f"worktree root {text!r} looks like a Windows path; "
+            f"on this OS use an absolute POSIX path such as {suggested}"
+        )
+    if text.startswith("\\\\"):
+        return (
+            f"worktree root {text!r} looks like a Windows UNC path; "
+            f"on this OS use an absolute POSIX path such as {suggested}"
+        )
+    path = PurePosixPath(text)
+    if not path.is_absolute():
+        return f"worktree root {text!r} is not an absolute path. Suggested default: {suggested}"
+    return None
 
 
 def _uv_lines() -> list[str]:
@@ -519,6 +578,12 @@ def run_init(
     except OSError as exc:
         return 1, [f"could not create {folder}: {exc}"]
 
+    if is_treefleet_source_checkout(folder):
+        notes.append(
+            "This is the TreeFleet source checkout. Run init in your own project directory: treefleet init <dir>"
+        )
+        return 0, notes
+
     toml_path = folder / "treefleet.toml"
     env_example = folder / ".env.example"
     if toml_path.is_file() or env_example.is_file():
@@ -543,6 +608,9 @@ def run_init(
         typed = ask_fn(f"Worktree root [{default_root}]: ").strip()
         if typed:
             default_root = typed
+    bad = validate_worktree_root(default_root)
+    if bad is not None:
+        return 2, [bad]
     root = Path(default_root)
     ok, projected, limit = worktree_budget(root)
     if not ok:
@@ -797,6 +865,20 @@ def run_doctor(
         wt = _worktree_root_from_data(data, base)
     except ConfigError as exc:
         rows.append((False, f"red    {exc}"))
+        return _finish(rows, as_json)
+    wt_raw = str(wt)
+    paths_block = data.get("paths") if isinstance(data.get("paths"), dict) else {}
+    key = "worktree_windows" if sys.platform == "win32" else "worktree_other"
+    if isinstance(paths_block, dict) and paths_block.get(key) is not None:
+        wt_raw = str(paths_block[key])
+    bad_wt = validate_worktree_root(wt_raw)
+    if bad_wt is not None:
+        rows.append(
+            (
+                False,
+                f"red    worktree root invalid for this OS ({wt_raw})\n       fix: {bad_wt}",
+            )
+        )
         return _finish(rows, as_json)
     ok_budget, projected, limit = worktree_budget(wt)
     if not wt.exists():

@@ -307,6 +307,7 @@ def test_preflight_hides_secret_values_and_reset_asks_before_deleting_branches(
     )
 
 
+@pytest.mark.ui
 def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -519,6 +520,7 @@ def test_exit_line_accepts_file_stats(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "README.md" in capsys.readouterr().out
 
 
+@pytest.mark.ui
 def test_stubbed_stream_shows_work_while_the_run_is_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import json
     import subprocess

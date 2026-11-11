@@ -49,6 +49,7 @@ def _serve(app) -> tuple[uvicorn.Server, threading.Thread, int]:
     return server, thread, port
 
 
+@pytest.mark.ui
 def test_part3d_cards_and_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

@@ -75,6 +75,7 @@ def _http_approve(port: int) -> int:
         return response.status
 
 
+@pytest.mark.ui
 def test_approve_click_leaves_approve_within_five_seconds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -174,6 +175,7 @@ def test_approve_click_leaves_approve_within_five_seconds(tmp_path: Path, monkey
     assert failures == []
 
 
+@pytest.mark.ui
 def test_immediate_approve_click_survives_the_one_second_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

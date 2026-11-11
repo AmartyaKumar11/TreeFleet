@@ -127,6 +127,7 @@ def test_static_tokens_and_board_assets_are_served(tmp_path: Path, monkeypatch: 
     assert "export" in js.text or "kanban" in js.text.lower()
 
 
+@pytest.mark.ui
 def test_shell_and_kanban_layout_with_screenshots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

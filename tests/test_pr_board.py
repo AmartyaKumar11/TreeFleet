@@ -60,6 +60,7 @@ def _serve(app: FastAPI) -> tuple[uvicorn.Server, threading.Thread, int]:
     return server, thread, port
 
 
+@pytest.mark.ui
 def test_pr_board_at_both_widths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

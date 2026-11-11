@@ -193,6 +193,7 @@ def _rich_fixture(repo: Path) -> dict[str, object]:
     }
 
 
+@pytest.mark.ui
 def test_xss_payloads_render_literally(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -234,6 +235,7 @@ def test_xss_payloads_render_literally(tmp_path: Path, monkeypatch: pytest.Monke
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -305,6 +307,7 @@ def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: py
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -356,6 +359,7 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_drawer_a11y_tab_arrows_and_aria_live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

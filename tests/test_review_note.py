@@ -56,6 +56,7 @@ def _serve(app: FastAPI) -> tuple[uvicorn.Server, threading.Thread, int]:
     return server, thread, port
 
 
+@pytest.mark.ui
 def test_card_note_is_short_and_the_drawer_has_the_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

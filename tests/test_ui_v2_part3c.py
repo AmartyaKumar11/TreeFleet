@@ -171,6 +171,7 @@ def _shot(page, name: str) -> None:
     page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/3c/{name}-390.png")), full_page=True)
 
 
+@pytest.mark.ui
 def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

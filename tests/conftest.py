@@ -14,6 +14,47 @@ from treefleet.onboarding import default_toml_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
+_PLAYWRIGHT_INSTALL_MSG = "run: playwright install chromium"
+_chromium_ok: bool | None = None
+
+
+def _chromium_available() -> bool:
+    """One session-level Playwright Chromium probe (cached)."""
+    global _chromium_ok
+    if _chromium_ok is not None:
+        return _chromium_ok
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        _chromium_ok = False
+        return False
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+        _chromium_ok = True
+    except Exception:
+        _chromium_ok = False
+    return _chromium_ok
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "ui: Playwright browser tests; need playwright install chromium")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    ui_items = [item for item in items if item.get_closest_marker("ui") is not None]
+    if not ui_items:
+        return
+    if _chromium_available():
+        return
+    require = os.environ.get("TREEFLEET_REQUIRE_UI", "").strip() in {"1", "true", "yes"}
+    if require:
+        pytest.exit(f"UI tests require Chromium ({_PLAYWRIGHT_INSTALL_MSG})", returncode=1)
+    skip = pytest.mark.skip(reason=_PLAYWRIGHT_INSTALL_MSG)
+    for item in ui_items:
+        item.add_marker(skip)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def hermetic_treefleet_config(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:

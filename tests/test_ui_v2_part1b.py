@@ -279,6 +279,7 @@ def _serve(app) -> tuple[uvicorn.Server, threading.Thread, int]:
     return server, thread, port
 
 
+@pytest.mark.ui
 def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

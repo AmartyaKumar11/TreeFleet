@@ -221,6 +221,7 @@ def _awaiting_plan(repo: Path) -> dict[str, object]:
     }
 
 
+@pytest.mark.ui
 def test_needs_you_pill_lane_count_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -264,6 +265,7 @@ def test_needs_you_pill_lane_count_only(tmp_path: Path, monkeypatch: pytest.Monk
         thread2.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_copy_merge_ghost_button_and_copied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -306,6 +308,7 @@ def test_copy_merge_ghost_button_and_copied(tmp_path: Path, monkeypatch: pytest.
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -377,6 +380,7 @@ def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.
     check(16, expand=True)
 
 
+@pytest.mark.ui
 def test_cost_formatting_and_totals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -408,6 +412,7 @@ def test_cost_formatting_and_totals(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_selected_card_and_screenshots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -491,6 +496,7 @@ def test_selected_card_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_mobile_drawer_sheet_open_close_reopen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -534,6 +540,7 @@ def test_mobile_drawer_sheet_open_close_reopen(tmp_path: Path, monkeypatch: pyte
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_verdict_chip_and_thread_card_style(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

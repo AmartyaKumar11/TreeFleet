@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -65,9 +66,18 @@ def main() -> int:
         steps.append(("ruff format", [py, "-m", "ruff", "format", "--check", "."]))
     if "pyright" not in args.skip:
         steps.extend(_pyright_steps(py))
+    # Missing Playwright browsers must FAIL in the gate, never skip UI tests green.
+    pytest_env = {**os.environ, "TREEFLEET_REQUIRE_UI": "1"}
     steps.append(("pytest", [py, "-m", "pytest", "-q", "-m", expression]))
 
-    failed = [label for label, cmd in steps if not run(label, cmd)]
+    failed: list[str] = []
+    for label, cmd in steps:
+        if label == "pytest":
+            print(f"\n=== {label}: {' '.join(cmd)}", flush=True)
+            if subprocess.run(cmd, cwd=ROOT, env=pytest_env).returncode != 0:
+                failed.append(label)
+        elif not run(label, cmd):
+            failed.append(label)
     step = f" step {args.step}" if args.step is not None else ""
     print("\n" + ("GATE GREEN" if not failed else f"GATE RED: {', '.join(failed)}") + f" (phase {args.phase}{step})")
     return 1 if failed else 0

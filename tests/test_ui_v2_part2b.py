@@ -222,6 +222,7 @@ def _finished(repo: Path) -> dict:
     }
 
 
+@pytest.mark.ui
 def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -289,6 +290,7 @@ def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monk
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_kanban_four_task_stub_screenshots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -313,6 +315,7 @@ def test_kanban_four_task_stub_screenshots(tmp_path: Path, monkeypatch: pytest.M
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_approve_moves_to_running_and_shared_clock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -352,6 +355,7 @@ def test_approve_moves_to_running_and_shared_clock(tmp_path: Path, monkeypatch: 
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_thread_conflict_rows_and_finished_screenshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

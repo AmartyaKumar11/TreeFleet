@@ -79,11 +79,11 @@ def test_check_unavailable_can_be_rearmed() -> None:
 
 
 def test_retry_command_writes_a_copy_and_not_the_live_run(tmp_path: Path) -> None:
-    live = Path(__file__).resolve().parents[1] / "runs" / "59180665" / "run.json"
-    before = live.read_bytes()
+    """Uses the committed fixture only; never reads repo-root runs/."""
+    fixture_bytes = RUN.read_bytes()
     run_dir = tmp_path / "runs" / "59180665"
     run_dir.mkdir(parents=True)
-    (run_dir / "run.json").write_bytes(RUN.read_bytes())
+    (run_dir / "run.json").write_bytes(fixture_bytes)
     events = _events() + [
         {
             "type": "worker.start_failed",
@@ -101,7 +101,8 @@ def test_retry_command_writes_a_copy_and_not_the_live_run(tmp_path: Path) -> Non
     comment = next(row for row in written.tasks if row.pr_number == 87).comments[0]
     assert comment.status == "open"
     assert comment.rounds_used == 0
-    assert live.read_bytes() == before
+    # Fixture on disk is unchanged; the command only rewrote the tmp copy.
+    assert RUN.read_bytes() == fixture_bytes
 
 
 def test_next_poll_starts_one_round_for_an_open_comment() -> None:

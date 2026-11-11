@@ -101,6 +101,7 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret-value")
 
 
+@pytest.mark.ui
 def test_cards_use_this_run_and_skip_empty_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

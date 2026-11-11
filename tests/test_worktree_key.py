@@ -42,6 +42,7 @@ def _serve(app: FastAPI) -> tuple[uvicorn.Server, threading.Thread, int]:
     return server, thread, port
 
 
+@pytest.mark.ui
 def test_tabs_stay_on_the_selected_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright

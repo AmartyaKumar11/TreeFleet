@@ -57,6 +57,7 @@ def _labels(page: Any) -> list[str]:
     return page.locator("#git-graph .graph-label[data-task-id]").all_inner_texts()
 
 
+@pytest.mark.ui
 def test_review_replay_shows_two_task_rows_and_no_integrated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -86,6 +87,7 @@ def test_review_replay_shows_two_task_rows_and_no_integrated(tmp_path: Path, mon
         thread.join(timeout=5)
 
 
+@pytest.mark.ui
 def test_integrate_appends_the_integrated_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
