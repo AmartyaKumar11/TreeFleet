@@ -481,7 +481,7 @@ Expected shape: doctor lines → confirmation (skipped with `--yes`) → a three
 | `LANGFUSE_SECRET_KEY` | Optional |
 | `LANGFUSE_BASE_URL` | Optional |
 
-**Jev (TypeSafe)** scores input risk and task complexity for the router. With `TYPESAFE_API_KEY` set, behavior is unchanged. Without it, the deterministic input guard still runs, every router task uses `models.router.default_tier`, `report.json` records `router: "fallback"`, and the run emits one `router.jev_skipped` event (`reason: not_configured`).
+**Jev (TypeSafe)** scores input risk and task complexity for the router. With `TYPESAFE_API_KEY` set, Jev complexity picks the Cursor tier (`source: jev`). Without it (or when Jev errors), the deterministic input guard still runs and the router maps each task's planner `complexity` to a tier (`trivial`/`simple`→simple, `moderate`→moderate, `complex`→complex; unknown→`default_tier`) with `source: heuristic`, emits `router.jev_skipped` when the key is missing plus `router.heuristic_used` when any task used the map, and `report.json` records `router: "fallback"` with `routing_sources` counts.
 
 ### Run on your own repo
 
@@ -561,8 +561,8 @@ Secrets **must not** appear in `treefleet.toml`. Unknown top-level keys are reje
 | `models.fast` | (see repo `treefleet.toml`) | Fast DeepSeek id (LiteLLM) |
 | `models.strong` | (see repo `treefleet.toml`) | Strong DeepSeek id |
 | `models.default_worker` | `router` | Default Cursor routing mode |
-| `models.router.default_tier` | `moderate` | Tier used when Jev is unset or unavailable (`router: "fallback"`) |
-| `models.router.simple` / `moderate` / `complex` | Composer ids | Jev complexity → Cursor model when `TYPESAFE_API_KEY` is set |
+| `models.router.default_tier` | `moderate` | Tier when complexity is unknown (`source: router`) |
+| `models.router.simple` / `moderate` / `complex` | Composer ids | Jev or heuristic complexity → Cursor model |
 | `cursor.cli` | `cursor-agent` | Cursor executable name |
 | `cursor.sandbox` | `disabled` on Windows | Passed to Cursor when supported |
 | `thresholds.injection` / `abusive` / `on_topic` | 0.5 / 0.5 / 0.3 | Jev guard thresholds |

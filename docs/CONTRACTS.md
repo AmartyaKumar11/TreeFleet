@@ -102,7 +102,7 @@ Resolution order for each task:
 
 1. `TaskSpec.model_override`, when set.
 2. `RunRequest.worker_model`, when it is not `router`.
-3. The router tier table. Jev complexity (`trivial`, `moderate`, `complex`) maps through `models.router` in `treefleet.toml`. If Jev or routing is unavailable, use `models.router.default_tier`. Until Phase 5 exists, every `router` run uses `default_tier`.
+3. The router tier table. Jev complexity (`trivial`, `moderate`, `complex`) maps through `models.router` in `treefleet.toml` with `source: jev`. If Jev scores are absent, the planner's `task.complexity` maps the same way with `source: heuristic` (`trivial`/`simple`→simple, `moderate`→moderate, `complex`→complex). Unknown complexity uses `models.router.default_tier` with `source: router`.
 4. `models.default`.
 5. Omit `--model` and use the CLI default. `cursor_model` is null and `source` is `default`.
 
@@ -178,7 +178,8 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `tool.error` (payload: `tool`, `message`) when a worker tool fails for a reason other than a missing argument. It does not count as a guard decision and does not move a task to Needs you.
 - `tool.arg_error` (payload: `tool`, `message`, and redacted `arguments` when the caller passed them) when a required file-tool argument is missing or blank. The message names the required parameters and their types. It is not a tool failure and does not move the card to Needs you.
 - `guard_degraded` (payload: `stage`, `detector`) when Jev is unreachable or times out. The deterministic decision stands. A Jev outage does not block a run.
-- `router.jev_skipped` (payload: `reason` of `not_configured`) once per run when `TYPESAFE_API_KEY` is unset or empty. Routing uses the built-in default tier. `FinalReport.router` is `"fallback"`.
+- `router.jev_skipped` (payload: `reason` of `not_configured`) once per run when `TYPESAFE_API_KEY` is unset or empty. `FinalReport.router` is `"fallback"`.
+- `router.heuristic_used` (payload: `tasks` of `{id, tier}`) once per run when any task used planner complexity → router tier (`trivial`/`simple`→`simple`, `moderate`→`moderate`, `complex`→`complex`). Ids and tier names only.
 - `guard_redacted` (payload: `count`, `stage`) when a secret pattern was removed. The secret itself is never stored.
 - `generated_artifact_reverted` (payload: `paths`) when a tracked file changed outside the task declaration and was restored before commit.
 - `orchestrator.agent_start`, `orchestrator.agent_end`, `orchestrator.model_call`, `orchestrator.tool_call`, `orchestrator.tool_result`, `orchestrator.state_delta`

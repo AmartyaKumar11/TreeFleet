@@ -594,6 +594,46 @@ def model_selected_payload(decision: RouteDecision) -> dict[str, Any]:
     return payload
 
 
+TierName = Literal["simple", "moderate", "complex"]
+
+# Planner/Jev complexity → router tier. Never maps above the stated band.
+_HEURISTIC_TIER: dict[str, TierName] = {
+    "trivial": "simple",
+    "simple": "simple",
+    "moderate": "moderate",
+    "complex": "complex",
+}
+_COMPLEXITY_RANK: dict[str, int] = {"trivial": 0, "simple": 0, "moderate": 1, "complex": 2}
+_TIER_RANK: dict[str, int] = {"simple": 0, "moderate": 1, "complex": 2}
+
+
+def heuristic_tier(complexity: Complexity | str | None) -> TierName | None:
+    """Map planner complexity to a router tier, or None for unknown/missing (use default_tier).
+
+    trivial/simple → simple; moderate → moderate; complex (and any higher label) → complex.
+    """
+    if complexity is None:
+        return None
+    raw = complexity.value if isinstance(complexity, Complexity) else str(complexity).strip().lower()
+    if not raw:
+        return None
+    if raw in _HEURISTIC_TIER:
+        return _HEURISTIC_TIER[raw]
+    # Anything ranked above complex still caps at complex; unknown labels stay unset.
+    if raw in _COMPLEXITY_RANK and _COMPLEXITY_RANK[raw] > _COMPLEXITY_RANK["complex"]:
+        return "complex"
+    return None
+
+
+def routing_source_counts(routing: list[RouteDecision]) -> dict[str, int]:
+    """Counts for FinalReport.routing_sources (jev / heuristic / router only)."""
+    counts = {"jev": 0, "heuristic": 0, "router": 0}
+    for item in routing:
+        if item.source in counts:
+            counts[item.source] += 1
+    return counts
+
+
 def _known_or_default(chosen: str | None, known: set[str] | None, default_id: str) -> tuple[str | None, bool]:
     """Keep a discovered id. An unknown id falls back to the default tier when that id is known."""
     if known is None or not chosen or chosen in known:
@@ -624,6 +664,12 @@ def route_plan(
             complexity = Complexity(scored[task.id])
             cursor = settings.models.router.model_for(complexity.value)
             source = "jev"
+        elif source == "router":
+            tier = heuristic_tier(task.complexity)
+            if tier is not None:
+                cursor = getattr(settings.models.router, tier)
+                source = "heuristic"
+            # else: keep default_tier from resolve_cursor_model, source="router"
         cursor, fell_back = _known_or_default(cursor, known, settings.models.router.fallback())
         if fell_back:
             source = "fallback"
@@ -758,6 +804,7 @@ def build_report(
         integration=integration,
         routing=routing,
         router="jev" if jev is not None else "fallback",
+        routing_sources=routing_source_counts(routing),
         notes=notes[:20],
         guard_decisions=_recorded_guards(bundle.runs_root / bundle.run_id / "events.jsonl"),
         metrics=assemble_metrics(
@@ -926,6 +973,23 @@ class RouterAgent(BaseAgent):
         plan = read_plan(ctx.session.state)
         known = _discovered_ids(self.bundle)
         routing = route_plan(plan, self.bundle.request, self.bundle.settings, getattr(self.bundle, "jev", None), known)
+        heuristic_rows: list[dict[str, str]] = []
+        for decision in routing:
+            if decision.source != "heuristic":
+                continue
+            tier = heuristic_tier(decision.complexity)
+            if tier is not None:
+                heuristic_rows.append({"id": decision.task_id, "tier": tier})
+        if heuristic_rows:
+            self.bundle.sink.emit_sync(
+                RunEvent(
+                    run_id=self.bundle.run_id,
+                    seq=0,
+                    source="orchestrator",
+                    type="router.heuristic_used",
+                    payload={"tasks": heuristic_rows},
+                )
+            )
         for decision in routing:
             self.bundle.sink.emit_sync(
                 RunEvent(
