@@ -432,25 +432,29 @@ Sources: `tests/fixtures/59180665-retry-events.jsonl` and `evidence/phase-12/reh
 
 ### Init and doctor
 
-From an empty directory (or the TreeFleet checkout):
+Two directories matter:
+
+1. **Clone** — the TreeFleet git checkout. Create the two virtualenvs here.
+2. **Project dir** — where `treefleet.toml` lives (can be the clone, or a separate folder). `init` records absolute paths to the clone’s venvs when it finds them.
 
 ```bash
+# In the TreeFleet clone:
+uv venv .venv-orch && uv pip install -p .venv-orch -e ".[orchestrator,dev]"
+uv venv .venv-worker && uv pip install -p .venv-worker -e ".[worker]"
+# Unix: source .venv-orch/bin/activate
+# Windows:
+.\.venv-orch\Scripts\activate
+
+# Project dir (clone or another folder). TREEFLEET_CONFIG can point here later.
 treefleet init          # writes treefleet.toml + .env.example; asks for worktree root and target repo
 treefleet init --yes --worktree-root /tmp/tf-wt   # non-interactive
 # Windows: keep the worktree root short (default C:\wt). Paths must stay under 120 characters
 # because each task lives at <root>/<run_id>/<task_id>.
 ```
 
-`init` prints the two venv install commands. Add `--install` to run them. Then activate the orchestrator env so the `treefleet` command exists:
+`init --install` creates the venvs inside the detected TreeFleet checkout (the clone that provides the running `treefleet`) and prints those absolute paths. If no venvs exist yet, `init` omits the path keys and prints the create commands.
 
-```bash
-# Unix
-source .venv-orch/bin/activate
-# Windows
-.\.venv-orch\Scripts\activate
-```
-
-Set the names in `.env.example` as real environment variables (never commit values). Check the machine:
+Set the names in `.env.example` as real environment variables (never commit values). From the project dir (or with `TREEFLEET_CONFIG` set):
 
 ```bash
 treefleet doctor

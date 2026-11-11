@@ -122,9 +122,26 @@ async def test_run_with_typesafe_keeps_jev_router(tmp_path: Path, monkeypatch: p
 
 def _point_venvs(folder: Path) -> None:
     root = Path(__file__).resolve().parents[1]
+    orch = (root / ".venv-orch").resolve().as_posix()
+    worker = (root / ".venv-worker").resolve().as_posix()
     text = (folder / "treefleet.toml").read_text(encoding="utf-8")
-    text = text.replace(".venv-orch", (root / ".venv-orch").as_posix())
-    text = text.replace(".venv-worker", (root / ".venv-worker").as_posix())
+    if "orchestrator_venv" not in text:
+        text = text.replace(
+            "[paths]\n",
+            f"[paths]\norchestrator_venv = {orch!r}\nworker_venv = {worker!r}\n",
+            1,
+        )
+    else:
+        # Replace whole assignment lines so absolute paths are not doubled.
+        lines: list[str] = []
+        for line in text.splitlines():
+            if line.strip().startswith("orchestrator_venv"):
+                lines.append(f"orchestrator_venv = {orch!r}")
+            elif line.strip().startswith("worker_venv"):
+                lines.append(f"worker_venv = {worker!r}")
+            else:
+                lines.append(line)
+        text = "\n".join(lines) + "\n"
     (folder / "treefleet.toml").write_text(text, encoding="utf-8")
 
 

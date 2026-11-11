@@ -79,8 +79,8 @@ class Workers(_Strict):
 class Paths(_Strict):
     worktree_windows: str
     worktree_other: str
-    orchestrator_venv: str
-    worker_venv: str
+    orchestrator_venv: str = ".venv-orch"
+    worker_venv: str = ".venv-worker"
 
 
 class Pricing(_Strict):
@@ -163,6 +163,15 @@ def _python(venv: Path) -> Path:
     return venv / "bin" / "python"
 
 
+def resolve_venv_root(base: Path, raw: object, *, default: str) -> Path:
+    """Absolute toml values win; relative values (and blanks) join under the toml directory."""
+    text = default if raw is None or not str(raw).strip() else str(raw).strip()
+    path = Path(text)
+    if path.is_absolute():
+        return path
+    return base / path
+
+
 def config_path(explicit: Path | None = None) -> Path:
     """Resolve treefleet.toml. TREEFLEET_CONFIG overrides the cwd default."""
     if explicit is not None:
@@ -193,8 +202,10 @@ def load_settings(path: Path | None = None) -> Settings:
     root_key = "worktree_windows" if windows else "worktree_other"
     data["worktree_root"] = str(paths.get(root_key, ""))
     base = path.parent
-    data["orchestrator_python"] = str(_python(base / str(paths.get("orchestrator_venv", ""))))
-    data["worker_python"] = str(_python(base / str(paths.get("worker_venv", ""))))
+    orch_root = resolve_venv_root(base, paths.get("orchestrator_venv"), default=".venv-orch")
+    worker_root = resolve_venv_root(base, paths.get("worker_venv"), default=".venv-worker")
+    data["orchestrator_python"] = str(_python(orch_root))
+    data["worker_python"] = str(_python(worker_root))
     data["deepseek_api_key"] = _required("DEEPSEEK_API_KEY")
     data["typesafe_api_key"] = _optional("TYPESAFE_API_KEY")
     cursor = os.environ.get("CURSOR_API_KEY")

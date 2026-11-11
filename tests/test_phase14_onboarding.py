@@ -28,6 +28,12 @@ SECRET = "sk-phase14-secret-value-do-not-leak"
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _no_clone_venv_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep legacy onboarding tests on relative/default path behavior."""
+    monkeypatch.setattr("treefleet.onboarding.discover_install_root", lambda: None)
+
+
 @pytest.fixture
 def allow_long_wt(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pytest tmp roots often exceed the real 120-char budget."""
@@ -292,12 +298,21 @@ def test_treefleet_config_isolates_pr_off(
 def test_doctor_all_green_with_fakes(tmp_path: Path, allow_long_wt: None) -> None:
     folder = tmp_path / "tf"
     wt = tmp_path / "wt"
-    assert run_init(folder, yes=True, worktree_root=str(wt), enable_pr=False)[0] == 0
+    assert run_init(folder, yes=True, worktree_root=str(wt), enable_pr=False, install_root=None)[0] == 0
     orch_venv = ROOT / ".venv-orch"
     worker_venv = ROOT / ".venv-worker"
     text = (folder / "treefleet.toml").read_text(encoding="utf-8")
-    text = text.replace(".venv-orch", orch_venv.as_posix())
-    text = text.replace(".venv-worker", worker_venv.as_posix())
+    if "orchestrator_venv" not in text:
+        text = text.replace(
+            "[paths]\n",
+            "[paths]\n"
+            f"orchestrator_venv = {str(orch_venv.resolve())!r}\n"
+            f"worker_venv = {str(worker_venv.resolve())!r}\n",
+            1,
+        )
+    else:
+        text = text.replace(".venv-orch", str(orch_venv.resolve()))
+        text = text.replace(".venv-worker", str(worker_venv.resolve()))
     (folder / "treefleet.toml").write_text(text, encoding="utf-8")
 
     code, rows = run_doctor(

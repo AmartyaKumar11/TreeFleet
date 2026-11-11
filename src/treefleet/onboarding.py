@@ -15,7 +15,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from treefleet.checks import interpreter_checks
-from treefleet.config import ConfigError, MissingSecretError, _python, config_path, load_settings
+from treefleet.config import (
+    ConfigError,
+    MissingSecretError,
+    _python,
+    config_path,
+    load_settings,
+    resolve_venv_root,
+)
 from treefleet.demo import _clean, _default_login, _default_models, _stale, env_differs, live_auth
 from treefleet.evals.harness import dotenv_values
 from treefleet.git.worktrees import worktree_budget
@@ -25,6 +32,7 @@ from treefleet.pr.trust import trust_line
 Ask = Callable[[str], str]
 Gh = Callable[[list[str]], tuple[int, str, str]]
 CheckRow = tuple[bool, str]  # True = green or yellow warning; False = red
+_AUTO_INSTALL_ROOT: object = object()
 
 _ENV_EXAMPLE = """\
 # Required. Set the value in the environment or in a local .env (never commit .env).
@@ -80,10 +88,7 @@ round_budget_s = 240
 [paths]
 worktree_windows = {windows!r}
 worktree_other = {other!r}
-orchestrator_venv = {orch!r}
-worker_venv = {worker!r}
-
-[pricing]
+{venv_lines}[pricing]
 # Fetched 2026-10-27 from https://api-docs.deepseek.com/quick_start/pricing
 deepseek_flash_input_per_million = 0.15
 deepseek_flash_cache_hit_per_million = 0.003
@@ -121,11 +126,66 @@ def default_toml_text(
     *,
     windows: str,
     other: str,
-    orch: str = ".venv-orch",
-    worker: str = ".venv-worker",
+    orch: str | None = ".venv-orch",
+    worker: str | None = ".venv-worker",
 ) -> str:
-    """Shipped defaults. No [pr] block."""
-    return _TOML_TEMPLATE.format(windows=windows, other=other, orch=orch, worker=worker)
+    """Shipped defaults. No [pr] block. Pass orch/worker None to omit those keys."""
+    lines: list[str] = []
+    if orch is not None:
+        lines.append(f"orchestrator_venv = {orch!r}")
+    if worker is not None:
+        lines.append(f"worker_venv = {worker!r}")
+    venv_lines = ("\n".join(lines) + "\n") if lines else ""
+    return _TOML_TEMPLATE.format(windows=windows, other=other, venv_lines=venv_lines)
+
+
+def discover_install_root() -> Path | None:
+    """Checkout that owns the running TreeFleet install, when detectable."""
+    exe = Path(sys.executable).resolve()
+    # clone/.venv-orch/Scripts/python.exe or clone/.venv-orch/bin/python
+    if exe.parent.name.lower() == "scripts" and exe.parent.parent.name.startswith(".venv"):
+        return exe.parent.parent.parent
+    if exe.parent.name == "bin" and exe.parent.parent.name.startswith(".venv"):
+        return exe.parent.parent.parent
+    try:
+        import treefleet as _tf
+    except ImportError:
+        return None
+    here = Path(_tf.__file__).resolve()
+    # clone/src/treefleet/__init__.py (editable)
+    if here.parent.name == "treefleet" and here.parent.parent.name == "src":
+        return here.parent.parent.parent
+    return None
+
+
+def venv_exists(root: Path) -> bool:
+    return _python(root).is_file()
+
+
+def resolve_init_venvs(
+    project: Path,
+    *,
+    install_root: Path | None,
+) -> tuple[Path | None, Path | None]:
+    """Precedence: install checkout, then project dir, else none."""
+    orch: Path | None = None
+    worker: Path | None = None
+    for base in (install_root, project):
+        if base is None:
+            continue
+        if orch is None and venv_exists(base / ".venv-orch"):
+            orch = (base / ".venv-orch").resolve()
+        if worker is None and venv_exists(base / ".venv-worker"):
+            worker = (base / ".venv-worker").resolve()
+        if orch is not None and worker is not None:
+            break
+    return orch, worker
+
+
+def _venv_fix(kind: str, root: Path) -> str:
+    """One actionable create/install line. Editable install needs the TreeFleet checkout as cwd."""
+    extra = "orchestrator,dev" if kind == "orchestrator" else "worker"
+    return f'uv venv {root} && uv pip install -p {root} -e ".[{extra}]"'
 
 
 def _ask_default(prompt: str) -> str:
@@ -307,6 +367,7 @@ def _activate_hint() -> list[str]:
 
 
 def _run_install(folder: Path) -> tuple[bool, str]:
+    target = folder.resolve()
     commands = [
         ["uv", "venv", ".venv-orch"],
         ["uv", "pip", "install", "-p", ".venv-orch", "-e", ".[orchestrator,dev]"],
@@ -316,7 +377,7 @@ def _run_install(folder: Path) -> tuple[bool, str]:
     for command in commands:
         proc = subprocess.run(
             command,
-            cwd=folder,
+            cwd=target,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -329,7 +390,9 @@ def _run_install(folder: Path) -> tuple[bool, str]:
             detail = (proc.stderr or proc.stdout or "install failed").strip().splitlines()
             last = detail[-1] if detail else "install failed"
             return False, f"install failed: {' '.join(command)} ({last[:200]})"
-    return True, "install ok"
+    orch = target / ".venv-orch"
+    worker = target / ".venv-worker"
+    return True, f"install ok: created {orch} and {worker}"
 
 
 def _gh_default(args: list[str]) -> tuple[int, str, str]:
@@ -446,6 +509,7 @@ def run_init(
     ask: Ask | None = None,
     gh: Gh | None = None,
     run_install: Callable[[Path], tuple[bool, str]] | None = None,
+    install_root: Path | None | object = _AUTO_INSTALL_ROOT,
 ) -> tuple[int, list[str]]:
     """Create onboarding files in folder. Never touches the target application repo's git state."""
     ask_fn = ask or _ask_default
@@ -505,13 +569,37 @@ def run_init(
     except RuntimeError as exc:
         return 1, [str(exc)]
 
+    discovered: Path | None
+    if install_root is _AUTO_INSTALL_ROOT:
+        discovered = discover_install_root()
+    elif isinstance(install_root, Path):
+        discovered = install_root
+    else:
+        discovered = None
+    install_target = discovered if discovered is not None else folder.resolve()
+    if install:
+        installer = run_install or _run_install
+        ok_install, message = installer(install_target)
+        notes.append(message)
+        if not ok_install:
+            return 1, notes
+        # Prefer the venvs just created when discovery had nothing yet.
+        discovered = install_target
+
+    orch_venv, worker_venv = resolve_init_venvs(folder.resolve(), install_root=discovered)
+
     windows = default_root if sys.platform == "win32" else r"C:\wt"
     other = default_root if sys.platform != "win32" else "/tmp/tf-wt"
     if sys.platform == "win32":
         windows = str(root)
     else:
         other = str(root)
-    body = default_toml_text(windows=windows, other=other)
+    body = default_toml_text(
+        windows=windows,
+        other=other,
+        orch=orch_venv.resolve().as_posix() if orch_venv is not None else None,
+        worker=worker_venv.resolve().as_posix() if worker_venv is not None else None,
+    )
     if pr_cfg is not None:
         body += _PR_BLOCK.format(
             repo=pr_cfg["repo"],
@@ -532,17 +620,17 @@ def run_init(
         notes.append(f"default target repo: {local_repo} (pass --repo on each run)")
     if pr_cfg is not None:
         notes.append(f"PR mode on: {pr_cfg['repo']} base={pr_cfg['base']}")
+    if orch_venv is not None:
+        notes.append(f"orchestrator_venv: {orch_venv}")
+    if worker_venv is not None:
+        notes.append(f"worker_venv: {worker_venv}")
     notes.append("Next:")
-    notes.extend(f"  {line}" for line in _uv_lines())
+    if orch_venv is None or worker_venv is None:
+        notes.append("  # create missing venvs inside the TreeFleet checkout, then re-run init or set paths")
+        notes.extend(f"  {line}" for line in _uv_lines())
     notes.extend(f"  {line}" for line in _activate_hint())
     notes.append("  set DEEPSEEK_API_KEY (see .env.example); TYPESAFE_API_KEY is optional (Jev)")
     notes.append("  treefleet doctor")
-    if install:
-        installer = run_install or _run_install
-        ok_install, message = installer(folder)
-        notes.append(message)
-        if not ok_install:
-            return 1, notes
     return 0, notes
 
 
@@ -616,8 +704,14 @@ def run_doctor(
     base = toml_path.parent
     raw_paths = data.get("paths")
     paths: dict[str, Any] = raw_paths if isinstance(raw_paths, dict) else {}
-    orch_py = _python(base / str(paths.get("orchestrator_venv", ".venv-orch")))
-    worker_py = _python(base / str(paths.get("worker_venv", ".venv-worker")))
+    orch_key = "orchestrator_venv" in paths
+    worker_key = "worker_venv" in paths
+    orch_root = resolve_venv_root(base, paths.get("orchestrator_venv"), default=".venv-orch")
+    worker_root = resolve_venv_root(base, paths.get("worker_venv"), default=".venv-worker")
+    orch_py = _python(orch_root)
+    worker_py = _python(worker_root)
+    orch_source = "toml" if orch_key else "default"
+    worker_source = "toml" if worker_key else "default"
     if orch_py.is_file():
         rows.append((True, f"green  orchestrator interpreter exists ({orch_py})"))
     else:
@@ -625,7 +719,8 @@ def run_doctor(
             (
                 False,
                 f"red    orchestrator interpreter missing ({orch_py})\n"
-                '       fix: uv venv .venv-orch && uv pip install -p .venv-orch -e ".[orchestrator,dev]"',
+                f"       source: {orch_source}\n"
+                f"       fix: {_venv_fix('orchestrator', orch_root)}",
             )
         )
     if worker_py.is_file():
@@ -635,7 +730,8 @@ def run_doctor(
             (
                 False,
                 f"red    worker interpreter missing ({worker_py})\n"
-                '       fix: uv venv .venv-worker && uv pip install -p .venv-worker -e ".[worker]"',
+                f"       source: {worker_source}\n"
+                f"       fix: {_venv_fix('worker', worker_root)}",
             )
         )
 
