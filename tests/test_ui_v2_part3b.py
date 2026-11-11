@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 GOAL = "Add parser edge-case tests, document every config option, and fix notifier lint."
 
 
@@ -313,7 +313,6 @@ def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.
     _env(monkeypatch)
     repo = tmp_path / "repo"
     _git(repo)
-    SHOTS.mkdir(parents=True, exist_ok=True)
 
     def check(n: int, expand: bool = False) -> None:
         tasks = [_task(i, "working" if i % 2 == 0 else "ready") for i in range(1, n + 1)]
@@ -364,10 +363,10 @@ def test_git_graph_scales_and_caps_at_eight(tmp_path: Path, monkeypatch: pytest.
                 for font in metrics["fonts"]:
                     assert "12" in str(font["size"])
                 if n == 16:
-                    page.screenshot(path=str(SHOTS / "part3b-graph16-1440.png"), full_page=True)
+                    page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-graph16-1440.png")), full_page=True)
                     page.set_viewport_size({"width": 390, "height": 844})
                     page.wait_for_timeout(200)
-                    page.screenshot(path=str(SHOTS / "part3b-graph16-390.png"), full_page=True)
+                    page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-graph16-390.png")), full_page=True)
                 browser.close()
         finally:
             server.should_exit = True
@@ -418,7 +417,6 @@ def test_selected_card_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_polish(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -426,10 +424,10 @@ def test_selected_card_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
             page.keyboard.press("Escape")
             page.wait_for_timeout(100)
-            page.screenshot(path=str(SHOTS / "part3b-empty-drawer-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-empty-drawer-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-empty-drawer-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-empty-drawer-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
 
             card = page.locator(".card", has_text="Parser tests").first
@@ -451,42 +449,42 @@ def test_selected_card_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
 
             page.get_by_role("tab", name="Diff").click()
             page.wait_for_timeout(50)
-            page.screenshot(path=str(SHOTS / "part3b-diff-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-diff-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-diff-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-diff-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
 
             page.get_by_role("tab", name="Proof").click()
-            page.screenshot(path=str(SHOTS / "part3b-proof-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-proof-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-proof-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-proof-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
 
             page.get_by_role("tab", name="Checks").click()
             page.locator(".check-row", has_text="ruff").locator("button").click()
             page.wait_for_timeout(50)
-            page.screenshot(path=str(SHOTS / "part3b-checks-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-checks-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-checks-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-checks-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
 
             page.locator("#git-graph").scroll_into_view_if_needed()
-            page.screenshot(path=str(SHOTS / "part3b-graph-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-graph-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-graph-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-graph-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
 
             page.keyboard.press("Control+K")
             page.locator("#command-input").fill("jump")
             page.wait_for_timeout(50)
-            page.screenshot(path=str(SHOTS / "part3b-palette-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-palette-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-palette-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-palette-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -502,7 +500,6 @@ def test_mobile_drawer_sheet_open_close_reopen(tmp_path: Path, monkeypatch: pyte
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_polish(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -513,13 +510,13 @@ def test_mobile_drawer_sheet_open_close_reopen(tmp_path: Path, monkeypatch: pyte
             drawer = page.locator(".drawer")
             assert drawer.evaluate("el => el.classList.contains('is-open')") is False
             assert page.locator("#lane-working, .lanes").first.is_visible()
-            page.screenshot(path=str(SHOTS / "part3b-mobile-closed-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-mobile-closed-390.png")), full_page=True)
 
             page.locator(".card", has_text="Parser tests").first.click()
             page.wait_for_timeout(150)
             assert drawer.evaluate("el => el.classList.contains('is-open')") is True
             assert page.get_by_role("button", name="Close").count() >= 1
-            page.screenshot(path=str(SHOTS / "part3b-mobile-open-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-mobile-open-390.png")), full_page=True)
 
             page.get_by_role("button", name="Close", exact=True).click()
             page.wait_for_timeout(100)
@@ -546,7 +543,6 @@ def test_verdict_chip_and_thread_card_style(tmp_path: Path, monkeypatch: pytest.
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_awaiting_plan(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -561,10 +557,10 @@ def test_verdict_chip_and_thread_card_style(tmp_path: Path, monkeypatch: pytest.
                 }"""
             )
             assert style["border"] == "1px"
-            page.screenshot(path=str(SHOTS / "part3b-thread-plan-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-thread-plan-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part3b-thread-plan-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3b-thread-plan-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True

@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 
 
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,7 +295,6 @@ def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
         models=[{"id": "composer-2.5", "label": "Composer 2.5"}],
     )
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -354,10 +353,10 @@ def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
             details.get_by_role("tab", name="Proof").click()
             assert "Within scope" in page.get_by_label("Isolation proof").inner_text()
 
-            page.screenshot(path=str(SHOTS / "part1b-desktop-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part1b-desktop-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / "part1b-mobile-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part1b-mobile-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True

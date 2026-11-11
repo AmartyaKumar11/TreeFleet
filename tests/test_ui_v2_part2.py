@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 GOAL = "Add parser edge-case tests, document every config option, and fix notifier lint."
 
 
@@ -305,7 +305,6 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
         fixture["tasks"][index] = task
     app = create_app(repo, root=ROOT, token="test-token", fixture=fixture, models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -327,7 +326,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
                 }"""
             )
             assert overlap is True
-            page.screenshot(path=str(SHOTS / "part2-scroll-topbar-1440.png"))
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2-scroll-topbar-1440.png")))
             browser.close()
     finally:
         server.should_exit = True
@@ -417,7 +416,6 @@ def test_orchestrator_thread_states_and_screenshots(
         models=[{"id": "composer-2.5", "label": "Composer 2.5"}],
     )
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -447,10 +445,10 @@ def test_orchestrator_thread_states_and_screenshots(
                 page.locator(".worker-row", has_text="Parser tests").first.click()
                 assert page.locator("#task-title").inner_text() == "Parser tests"
             page.get_by_label("Follow-up goal").wait_for()
-            page.screenshot(path=str(SHOTS / f"part2-{name}-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/part2-{name}-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / f"part2-{name}-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/part2-{name}-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True

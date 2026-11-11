@@ -11,13 +11,13 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
+from tests._evidence import evidence_path
 from treefleet.ui.lanes import tasks_from_snapshot
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase11
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-11"
 
 
 def _events() -> list[dict[str, object]]:
@@ -91,7 +91,6 @@ def test_pr_board_at_both_widths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     }
     app = create_app(repo, root=ROOT, token="test-token", fixture=fixture, models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -106,9 +105,9 @@ def test_pr_board_at_both_widths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert ready.locator(".merge-btn").get_attribute("data-merge") == "gh pr merge 13 --repo octo/demo --squash"
             assert page.locator("[data-graph-integrated]").count() == 0
             assert page.locator('#stage-stepper li[data-stage="pr"]').inner_text() == "pr"
-            page.screenshot(path=str(SHOTS / "board-1440.png"))
+            page.screenshot(path=str(evidence_path("phase-11/board-1440.png")))
             page.set_viewport_size({"width": 390, "height": 844})
-            page.screenshot(path=str(SHOTS / "board-390.png"))
+            page.screenshot(path=str(evidence_path("phase-11/board-390.png")))
             page.get_by_role("tab", name="Orchestrator").click()
             thread_text = page.locator("#orch-thread").inner_text()
             assert "pr.opened" in thread_text

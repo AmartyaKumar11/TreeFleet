@@ -16,6 +16,10 @@ TreeFleet is pre-1.0. Contributions should stay small, tested, and aligned with 
 - Do not weaken tests to get green; fix the cause.
 - Never commit secrets, local run directories, or `.venv*` trees.
 
+## Evidence screenshots
+
+Playwright tests write screenshots through `tests/_evidence.evidence_path`. By default those files land in a pytest temp directory so a gate run does not dirty `evidence/`. Set `TREEFLEET_WRITE_EVIDENCE=1` only when you intentionally want captures under the real `evidence/` tree (for example refreshing demo screenshots).
+
 ## Questions
 
 Open a GitHub issue with your environment (OS, Python version) and the gate command output (redact secrets).

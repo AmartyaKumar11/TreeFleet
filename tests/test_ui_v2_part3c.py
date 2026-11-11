@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2" / "3c"
 GOAL = "Add parser edge-case tests."
 
 
@@ -165,10 +165,10 @@ def _plan(repo: Path) -> dict[str, object]:
 def _shot(page, name: str) -> None:
     page.set_viewport_size({"width": 1440, "height": 900})
     page.wait_for_timeout(150)
-    page.screenshot(path=str(SHOTS / f"{name}-1440.png"), full_page=True)
+    page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/3c/{name}-1440.png")), full_page=True)
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(150)
-    page.screenshot(path=str(SHOTS / f"{name}-390.png"), full_page=True)
+    page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/3c/{name}-390.png")), full_page=True)
 
 
 def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,7 +178,6 @@ def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.
     _env(monkeypatch)
     repo = tmp_path / "repo"
     _git(repo)
-    SHOTS.mkdir(parents=True, exist_ok=True)
 
     def open_graph(count: int):
         app = create_app(repo, root=ROOT, token="test-token", fixture=_branches(repo, count), models=[])
@@ -261,10 +260,10 @@ def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.
             assert needs != ready
             page.keyboard.press("Escape")
             assert page.locator("#drawer-close").is_hidden()
-            page.screenshot(path=str(SHOTS / "ready-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/3c/ready-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "ready-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/3c/ready-390.png")), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 900})
             page.locator(".card", has_text="Parser tests").first.click()
             page.get_by_role("tab", name="Diff").click()
@@ -275,14 +274,14 @@ def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.
             assert "alpha line" in diff
             wrap = page.locator(".diff-line .code").first.evaluate("el => getComputedStyle(el).whiteSpace")
             assert wrap == "pre"
-            page.screenshot(path=str(SHOTS / "diff-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/3c/diff-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
             if not page.locator(".drawer").evaluate("el => el.classList.contains('is-open')"):
                 page.locator(".card", has_text="Parser tests").first.click()
             page.get_by_role("tab", name="Diff").click()
             page.wait_for_timeout(100)
-            page.screenshot(path=str(SHOTS / "diff-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/3c/diff-390.png")), full_page=True)
             assert page.locator("#drawer-backdrop").is_visible()
             page.locator("#drawer-backdrop").click()
             page.wait_for_timeout(100)

@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 XSS = '<img src=x onerror="window.__xss=1"><script>window.__xss=1</script>'
 GOAL = "Add parser edge-case tests, document every config option, and fix notifier lint."
 
@@ -243,7 +243,6 @@ def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: py
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_rich_fixture(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -289,7 +288,7 @@ def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: py
             assert "unpriced" in cost.inner_text().lower()
             assert "usage not reported" in cost.inner_text().lower()
 
-            page.screenshot(path=str(SHOTS / "part3-drawer-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3-drawer-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
             assert page.locator(".drawer").evaluate(
@@ -299,7 +298,7 @@ def test_drawer_tabs_live_diff_proof_checks_cost(tmp_path: Path, monkeypatch: py
                     || el.getBoundingClientRect().height > 400;
                 }"""
             )
-            page.screenshot(path=str(SHOTS / "part3-drawer-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3-drawer-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -315,7 +314,6 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_rich_fixture(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -351,7 +349,7 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
             page.wait_for_timeout(50)
             page.keyboard.press("Escape")
             assert "No task selected" in page.locator("#task-title").inner_text()
-            page.screenshot(path=str(SHOTS / "part3-graph-palette-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3-graph-palette-1440.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True

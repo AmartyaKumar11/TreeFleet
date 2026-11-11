@@ -333,6 +333,29 @@ def test_doctor_all_green_with_fakes(tmp_path: Path, allow_long_wt: None) -> Non
     assert SECRET not in printed
 
 
+def test_doctor_skips_model_list_when_login_fails(tmp_path: Path, allow_long_wt: None) -> None:
+    tf = tmp_path / "tf"
+    assert run_init(tf, yes=True, worktree_root=str(tmp_path / "wt"), enable_pr=False)[0] == 0
+    called = {"models": 0}
+
+    def models(_cli: object) -> tuple[bool, str]:
+        called["models"] += 1
+        return False, "cursor-agent --list-models"
+
+    code, rows = run_doctor(
+        cwd=tf,
+        env={"DEEPSEEK_API_KEY": "present", "TYPESAFE_API_KEY": "present"},
+        login=lambda _cli: (False, "cursor-agent login"),
+        models=models,
+        interpreter=lambda *_a, **_k: [],
+    )
+    assert code == 1
+    text = "\n".join(line for _ok, line in rows)
+    assert called["models"] == 0
+    assert "cursor model list skipped because login failed" in text
+    assert "cursor model list did not load" not in text
+
+
 def test_doctor_red_paths_and_dirty_warning(tmp_path: Path, allow_long_wt: None) -> None:
     folder = tmp_path / "empty"
     folder.mkdir()
@@ -345,6 +368,7 @@ def test_doctor_red_paths_and_dirty_warning(tmp_path: Path, allow_long_wt: None)
     assert code == 1
     text = "\n".join(line for _ok, line in rows)
     assert "treefleet.toml not found" in text or "Run treefleet init" in text
+    assert "cursor model list did not load" not in text
 
     app = tmp_path / "app"
     _git(app)

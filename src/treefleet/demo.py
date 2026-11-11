@@ -223,13 +223,14 @@ def preflight(
     logged, login_fix = (login or _default_login)(cli)
     if logged:
         lines.append((True, "green  cursor-agent is on PATH and logged in"))
+        listed, model_fix = (models or _default_models)(cli)
+        if listed:
+            lines.append((True, "green  cursor model list loads"))
+        else:
+            lines.append((False, f"red    cursor model list did not load\n       fix: {model_fix}"))
     else:
         lines.append((False, f"red    cursor-agent is missing or not logged in\n       fix: {login_fix}"))
-    listed, model_fix = (models or _default_models)(cli)
-    if listed:
-        lines.append((True, "green  cursor model list loads"))
-    else:
-        lines.append((False, f"red    cursor model list did not load\n       fix: {model_fix}"))
+        lines.append((True, "yellow cursor model list skipped because login failed"))
     if not (repo / ".git").exists():
         lines.append((False, f"red    {repo} is not a git repository\n       fix: git init"))
         return lines

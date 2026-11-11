@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._evidence import configure_evidence_root
 from treefleet.onboarding import default_toml_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,3 +38,11 @@ def hermetic_treefleet_config(tmp_path_factory: pytest.TempPathFactory) -> Itera
         os.environ.pop("TREEFLEET_CONFIG", None)
     else:
         os.environ["TREEFLEET_CONFIG"] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def evidence_tmpdir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Screenshots and evidence writes go here unless TREEFLEET_WRITE_EVIDENCE=1."""
+    root = tmp_path_factory.mktemp("evidence-out")
+    configure_evidence_root(root)
+    yield root

@@ -784,13 +784,14 @@ def run_doctor(
     logged, login_fix = (login or _default_login)(cli)
     if logged:
         rows.append((True, "green  cursor-agent is on PATH and logged in"))
+        listed, model_fix = (models or _default_models)(cli)
+        if listed:
+            rows.append((True, "green  cursor model list loads"))
+        else:
+            rows.append((False, f"red    cursor model list did not load\n       fix: {model_fix}"))
     else:
         rows.append((False, f"red    cursor-agent is missing or not logged in\n       fix: {login_fix}"))
-    listed, model_fix = (models or _default_models)(cli)
-    if listed:
-        rows.append((True, "green  cursor model list loads"))
-    else:
-        rows.append((False, f"red    cursor model list did not load\n       fix: {model_fix}"))
+        rows.append((True, "yellow cursor model list skipped because login failed"))
 
     try:
         wt = _worktree_root_from_data(data, base)

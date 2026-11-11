@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2" / "3d"
 
 
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,7 +56,6 @@ def test_part3d_cards_and_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     _env(monkeypatch)
     repo = tmp_path / "repo"
     _git(repo)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     long = "tf/abcd1234/" + "feature-branch-name-that-will-not-fit" * 2
     tasks = []
     for i in range(1, 17):
@@ -137,7 +136,7 @@ def test_part3d_cards_and_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
             assert style["flex"] == "1"
             assert style["title"] == style["text"]
             assert "feature-branch-name" in style["title"]
-            page.locator("#needs").screenshot(path=str(SHOTS / "needs-1440.png"))
+            page.locator("#needs").screenshot(path=str(evidence_path("phase-8/ui-v2/3d/needs-1440.png")))
             page.locator("button[data-graph-more]").click()
             order = page.locator("#git-graph").evaluate(
                 """el => {
@@ -157,7 +156,7 @@ def test_part3d_cards_and_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
             assert order["count"] == 1
             assert order["text"] == "Show less"
             assert order["after"] is True
-            page.locator("#git-graph").screenshot(path=str(SHOTS / "graph16-expanded-1440.png"))
+            page.locator("#git-graph").screenshot(path=str(evidence_path("phase-8/ui-v2/3d/graph16-expanded-1440.png")))
             browser.close()
     finally:
         server.should_exit = True

@@ -12,12 +12,12 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 
 
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,7 +143,6 @@ def test_shell_and_kanban_layout_with_screenshots(tmp_path: Path, monkeypatch: p
         models=[{"id": "composer-2.5", "label": "Composer 2.5"}],
     )
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -166,10 +165,10 @@ def test_shell_and_kanban_layout_with_screenshots(tmp_path: Path, monkeypatch: p
             assert "No new changes since last review" in needs.inner_text()
             ready = page.locator("#lane-ready")
             ready.get_by_role("button", name="Copy merge command", exact=True).wait_for()
-            page.screenshot(path=str(SHOTS / "part1-desktop-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part1-desktop-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / "part1-mobile-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part1-mobile-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True

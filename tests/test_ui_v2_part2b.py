@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from tests._evidence import evidence_path
 from treefleet.ui.server import create_app
 
 pytestmark = pytest.mark.phase8
 
 ROOT = Path(__file__).resolve().parents[1]
-SHOTS = ROOT / "evidence" / "phase-8" / "ui-v2"
 GOAL = "Add parser edge-case tests, document every config option, and fix notifier lint."
 
 
@@ -232,7 +232,6 @@ def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monk
     fixture = _sixteen(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=fixture, models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -280,10 +279,10 @@ def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monk
             drawer = page.locator(".drawer")
             assert "Select a task" in drawer.inner_text() or "select a task" in drawer.inner_text().lower()
             assert "Working" in drawer.inner_text()
-            page.screenshot(path=str(SHOTS / "part2b-kanban-16-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-kanban-16-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / "part2b-kanban-16-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-kanban-16-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -299,16 +298,15 @@ def test_kanban_four_task_stub_screenshots(tmp_path: Path, monkeypatch: pytest.M
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_four(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-            page.screenshot(path=str(SHOTS / "part2b-kanban-4-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-kanban-4-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / "part2b-kanban-4-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-kanban-4-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -324,7 +322,6 @@ def test_approve_moves_to_running_and_shared_clock(tmp_path: Path, monkeypatch: 
     _git(repo)
     app = create_app(repo, root=ROOT, token="test-token", fixture=_awaiting(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -343,12 +340,12 @@ def test_approve_moves_to_running_and_shared_clock(tmp_path: Path, monkeypatch: 
             elapsed = page.locator("#elapsed").inner_text()
             strip = page.locator("#run-status").inner_text()
             assert elapsed in strip
-            page.screenshot(path=str(SHOTS / "part2b-awaiting-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-awaiting-1440.png")), full_page=True)
             # reload for clean awaiting shot already taken after approve — take running-ish
-            page.screenshot(path=str(SHOTS / "part2b-running-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-running-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
-            page.screenshot(path=str(SHOTS / "part2b-running-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-running-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -365,17 +362,16 @@ def test_thread_conflict_rows_and_finished_screenshot(tmp_path: Path, monkeypatc
     # fresh awaiting shot without approve
     app = create_app(repo, root=ROOT, token="test-token", fixture=_awaiting(repo), models=[])
     server, thread, port = _serve(app)
-    SHOTS.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
             page.get_by_role("tab", name="Orchestrator").click()
-            page.screenshot(path=str(SHOTS / "part2b-awaiting-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-awaiting-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part2b-awaiting-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-awaiting-390.png")), full_page=True)
             browser.close()
     finally:
         server.should_exit = True
@@ -401,10 +397,10 @@ def test_thread_conflict_rows_and_finished_screenshot(tmp_path: Path, monkeypatc
             composer = page.locator(".orch-composer").bounding_box()
             if box and composer:
                 assert box["y"] + box["height"] <= composer["y"] + 1
-            page.screenshot(path=str(SHOTS / "part2b-finished-1440.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-finished-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(150)
-            page.screenshot(path=str(SHOTS / "part2b-finished-390.png"), full_page=True)
+            page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-finished-390.png")), full_page=True)
             browser.close()
     finally:
         server2.should_exit = True
