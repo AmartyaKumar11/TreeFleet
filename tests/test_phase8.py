@@ -266,7 +266,7 @@ def test_preflight_hides_secret_values_and_reset_asks_before_deleting_branches(
     printed = "\n".join(text for _ok, text in rows)
     assert secret not in printed
     assert any(ok and "DEEPSEEK_API_KEY is set" in text for ok, text in rows)
-    assert any(not ok and "TYPESAFE_API_KEY is unset" in text and "set TYPESAFE_API_KEY" in text for ok, text in rows)
+    assert any(ok and "TYPESAFE_API_KEY is unset" in text and "built-in fallback" in text for ok, text in rows)
     assert login_ok("Logged in as person@example.com", 0)
     assert not login_ok("Not logged in", 1)
     worktree = tmp_path / "wt"

@@ -250,7 +250,9 @@ def test_bracket_override_is_rejected(
     message = str(caught.value)
     assert "not supported" in message
     assert "treefleet models" in message
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert "from process" in out or "from .env" in out or out == ""
+    assert "{" not in out
     assert not (tmp_path / "runs").exists()
 
 
@@ -286,5 +288,7 @@ def test_unknown_model_is_rejected_before_a_run(
     message = str(caught.value)
     assert "not-a-real-model" in message
     assert "treefleet models" in message
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert "from process" in out or "from .env" in out or out == ""
+    assert "{" not in out
     assert not (tmp_path / "runs").exists()

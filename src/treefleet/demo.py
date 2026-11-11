@@ -194,11 +194,20 @@ def preflight(
     """One line per check: ok, and the text to print. The text has no secret value."""
     found = env if env is not None else os.environ
     lines: list[tuple[bool, str]] = []
-    for key in _KEYS:
-        if found.get(key):
-            lines.append((True, f"green  {key} is set"))
-        else:
-            lines.append((False, f"red    {key} is unset\n       fix: set {key}"))
+    if found.get("DEEPSEEK_API_KEY"):
+        lines.append((True, "green  DEEPSEEK_API_KEY is set"))
+    else:
+        lines.append((False, "red    DEEPSEEK_API_KEY is unset\n       fix: set DEEPSEEK_API_KEY"))
+    if found.get("TYPESAFE_API_KEY"):
+        lines.append((True, "green  TYPESAFE_API_KEY is set"))
+    else:
+        lines.append(
+            (
+                True,
+                "yellow TYPESAFE_API_KEY is unset (routing uses the built-in fallback)\n"
+                "       optional: set TYPESAFE_API_KEY for Jev classification",
+            )
+        )
     lines.extend(env_differs(found, dotenv_values(Path.cwd())))
     if auth is not None:
         lines.extend(auth(found))
@@ -329,9 +338,6 @@ def _gh(args: list[str]) -> tuple[int, str, str]:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    from treefleet.evals.harness import load_env
-
-    load_env(Path.cwd())
     parser = argparse.ArgumentParser(prog="treefleet demo")
     parser.add_argument("command", choices=("preflight", "reset"))
     parser.add_argument("--repo", required=True)

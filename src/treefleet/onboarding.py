@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -28,7 +29,7 @@ CheckRow = tuple[bool, str]  # True = green or yellow warning; False = red
 _ENV_EXAMPLE = """\
 # Required. Set the value in the environment or in a local .env (never commit .env).
 DEEPSEEK_API_KEY=
-# Required. Jev / TypeSafe classification key.
+# Optional. Jev / TypeSafe classification key. Without it, routing uses the built-in fallback.
 TYPESAFE_API_KEY=
 # Optional. Needed for live Cursor agent runs.
 CURSOR_API_KEY=
@@ -534,7 +535,7 @@ def run_init(
     notes.append("Next:")
     notes.extend(f"  {line}" for line in _uv_lines())
     notes.extend(f"  {line}" for line in _activate_hint())
-    notes.append("  set DEEPSEEK_API_KEY and TYPESAFE_API_KEY (see .env.example)")
+    notes.append("  set DEEPSEEK_API_KEY (see .env.example); TYPESAFE_API_KEY is optional (Jev)")
     notes.append("  treefleet doctor")
     if install:
         installer = run_install or _run_install
@@ -643,15 +644,41 @@ def run_doctor(
     if worker_py.is_file():
         rows.extend(interp(check_repo, str(worker_py)))
 
-    for key in ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY"):
-        if found.get(key):
-            rows.append((True, f"green  {key} is set"))
-        else:
-            rows.append((False, f"red    {key} is unset\n       fix: set {key}"))
+    if found.get("DEEPSEEK_API_KEY"):
+        rows.append((True, "green  DEEPSEEK_API_KEY is set"))
+    else:
+        rows.append((False, "red    DEEPSEEK_API_KEY is unset\n       fix: set DEEPSEEK_API_KEY"))
+    if found.get("TYPESAFE_API_KEY"):
+        rows.append((True, "green  TYPESAFE_API_KEY is set"))
+    else:
+        rows.append(
+            (
+                True,
+                "yellow TYPESAFE_API_KEY is unset (routing uses the built-in fallback)\n"
+                "       optional: set TYPESAFE_API_KEY for Jev classification",
+            )
+        )
 
     for _ok, text in env_differs(found, dotenv_values(base)):
         # Doctor: warning only. Process environment wins.
         rows.append((True, text.replace("red    ", "yellow ", 1)))
+
+    which_tf = shutil.which("treefleet")
+    expected = Path(sys.executable).resolve().parent
+    fix_tf = 'invoke through the venv or reinstall with uv pip install -p .venv-orch -e ".[orchestrator,dev]"'
+    if which_tf is None:
+        rows.append((True, f"yellow treefleet is not on PATH\n       fix: {fix_tf}"))
+    else:
+        resolved = Path(which_tf).resolve()
+        if resolved.parent != expected:
+            rows.append(
+                (
+                    True,
+                    f"yellow treefleet on PATH is outside this environment ({resolved})\n       fix: {fix_tf}",
+                )
+            )
+        else:
+            rows.append((True, f"green  treefleet on PATH matches this environment ({resolved})"))
 
     cursor_name = "cursor-agent"
     cursor_block = data.get("cursor")
@@ -884,9 +911,6 @@ def doctor_main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         code = exc.code
         return 2 if code else 0
-    from treefleet.evals.harness import load_env
-
-    load_env(Path.cwd())
     code, _rows = run_doctor(
         cwd=None,
         repo=Path(parsed.repo) if parsed.repo else None,

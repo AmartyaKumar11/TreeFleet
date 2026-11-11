@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+import warnings
 from pathlib import Path
 
 from treefleet.checks import detect_checks, python_prefix, select_checks, unavailable_reason
@@ -14,9 +16,38 @@ from treefleet.contracts import RunRequest
 from treefleet.cursor_models import UnknownModelError, discover, require_known, require_tiers  # noqa: F401
 from treefleet.orchestrator.pipeline import ask_plan, run_blocking
 
+_VERBOSE_ENV = "TREEFLEET_VERBOSE"
+
+
+def configure_runtime(*, verbose: bool, root: Path | None = None) -> None:
+    """Load .env once (process env wins) and filter ADK experimental noise unless verbose."""
+    from treefleet.evals.harness import load_env
+
+    load_env(root or Path.cwd())
+    if verbose:
+        warnings.filterwarnings("default", message=r".*\[EXPERIMENTAL\].*")
+        return
+    warnings.filterwarnings("ignore", message=r".*\[EXPERIMENTAL\].*")
+
+
+def _strip_verbose(args: list[str]) -> tuple[list[str], bool]:
+    verbose = False
+    kept: list[str] = []
+    for item in args:
+        if item == "--verbose":
+            verbose = True
+            continue
+        kept.append(item)
+    env = os.environ.get(_VERBOSE_ENV, "").strip().lower()
+    if env in {"1", "true", "yes", "on"}:
+        verbose = True
+    return kept, verbose
+
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    args, verbose = _strip_verbose(args)
+    configure_runtime(verbose=verbose)
     if args and args[0] == "models":
         return _models()
     if args and args[0] == "reactions":
@@ -97,7 +128,7 @@ def _confirmed_checks(
 
 
 def _eval(argv: list[str]) -> int:
-    from treefleet.evals.harness import harness_status, load_env, run_live
+    from treefleet.evals.harness import harness_status, run_live
     from treefleet.evals.report import enrich, merge_rows, render_json, render_markdown
     from treefleet.evals.scenarios import load_scenarios
 
@@ -107,7 +138,6 @@ def _eval(argv: list[str]) -> int:
     parser.add_argument("--only", default="", help="comma-separated scenario ids")
     parsed = parser.parse_args(argv)
     root = Path.cwd()
-    load_env(root)
     settings = load_settings()
     cap = settings.workers.max_workers
     folder = root / "eval"
@@ -153,9 +183,6 @@ def _ui(argv: list[str]) -> int:
     parser.add_argument("--run", default=None)
     parser.add_argument("--port", type=int, default=8765)
     parsed = parser.parse_args(argv)
-    from treefleet.evals.harness import load_env
-
-    load_env(Path.cwd())
     replay = Path(parsed.replay) if parsed.replay else None
     repo = Path(parsed.repo) if parsed.repo else None
     if parsed.run:

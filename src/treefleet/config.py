@@ -129,14 +129,18 @@ class Settings(_Strict):
     orchestrator_python: str
     worker_python: str
     deepseek_api_key: str
-    typesafe_api_key: str
+    typesafe_api_key: str = ""
     cursor_api_key: str | None = None
 
     @model_validator(mode="after")
     def _keys_are_nonempty(self) -> Self:
-        if not self.deepseek_api_key.strip() or not self.typesafe_api_key.strip():
+        if not self.deepseek_api_key.strip():
             raise ValueError("required secrets are missing")
         return self
+
+    def jev_configured(self) -> bool:
+        """True when TYPESAFE_API_KEY is present and non-empty."""
+        return bool(self.typesafe_api_key.strip())
 
 
 def _required(name: str) -> str:
@@ -144,6 +148,13 @@ def _required(name: str) -> str:
     if value is None or not value.strip():
         raise MissingSecretError(f"Missing required environment variable {name}.")
     return value
+
+
+def _optional(name: str) -> str:
+    value = os.environ.get(name)
+    if value is None:
+        return ""
+    return value.strip()
 
 
 def _python(venv: Path) -> Path:
@@ -185,7 +196,7 @@ def load_settings(path: Path | None = None) -> Settings:
     data["orchestrator_python"] = str(_python(base / str(paths.get("orchestrator_venv", ""))))
     data["worker_python"] = str(_python(base / str(paths.get("worker_venv", ""))))
     data["deepseek_api_key"] = _required("DEEPSEEK_API_KEY")
-    data["typesafe_api_key"] = _required("TYPESAFE_API_KEY")
+    data["typesafe_api_key"] = _optional("TYPESAFE_API_KEY")
     cursor = os.environ.get("CURSOR_API_KEY")
     data["cursor_api_key"] = cursor if cursor else None
     try:

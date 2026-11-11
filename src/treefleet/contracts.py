@@ -792,6 +792,7 @@ class FinalReport(_Model):
     isolation: IsolationReport
     integration: IntegrationReport | None = None
     routing: list[RouteDecision] = Field(default_factory=list)
+    router: Literal["jev", "fallback"] = "fallback"
     metrics: RunMetrics
     guard_decisions: list[GuardDecision] = Field(default_factory=list)
     notes: list[Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=list, max_length=20)

@@ -226,6 +226,19 @@ async def run_pipeline(
 def _jev_for(bundle: RunBundle) -> Any:
     if not bundle.request.use_jev:
         return None
+    if not bundle.settings.jev_configured():
+        from treefleet.contracts import RunEvent
+
+        bundle.sink.emit_sync(
+            RunEvent(
+                run_id=bundle.run_id,
+                seq=0,
+                source="orchestrator",
+                type="router.jev_skipped",
+                payload={"reason": "not_configured"},
+            )
+        )
+        return None
     if bundle.fakes is not None and bundle.fakes.skip_jev:
         return None
     from treefleet.jev.client import JevClient

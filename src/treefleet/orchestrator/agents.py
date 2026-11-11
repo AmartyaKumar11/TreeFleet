@@ -757,6 +757,7 @@ def build_report(
         isolation=isolation,
         integration=integration,
         routing=routing,
+        router="jev" if jev is not None else "fallback",
         notes=notes[:20],
         guard_decisions=_recorded_guards(bundle.runs_root / bundle.run_id / "events.jsonl"),
         metrics=assemble_metrics(

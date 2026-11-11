@@ -201,9 +201,6 @@ def try_main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         code = exc.code
         return 2 if code else 0
-    from treefleet.evals.harness import load_env
-
-    load_env(Path.cwd())
     code, _notes = run_try(
         dest=Path(parsed.dir) if parsed.dir else None,
         yes=parsed.yes,

@@ -78,12 +78,14 @@ def test_init_fresh_and_idempotent(tmp_path: Path, allow_long_wt: None) -> None:
     example = (folder / ".env.example").read_text(encoding="utf-8")
     assert "DEEPSEEK_API_KEY=" in example
     assert "TYPESAFE_API_KEY=" in example
+    assert "Optional. Jev" in example or "optional" in example.lower()
     assert "CURSOR_API_KEY=" in example
     assert "LANGFUSE_PUBLIC_KEY=" in example
     assert SECRET not in example
     for line in example.splitlines():
         if line.strip() and not line.strip().startswith("#") and "=" in line:
             assert line.split("=", 1)[1] == ""
+    assert any("TYPESAFE_API_KEY is optional" in note or "optional (Jev)" in note for note in notes)
     body = (folder / "treefleet.toml").read_text(encoding="utf-8")
     assert "[pr]" not in body
     assert "[models]" in body and "[paths]" in body and "[pricing]" in body

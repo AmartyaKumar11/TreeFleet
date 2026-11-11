@@ -233,7 +233,6 @@ def run_live(
     """Each scenario once, E2 as many times as its repeat says. No retries."""
     from treefleet.cli import main
 
-    load_env(root)
     os.environ.pop("TREEFLEET_MOCK_LLM", None)
     chosen = scenarios if scenarios is not None else load_scenarios(root / "eval" / "scenarios.toml")
     rows: list[dict[str, Any]] = []
