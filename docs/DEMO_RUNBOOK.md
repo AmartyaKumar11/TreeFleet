@@ -91,7 +91,7 @@ Do not pass `--force`. If remove fails, stop and inspect locks/processes.
 ## Never-do list
 
 - Do not read or change PRs **#80** or **#77**.
-- Keep webhook **684748816** inactive.
+- Keep the demo repo's webhook (keep it inactive).
 - Do not run `treefleet demo reset` (or any hard reset / `git clean`) on the demo repo.
 - Do not force-push. Do not merge PRs unless the operator explicitly asks.
 - Live tests only against `AmartyaKumar11/pr-sentinel-demo` (or the configured demo remote), never against unrelated repos.

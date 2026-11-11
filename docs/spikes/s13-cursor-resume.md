@@ -1,6 +1,6 @@
 # S13: Cursor `--resume` with `--print`
 
-Worktree: `C:\wt\s13-spike` (scratch of `D:\pr-sentinel-demo`). Model: `composer-2.5-fast`.
+Worktree: `C:\wt\s13-spike` (scratch of `<demo-repo>`). Model: `composer-2.5-fast`.
 
 ## Session id location
 

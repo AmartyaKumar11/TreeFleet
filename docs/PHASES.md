@@ -267,7 +267,7 @@ Tests use an in-memory OpenTelemetry exporter. Mark them phase7.
 
 **Gate tests:** spans exist for planner, each worker and each tool call; worker spans share the orchestrator's trace id, or share the session id if the fallback was chosen; missing keys do not crash a run; no prompt or file text appears in span attributes beyond what you allow in config.
 
-**Evidence:** screenshot of the trace tree in Langfuse (`evidence/phase-7/trace.png`).
+**Evidence:** phase 7 observability was not built in this tree; there is no Langfuse trace screenshot under `evidence/phase-7/`.
 
 ---
 

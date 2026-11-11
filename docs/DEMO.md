@@ -2,15 +2,15 @@
 
 > Superseded by docs/DEMO_RUNBOOK.md; contains machine-specific paths
 
-Two agents edit `D:\pr-sentinel-demo` in separate worktrees. The board is on this machine only. Say that the yellow REPLAY bar means a recording. A live run has no such bar.
+Two agents edit `<demo-repo>` in separate worktrees. The board is on this machine only. Say that the yellow REPLAY bar means a recording. A live run has no such bar.
 
 ## Before anyone is watching
 
-From `D:\TreeFleet`:
+From `<repo>`:
 
 ```
-treefleet demo preflight --repo D:\pr-sentinel-demo
-treefleet demo reset --repo D:\pr-sentinel-demo
+treefleet demo preflight --repo <demo-repo>
+treefleet demo reset --repo <demo-repo>
 ```
 
 Preflight prints green or red per check and a fix command. It does not print key values. Reset removes extra worktrees and puts the repo back on `demo-base`. It lists `tf/*` branches and deletes them only after a yes.
@@ -18,7 +18,7 @@ Preflight prints green or red per check and a fix command. It does not print key
 Open the board, then the worktree window:
 
 ```
-treefleet ui --repo D:\pr-sentinel-demo
+treefleet ui --repo <demo-repo>
 powershell -File scripts\demo-watch.ps1
 ```
 
@@ -57,13 +57,13 @@ Leave the board up. In the other window, `scripts\demo-watch.ps1` is already lis
 If you need the picture to keep moving, stop treating this run as live and play a recording. The bar says REPLAY on every screen, the Run button is off, and the output tab says Recorded output.
 
 ```
-treefleet ui --repo D:\pr-sentinel-demo --replay evidence\phase-8\events.jsonl --port 8766
+treefleet ui --repo <demo-repo> --replay evidence\phase-8\events.jsonl --port 8766
 ```
 
 If that file is not there yet, use the phase 6 clean run:
 
 ```
-treefleet ui --repo D:\pr-sentinel-demo --replay evidence\phase-6\live-clean\events.jsonl --port 8766
+treefleet ui --repo <demo-repo> --replay evidence\phase-6\live-clean\events.jsonl --port 8766
 ```
 
 Playback follows the recording's timestamps. A gap longer than 30 seconds is played as 30 seconds, so a recording is not a claim about the original speed. Say that it is a recording.

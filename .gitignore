@@ -7,4 +7,10 @@ runs/
 spikes/s4-server.log
 __pycache__/
 .pytest_cache/
+.pytest-tmp/
 .ruff_cache/
+*.egg-info/
+treefleet.demo.toml
+# Default worktree roots live outside the checkout (C:\wt, /tmp/tf-wt).
+# Ignore a mistaken in-repo copy of the short Windows root:
+/wt/
