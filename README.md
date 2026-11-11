@@ -24,6 +24,7 @@ Captured with **Playwright** against a fixture built from recorded run `aa68e041
 - [Configuration reference](#configuration-reference)
 - [Repository layout](#repository-layout)
 - [Testing strategy](#testing-strategy)
+- [Platform support](#platform-support)
 - [Limitations and known issues](#limitations-and-known-issues)
 - [Roadmap](#roadmap)
 - [Inspired by](#inspired-by)
@@ -35,7 +36,7 @@ Captured with **Playwright** against a fixture built from recorded run `aa68e041
 
 ## Status
 
-**Pre-1.0, research-grade.** The offline gate (`scripts/gate.py`, phases 0–11) and unit tests are the contract of correctness. **Verified with real models** in recorded runs under `evidence/` (planner, workers, Cursor, reviewer, isolation proofs). **Not production-hardened:** no hosted multi-tenant control plane, Langfuse wiring is deferred (phase 7), and Windows Cursor runs without a sandbox—scope revert and proofs are the boundary.
+**Pre-1.0, research-grade.** The cumulative offline gate is **gate 11** (`python scripts/gate.py --phase 11`). It includes onboarding (`treefleet init` / `doctor` / `try`), optional-Jev, and routing tests. Last recorded pass: **406** tests (2026-11-11). That gate and the unit suite are the contract of correctness. **Verified with real models** in recorded runs under `evidence/` (planner, workers, Cursor, reviewer, isolation proofs). **Not production-hardened:** no hosted multi-tenant control plane, Langfuse wiring is deferred (phase 7), and Windows Cursor runs without a sandbox—scope revert and proofs are the boundary.
 
 | Area | Verified live | Offline / faked |
 |---|---|---|
@@ -350,7 +351,7 @@ flowchart TD
 
 **Method.** Dollar figures come from `metrics.costs` / `total_usd` in each run’s `report.json`, built by `src/treefleet/guards/cost.py` using rates in `treefleet.toml` `[pricing]` (fetched 2026-10-27 from DeepSeek and Cursor docs). Cursor rows are labeled **estimate** where the CLI usage is mapped to published Composer rates.
 
-**Worker brain tokens:** CrewAI/LiteLLM often report empty usage. Every **total USD** below **excludes worker-brain DeepSeek tokens (not reported by the framework)** unless a future report row records them.
+**Worker brain tokens:** CrewAI/LiteLLM often report empty usage. Every **total USD** below **excludes worker-brain DeepSeek tokens (not reported by the framework)** unless a future report row records them. Worker-brain DeepSeek tokens are not recorded in report.json, so these totals understate real spend. Full rehearsal breakdown: [`evidence/phase-13/freeze/aa68e041-record.md`](evidence/phase-13/freeze/aa68e041-record.md).
 
 **Pricing inputs (configurable).** DeepSeek flash/pro per-million fields, Composer 2.5 / Fast fields, `jev_usd_per_million_input`. See `[pricing]` in `treefleet.toml` and vendor pages linked there.
 
@@ -381,7 +382,7 @@ Each **Total USD** excludes worker-brain DeepSeek tokens when the framework did 
 | Milestone | Rehearsal fixture `59180665` | Rehearsal-3 `aa68e041` |
 |---|---:|---:|
 | First `pr.opened` | 300.6 s | 343.3 s |
-| Both `pr.checks_green` | 326.9 s | (see events) |
+| Both `pr.checks_green` | 326.9 s | 370.2 s |
 | Both `pr.merged` | — | **746.0 s** |
 
 Sources: `tests/fixtures/59180665-retry-events.jsonl` and `evidence/phase-12/rehearsal-3/timeline.json`. Gaps before the first PR are plan approval, fleet, pre-PR review, and open—not idle polling.
@@ -583,7 +584,7 @@ Secrets **must not** appear in `treefleet.toml`. Unknown top-level keys are reje
 |---|---|---|
 | `enabled` | `false` | Turn on PR stage |
 | `repo` | `""` | `owner/name` when enabled |
-| `base` | `demo-base` | PR base branch |
+| `base` | _(required when enabled)_ | PR base branch; set explicitly or via `treefleet init --enable-pr` |
 | `poll_seconds` | `15` | Poll interval (≥5) |
 | `max_wait_minutes` | `60` | Stop waiting for PRs |
 | `trusted_commenters` | `[]` | Logins allowed to drive revisions |
@@ -626,6 +627,10 @@ Optional per-event overrides; see [`docs/REACTIONS.md`](docs/REACTIONS.md). `tre
 Never weaken a failing test to green the gate; fix the cause ([`docs/PHASES.md`](docs/PHASES.md)).
 
 ---
+
+## Platform support
+
+Developed and live-verified on **Windows only**. macOS and Linux code paths exist in the tree but are **not** live-verified. No cross-platform readiness claims beyond that.
 
 ## Limitations and known issues
 
