@@ -95,7 +95,8 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
 
   function verdictDot(label) {
     if (/conflict|reject|fail|excluded/.test(label)) return "red";
-    if (/needs_review|revise|resolving/.test(label)) return "orange";
+    if (/needs_review|resolving/.test(label)) return "needs";
+    if (/revise/.test(label)) return "yellow";
     if (/approve|resolved|ready/.test(label)) return "green";
     return "yellow";
   }
@@ -185,7 +186,7 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
       const note = planChoice ? `<div class="choice-note">${esc(planChoice)}</div>` : "";
       parts.push(
         `<div class="bubble-row"><div class="card orch-card plan-card">
-          <div class="plan-head"><span class="dot orange"></span>Plan ready</div>
+          <div class="plan-head"><span class="dot needs"></span>Plan ready</div>
           <ul>${data.awaiting
             .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
             .join("")}</ul>
@@ -213,11 +214,12 @@ export function createOrchestrator({ esc, clock, post, selectTask, auth, onPlanA
         const why = /conflict/.test(label) ? "" : task.reason || task.error || "";
         const chipClass = ["approve", "reject", "revise", "needs_review"].includes(label) ? label : "";
         parts.push(
-          `<div class="bubble-row"><div class="verdict-row">
+          `<div class="bubble-row"><div class="verdict-row" data-orch-verdict="${esc(task.id || "")}">
             <span class="dot ${verdictDot(label)}"></span>
             <strong>${esc(task.title)}</strong>
             <span class="chip verdict ${chipClass}">${esc(label)}</span>
-          </div>${why ? `<div class="reason">${esc(why)}</div>` : ""}</div>`,
+            ${why ? `<span class="reason-chip">${esc(why)}</span>` : ""}
+          </div></div>`,
         );
       });
     }

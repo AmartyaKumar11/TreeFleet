@@ -597,7 +597,7 @@ function render(data) {
   if (runList) {
     runList.innerHTML = "";
     const runs = Array.isArray(data.runs) && data.runs.length ? data.runs : [{ id: data.run_id || "idle" }];
-    const statusDot = data.needs_human || data.awaiting ? "orange" : data.stage === "done" ? "green" : "blue";
+    const statusDot = data.needs_human || data.awaiting ? "needs" : data.stage === "done" ? "green" : "accent";
     runs.forEach((item) => {
       const li = document.createElement("li");
       const btn = document.createElement("button");
@@ -610,7 +610,16 @@ function render(data) {
           refresh();
         }
       });
-      btn.innerHTML = `<span class="dot ${id === data.run_id ? statusDot : "blue"}"></span><span class="mono">${esc(id)}</span>`;
+      const dotClass = id === data.run_id ? statusDot : "accent";
+      const dotLabel =
+        dotClass === "needs" || dotClass === "orange"
+          ? "needs you"
+          : dotClass === "green"
+            ? "done"
+            : dotClass === "accent"
+              ? "running"
+              : dotClass;
+      btn.innerHTML = `<span class="dot ${dotClass}" title="${esc(dotLabel)}"></span><span class="mono">${esc(id)}</span>`;
       li.appendChild(btn);
       runList.appendChild(li);
     });
@@ -645,7 +654,7 @@ function render(data) {
       const items = data.awaiting
         .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
         .join("");
-      card.innerHTML = `<div class="plan-head"><span class="dot orange"></span>Plan ready</div><ul>${items}</ul>`;
+      card.innerHTML = `<div class="plan-head"><span class="dot needs"></span>Plan ready</div><ul>${items}</ul>`;
       const actions = document.createElement("div");
       actions.className = "actions";
       const ok = document.createElement("button");

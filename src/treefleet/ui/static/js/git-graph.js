@@ -6,13 +6,17 @@ function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+function cssToken(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function statusColor(task) {
   const text = `${task.status || ""} ${task.verdict || ""} ${task.reason || ""}`.toLowerCase();
-  if (task.conflict || task.status === "failed" || text.includes("conflict")) return "var(--red)";
-  if (task.lane === "needs" || task.status === "needs_review") return "var(--orange)";
-  if (task.lane === "review") return "var(--yellow)";
-  if (task.lane === "ready" || task.status === "done" || task.verdict === "approve") return "var(--green)";
-  return "var(--blue)";
+  if (task.conflict || task.status === "failed" || text.includes("conflict")) return cssToken("--status-error");
+  if (task.lane === "needs" || task.status === "needs_review") return cssToken("--status-needs");
+  if (task.lane === "review") return cssToken("--status-warning");
+  if (task.lane === "ready" || task.status === "done" || task.verdict === "approve") return cssToken("--status-success");
+  return cssToken("--status-running");
 }
 
 export function createGitGraph({ onSelect }) {
@@ -68,12 +72,12 @@ export function createGitGraph({ onSelect }) {
 
     const list = document.createElement("div");
     list.className = "graph-list";
-    row(list, `base ${base}`, "#2a313c", { "data-graph-base": "1" });
+    row(list, `base ${base}`, cssToken("--graph-base"), { "data-graph-base": "1" });
     shown.forEach((task) => {
       row(list, task.branch || task.id, statusColor(task), { "data-task-id": task.id });
     });
     if (integrated) {
-      row(list, integrated, "var(--green)", { "data-graph-integrated": "1" });
+      row(list, integrated, cssToken("--status-success"), { "data-graph-integrated": "1" });
     }
     host.appendChild(list);
 

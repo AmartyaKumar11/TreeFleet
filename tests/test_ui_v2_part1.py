@@ -118,8 +118,10 @@ def test_static_tokens_and_board_assets_are_served(tmp_path: Path, monkeypatch: 
     client = TestClient(app, base_url="http://127.0.0.1")
     tokens = client.get("/static/css/tokens.css")
     assert tokens.status_code == 200
-    assert "#07090c" in tokens.text
-    assert "#4c8dff" in tokens.text
+    assert "--accent: oklch(0.6724 0.1308 38.7559)" in tokens.text
+    assert "--bg: oklch(0.2213 0.0038 106.7070)" in tokens.text
+    assert "--blue" not in tokens.text
+    assert "#4c8dff" not in tokens.text
     board_css = client.get("/static/css/board.css")
     assert board_css.status_code == 200
     js = client.get("/static/js/board.js")
