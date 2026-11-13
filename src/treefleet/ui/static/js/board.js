@@ -208,11 +208,11 @@ function playFlip() {
 }
 
 function modelIcon() {
-  return `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 8h6M5 10.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  return `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg>`;
 }
 
 function gitGlyph() {
-  return `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4" r="2" fill="currentColor"/><circle cx="8" cy="12" r="2" fill="currentColor"/><path d="M8 6v4" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  return `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-git-branch"></use></svg>`;
 }
 
 function middleTruncate(text, max = 32) {

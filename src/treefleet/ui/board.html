@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="tf-token" content="{{TOKEN}}">
 <title>TreeFleet</title>
+<link rel="preload" href="/static/fonts/Geist%5Bwght%5D.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/SourceSerif4%5Bwght%5D.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/controls.css">
 <link rel="stylesheet" href="/static/css/board.css">
 </head>
 <body>
@@ -13,39 +16,38 @@
 <div class="shell">
   <nav class="sidebar" aria-label="Sidebar">
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
-        <path d="M14 3v22M14 8c-4 0-7 2.5-7 6s3 6 7 6 7-2.5 7-6-3-6-7-6zm-7 6H5m18 0h-2M9 20l-2 3m12-3 2 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-      </svg>
+      <svg class="brand-mark icon-20" aria-hidden="true"><use href="/static/icons.svg#icon-trees"></use></svg>
       <span class="brand-word">TreeFleet</span>
     </div>
     <label class="search">
       <span class="visually-hidden">Search</span>
+      <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-search"></use></svg>
       <input type="search" placeholder="Search" aria-label="Search">
-      <span class="search-hint">Ctrl+K</span>
+      <kbd class="search-hint">Ctrl+K</kbd>
     </label>
     <div class="side-block">
-      <h2>Project</h2>
+      <h2 class="type-micro">Project</h2>
       <div class="project-name" id="side-project">TreeFleet</div>
-      <h2>Run history</h2>
+      <h2 class="type-micro">Run history</h2>
       <ul class="run-list" id="run-history"></ul>
     </div>
     <div class="side-foot">
-      <button class="side-link" type="button">Settings</button>
+      <button class="side-link btn ghost" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg> Settings</button>
     </div>
   </nav>
 
   <div class="workspace">
     <header class="topbar">
-      <h1 id="title">TreeFleet</h1>
-      <button class="btn primary" id="new-task" type="button">New task</button>
-      <div class="view-toggle" role="tablist" aria-label="Board view">
+      <h1 id="title" class="type-title-lg">TreeFleet</h1>
+      <button class="btn secondary" id="new-task" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-plus"></use></svg> New task</button>
+      <div class="view-toggle segmented" role="tablist" aria-label="Board view">
         <button role="tab" type="button" data-view="kanban" aria-selected="true">Kanban</button>
         <button role="tab" type="button" data-view="orchestrator" aria-selected="false">Orchestrator</button>
       </div>
       <span class="spacer"></span>
       <div class="settings-wrap">
-        <button class="icon-btn" id="run-settings" type="button" aria-label="Run settings" aria-expanded="false" aria-controls="settings-popover">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h3l.4 1.4a4.5 4.5 0 0 1 1.2.7l1.4-.5.5.9-1.1 1a4.6 4.6 0 0 1 0 1.4l1.1 1-.5.9-1.4-.5a4.5 4.5 0 0 1-1.2.7L9.5 13.5h-3l-.4-1.4a4.5 4.5 0 0 1-1.2-.7l-1.4.5-.5-.9 1.1-1a4.6 4.6 0 0 1 0-1.4l-1.1-1 .5-.9 1.4.5a4.5 4.5 0 0 1 1.2-.7L6.5 2.5zM8 6.2A1.8 1.8 0 1 0 8 9.8 1.8 1.8 0 0 0 8 6.2z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+        <button class="icon-btn" id="run-settings" type="button" aria-label="Run settings" aria-expanded="false" aria-controls="settings-popover" title="Run settings">
+          <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg>
         </button>
         <div class="settings-popover" id="settings-popover" hidden>
           <button class="switch" id="auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval">
@@ -54,12 +56,12 @@
           </button>
         </div>
       </div>
-      <button class="icon-btn" id="bell" type="button" aria-label="Notifications">
-        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a4 4 0 0 0-4 4v2.2L3 10h10l-1-1.8V6a4 4 0 0 0-4-4zm-1.5 10a1.5 1.5 0 0 0 3 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <button class="icon-btn" id="bell" type="button" aria-label="Notifications" title="Notifications">
+        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-bell"></use></svg>
         <span class="badge" id="attention-badge" hidden>1</span>
       </button>
-      <span class="timer mono" id="elapsed">0:00</span>
-      <span class="pill attention" id="attention" hidden>Needs you</span>
+      <span class="timer mono type-code-sm" id="elapsed">0:00</span>
+      <span class="pill attention badge-status" id="attention" hidden>Needs you</span>
     </header>
 
     <div class="board-body">
@@ -72,10 +74,10 @@
         </div>
 
         <section class="composer" aria-label="New run" id="new-run">
-          <textarea id="goal" aria-label="Goal" placeholder="Describe what to build" rows="1"></textarea>
+          <textarea id="goal" class="type-body-lg" aria-label="Goal" placeholder="Describe what to build" rows="1"></textarea>
           <div class="composer-tools">
             <select id="model" aria-label="Worker model"></select>
-            <button class="btn primary" id="run" type="button">Run</button>
+            <button class="btn primary" id="run" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
           </div>
           <p class="err" id="error" hidden></p>
         </section>
@@ -129,7 +131,7 @@
               <textarea id="follow-goal" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
               <div class="composer-tools">
                 <select id="follow-model" aria-label="Follow-up worker model"></select>
-                <button class="btn primary" id="follow-run" type="button">Run</button>
+                <button class="btn primary" id="follow-run" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
               </div>
             </footer>
           </div>
@@ -180,7 +182,7 @@
               <h3 id="task-title">No task selected</h3>
               <div class="mono muted" id="task-meta"></div>
             </div>
-            <button class="btn ghost drawer-close" id="drawer-close" type="button">Close</button>
+            <button class="btn ghost icon-btn drawer-close" id="drawer-close" type="button" aria-label="Close" title="Close"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-x"></use></svg></button>
           </div>
         </header>
         <div id="drawer-empty" class="drawer-empty">

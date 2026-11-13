@@ -102,22 +102,32 @@ export function createDrawer({ auth, worktreeFor }) {
     if (!toolbar) {
       clear(root);
       toolbar = el("div", "live-toolbar");
-      const pause = el("button", "btn ghost", followTail ? "Pause" : "Follow");
+      const pause = el("button", "btn ghost");
       pause.type = "button";
+      const setPauseLabel = () => {
+        pause.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${
+          followTail ? "pause" : "play"
+        }"></use></svg> ${followTail ? "Pause" : "Follow"}`;
+      };
+      setPauseLabel();
       pause.addEventListener("click", () => {
         followTail = !followTail;
-        pause.textContent = followTail ? "Pause" : "Follow";
+        setPauseLabel();
         if (followTail) renderLive(task);
       });
-      const copy = el("button", "btn ghost", "Copy");
+      const copy = el("button", "btn ghost");
       copy.type = "button";
+      const setCopyLabel = (label) => {
+        copy.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg> ${label}`;
+      };
+      setCopyLabel("Copy");
       copy.addEventListener("click", async () => {
         const text = ((selected && selected.lines) || []).join("\n");
         try {
           if (navigator.clipboard) await navigator.clipboard.writeText(text);
-          copy.textContent = "Copied";
+          setCopyLabel("Copied");
           setTimeout(() => {
-            copy.textContent = "Copy";
+            setCopyLabel("Copy");
           }, 1200);
         } catch (_err) {
           /* ignore */

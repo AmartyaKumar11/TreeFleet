@@ -13,9 +13,12 @@ body {
   min-height: 100vh;
   background-color: var(--bg);
   background-image: var(--dot-grid);
-  background-size: 24px 24px;
+  background-size: var(--space-6) var(--space-6);
   color: var(--text);
-  font: 14px/1.45 var(--ui);
+  font-family: var(--font-sans);
+  font-size: var(--text-body-size);
+  font-weight: var(--text-body-weight);
+  line-height: var(--text-body-leading);
   letter-spacing: var(--tracking);
 }
 
@@ -37,8 +40,8 @@ button {
 }
 
 .mono {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   font-weight: 400;
 }
 
@@ -102,7 +105,7 @@ button {
 }
 
 .brand-word {
-  font-size: 18px;
+  font-size: var(--text-title-size);
   font-weight: 500;
   letter-spacing: -0.02em;
 }
@@ -110,11 +113,15 @@ button {
 .search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
+}
+
+.search .icon {
+  color: var(--muted);
 }
 
 .search input {
@@ -127,16 +134,16 @@ button {
 
 .search-hint {
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro-size);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-2);
   padding: 1px 6px;
   white-space: nowrap;
 }
 
 .side-block h2 {
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
   font-weight: 500;
   color: var(--muted);
   margin: 0 0 8px;
@@ -247,7 +254,7 @@ button {
 .btn {
   border: 1px solid var(--border);
   background: var(--surface-2);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 7px 14px;
   color: var(--text);
   transition: background var(--motion) ease, border-color var(--motion) ease, color var(--motion) ease;
@@ -281,8 +288,8 @@ button {
   border: 1px solid var(--border);
   color: var(--muted);
   padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--radius-3);
+  font-size: var(--text-body-sm-size);
   white-space: nowrap;
   min-height: 32px;
   display: inline-flex;
@@ -304,7 +311,7 @@ button {
 
 .btn.ghost .check {
   color: var(--green);
-  font-size: 14px;
+  font-size: var(--text-body-size);
   line-height: 1;
 }
 
@@ -328,22 +335,22 @@ button {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--status-needs);
   color: var(--bg);
-  font-size: 10px;
+  font-size: var(--text-micro-size);
   font-weight: 500;
   line-height: 16px;
   text-align: center;
 }
 
 .timer {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   font-weight: 400;
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 10px;
 }
 
@@ -376,7 +383,7 @@ button {
 .switch .track {
   width: 30px;
   height: 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-3);
   background: var(--surface-2);
   position: relative;
   flex: none;
@@ -389,7 +396,7 @@ button {
   left: 1px;
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--text);
   transition: transform var(--motion) ease;
 }
@@ -494,7 +501,7 @@ select {
 .run-status {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-body-size);
 }
 
 .stage-stepper {
@@ -507,12 +514,12 @@ select {
 }
 
 .stage-stepper li {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro-size);
   font-weight: 400;
   color: var(--muted);
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
 }
 
@@ -529,7 +536,7 @@ select {
 .dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--muted);
   flex: none;
   display: inline-block;
@@ -583,7 +590,7 @@ select {
 .lane h2 {
   margin: 0;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--text-body-sm-size);
   font-weight: 500;
   color: var(--muted);
   display: flex;
@@ -599,8 +606,8 @@ select {
 
 .lane h2 .n {
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   font-weight: 400;
 }
 
@@ -650,7 +657,7 @@ select {
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
   margin-bottom: 8px;
 }
 
@@ -662,15 +669,15 @@ select {
 }
 
 .card .model-row .age {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   font-weight: 400;
   flex: none;
 }
 
 .card .title {
   font-weight: 500;
-  font-size: 14px;
+  font-size: var(--text-body-size);
   line-height: 1.45;
   margin-bottom: 6px;
   display: -webkit-box;
@@ -701,8 +708,8 @@ select {
   gap: 8px;
   margin-top: 10px;
   color: var(--text);
-  font-size: 12px;
-  font-family: var(--mono);
+  font-size: var(--text-code-sm-size);
+  font-family: var(--font-mono);
   font-weight: 400;
   min-width: 0;
 }
@@ -734,8 +741,8 @@ select {
   height: 12px;
   border: 1.5px solid var(--accent-border-soft);
   border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 700ms linear infinite;
+  border-radius: var(--radius-pill);
+  animation: spin var(--spinner-duration) linear infinite;
   flex: none;
 }
 
@@ -752,10 +759,10 @@ select {
 
 .chip {
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 2px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
 }
 
 .chip.pass { color: var(--green); border-color: var(--success-border); }
@@ -765,14 +772,25 @@ select {
 .chip.verdict.revise { color: var(--verdict-revise); border-color: var(--verdict-revise); }
 .chip.verdict.needs_review { color: var(--verdict-needs-review); border-color: var(--verdict-needs-review); }
 .chip.round { color: var(--accent); }
-.chip.lines { font-family: var(--mono); font-size: 12px; font-weight: 400; }
+/* Keep inline (not flex) so "+N -M" stays one text line for cards/tests. */
+.chip.lines {
+  display: inline;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
+  font-weight: 400;
+}
+.chip.lines .add,
+.chip.lines .del {
+  display: inline;
+}
 .chip.lines .add { color: var(--green); }
 .chip.lines .del { color: var(--red); }
 
 .card .reason,
 .card .note {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
   line-height: 1.45;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -785,7 +803,7 @@ select {
 .review-text {
   margin: 0 0 8px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-body-sm-size);
   line-height: 1.45;
   white-space: pre-wrap;
 }
@@ -831,7 +849,7 @@ select {
   gap: 6px;
   padding: 2px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
 }
 
@@ -895,8 +913,8 @@ select {
 }
 
 .tab-count {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro-size);
   font-weight: 400;
   color: var(--muted);
   margin-left: 4px;
@@ -1008,8 +1026,8 @@ th {
 .log {
   white-space: pre-wrap;
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   font-weight: 400;
 }
 
@@ -1029,7 +1047,7 @@ th {
   flex: none;
   border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 12px;
   color: var(--muted);
 }
@@ -1146,13 +1164,13 @@ th {
 
 .bubble-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
   margin-bottom: 4px;
 }
 
 .sys-line {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-body-sm-size);
   padding: 4px 0;
   max-width: 720px;
 }
@@ -1235,7 +1253,7 @@ th {
 .choice-note {
   margin-top: 8px;
   color: var(--green);
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
 }
 
 .orch-footer {
@@ -1254,7 +1272,7 @@ th {
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 12px;
 }
 
@@ -1289,7 +1307,7 @@ th {
   min-width: 0;
   margin: 0;
   color: var(--status-needs);
-  font-size: 12px;
+  font-size: var(--text-code-sm-size);
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1391,8 +1409,8 @@ th {
 .live-log {
   max-height: 52vh;
   overflow: auto;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   color: var(--text);
 }
 
@@ -1435,8 +1453,8 @@ th {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
 }
 
 .diff-file .counts .add { color: var(--green); }
@@ -1450,8 +1468,8 @@ th {
 }
 
 .diff-body {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   overflow-x: auto;
 }
 
@@ -1492,8 +1510,8 @@ th {
 .reverted-paths {
   margin: 0;
   padding-left: 18px;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
 }
 
 .check-row {
@@ -1516,8 +1534,8 @@ th {
   background: var(--error-soft);
   border-radius: var(--radius-sm);
   white-space: pre-wrap;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   color: var(--text);
 }
 
@@ -1543,7 +1561,7 @@ th {
 
 .git-graph h2 {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--text-body-sm-size);
   font-weight: 500;
   color: var(--muted);
 }
@@ -1577,7 +1595,7 @@ th {
 .graph-dot {
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   flex: none;
 }
 
@@ -1587,8 +1605,8 @@ th {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "Geist Mono", var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   color: var(--graph-label);
 }
 
@@ -1673,15 +1691,15 @@ th {
   border: 0;
   color: var(--accent);
   font: inherit;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm-size);
   cursor: pointer;
   padding: 0;
 }
 
 .git-graph svg text {
-  font-size: 12px;
-  font-family: var(--mono);
+  font-size: var(--text-code-sm-size);
+  font-family: var(--font-mono);
 }
 
 .cost-total {
@@ -1728,7 +1746,7 @@ th {
     width: 40px;
     height: 4px;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--grab);
     margin: 0 auto 10px;
     padding: 0;
