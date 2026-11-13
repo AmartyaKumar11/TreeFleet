@@ -58,11 +58,31 @@ export function costRole(row) {
   return component;
 }
 
+function fileStatSig(files) {
+  if (!Array.isArray(files)) return "";
+  return files.map((file) => `${file.path}:${file.additions || 0}:${file.deletions || 0}:${file.binary ? 1 : 0}`).join(",");
+}
+
 export function createDrawer({ auth, worktreeFor }) {
   let followTail = true;
   let liveOffset = 0;
   let selected = null;
   let state = {};
+  let diffSignal = "";
+  let diffPayloadSig = "";
+  let diffTaskId = "";
+  let diffInFlight = false;
+  let diffQueued = false;
+  let diffExpanded = false;
+  let diffActiveFile = 0;
+  let diffScrollTop = 0;
+  let diffToken = 0;
+  let lastGood = null;
+
+  function activePane() {
+    const active = document.querySelector(".drawer .tab[aria-selected='true']");
+    return (active && active.dataset.pane) || "live";
+  }
 
   function setPane(id) {
     document.querySelectorAll(".drawer .tab").forEach((tab) => {
@@ -73,6 +93,7 @@ export function createDrawer({ auth, worktreeFor }) {
     document.querySelectorAll(".drawer .pane").forEach((pane) => {
       pane.hidden = pane.id !== id;
     });
+    if (id === "diff" && selected) syncDiff(selected, state, { reason: "pane" });
   }
 
   function renderLive(task) {
@@ -162,16 +183,33 @@ export function createDrawer({ auth, worktreeFor }) {
     });
   }
 
-  function renderDiffBody(root, data) {
+  function captureDiffViewState(root) {
+    const scroller = root.querySelector(".diff-view") || root.querySelector(".diff-body");
+    if (scroller) diffScrollTop = scroller.scrollTop;
+    const active = root.querySelector(".diff-file.is-active");
+    if (active && active.parentElement) {
+      diffActiveFile = Math.max(0, [...active.parentElement.children].indexOf(active));
+    }
+    const more = [...root.querySelectorAll("button")].find((btn) => btn.textContent === "Show more");
+    if (more) diffExpanded = false;
+  }
+
+  function renderDiffBody(root, data, opts) {
+    const note = opts && opts.note ? String(opts.note) : "";
+    const preserve = opts && opts.preserve;
+    if (preserve) captureDiffViewState(root);
+    const activeIndex = preserve ? diffActiveFile : 0;
+    const expanded = preserve ? diffExpanded : false;
+    const scrollTop = preserve ? diffScrollTop : 0;
     clear(root);
+    if (note) root.appendChild(el("p", "diff-refresh-note empty-line", note));
     const wrap = el("div", "diff-layout");
     const files = el("div", "diff-files");
     const view = el("div", "diff-view");
     const fileRows = data.files || data.diff_files || [];
-    let active = 0;
 
     function showFile(index) {
-      active = index;
+      diffActiveFile = index;
       clear(view);
       [...files.children].forEach((child, i) => {
         child.classList.toggle("is-active", i === index);
@@ -196,12 +234,14 @@ export function createDrawer({ auth, worktreeFor }) {
       const lines = chunk.split("\n");
       const visible = lines.filter(keepDiffLine);
       const body = el("div", "diff-body");
-      paintDiff(body, visible.slice(0, DIFF_CAP));
+      const useAll = expanded || visible.length <= DIFF_CAP;
+      paintDiff(body, useAll ? visible : visible.slice(0, DIFF_CAP));
       view.appendChild(body);
-      if (visible.length > DIFF_CAP) {
+      if (!useAll) {
         const more = el("button", "btn ghost", "Show more");
         more.type = "button";
         more.addEventListener("click", () => {
+          diffExpanded = true;
           clear(body);
           paintDiff(body, visible);
           more.remove();
@@ -212,9 +252,23 @@ export function createDrawer({ auth, worktreeFor }) {
 
     if (!fileRows.length) {
       const body = el("div", "diff-body");
-      paintDiff(body, String(data.diff || data.error || "No diff.").split("\n").slice(0, DIFF_CAP));
+      const lines = String(data.diff || data.error || "No diff.").split("\n");
+      const useAll = expanded || lines.length <= DIFF_CAP;
+      paintDiff(body, useAll ? lines : lines.slice(0, DIFF_CAP));
       wrap.appendChild(body);
+      if (!useAll) {
+        const more = el("button", "btn ghost", "Show more");
+        more.type = "button";
+        more.addEventListener("click", () => {
+          diffExpanded = true;
+          clear(body);
+          paintDiff(body, lines);
+          more.remove();
+        });
+        wrap.appendChild(more);
+      }
       root.appendChild(wrap);
+      if (preserve) body.scrollTop = scrollTop;
       return;
     }
 
@@ -237,29 +291,164 @@ export function createDrawer({ auth, worktreeFor }) {
     wrap.appendChild(files);
     wrap.appendChild(view);
     root.appendChild(wrap);
-    showFile(active);
+    showFile(Math.min(activeIndex, Math.max(0, fileRows.length - 1)));
+    if (preserve) view.scrollTop = scrollTop;
+  }
+
+  function diffChangeSignal(task, boardState) {
+    const board = boardState || state || {};
+    const branch = String(task.branch || "");
+    const row = (board.worktrees || []).find((item) => String(item.branch || "") === branch);
+    const head = row ? String(row.head || "") : "";
+    const changed = row ? String(row.changed ?? "") : "";
+    const wtFiles = fileStatSig(row && row.files);
+    const taskFiles = fileStatSig(task.files);
+    const status = String(task.status || "");
+    const embedded =
+      task.diff != null || task.diff_files
+        ? `emb:${String(task.diff || "").length}:${fileStatSig(task.diff_files)}`
+        : "";
+    return [head, changed, wtFiles, taskFiles, status, embedded].join("|");
+  }
+
+  function payloadSig(data) {
+    return JSON.stringify({
+      diff: data && data.diff != null ? String(data.diff) : "",
+      files: (data && (data.files || data.diff_files)) || [],
+      error: data && data.error != null ? String(data.error) : "",
+    });
+  }
+
+  function paintDiffData(task, data, opts) {
+    const root = document.getElementById("diff");
+    if (!root) return;
+    const next = payloadSig(data);
+    if (opts && opts.skipUnchanged && next === diffPayloadSig && diffTaskId === task.id) {
+      const note = root.querySelector(".diff-refresh-note");
+      if (note) note.remove();
+      return;
+    }
+    renderDiffBody(root, data, {
+      preserve: !!(opts && opts.preserve),
+      note: opts && opts.note ? opts.note : "",
+    });
+    diffPayloadSig = next;
+    diffTaskId = task.id;
+    lastGood = { taskId: task.id, data };
+  }
+
+  function showDiffFailure(task, message) {
+    const root = document.getElementById("diff");
+    if (!root) return;
+    if (lastGood && lastGood.taskId === task.id) {
+      paintDiffData(task, lastGood.data, { preserve: true, note: message, skipUnchanged: false });
+      diffPayloadSig = payloadSig(lastGood.data);
+      return;
+    }
+    if (!root.querySelector(".diff-layout") && !root.querySelector(".diff-body")) {
+      clear(root);
+      root.appendChild(el("p", "empty-line", message || "Diff unavailable."));
+    } else {
+      let note = root.querySelector(".diff-refresh-note");
+      if (!note) {
+        note = el("p", "diff-refresh-note empty-line", message || "could not refresh");
+        root.insertBefore(note, root.firstChild);
+      } else {
+        note.textContent = message || "could not refresh";
+      }
+    }
+  }
+
+  function finishDiffFetch(task) {
+    diffInFlight = false;
+    if (diffQueued && selected && selected.id === task.id && activePane() === "diff") {
+      diffQueued = false;
+      syncDiff(selected, state, { reason: "queued" });
+      return;
+    }
+    diffQueued = false;
+  }
+
+  function fetchDiff(task) {
+    const path = worktreeFor(task);
+    const root = document.getElementById("diff");
+    if (!path) {
+      if (!(lastGood && lastGood.taskId === task.id)) {
+        clear(root);
+        root.appendChild(el("p", "empty-line", "No worktree for this task yet."));
+      }
+      return;
+    }
+    if (diffInFlight) {
+      diffQueued = true;
+      return;
+    }
+    diffInFlight = true;
+    const token = ++diffToken;
+    const taskId = task.id;
+    if (!(lastGood && lastGood.taskId === taskId) && root && !root.querySelector(".diff-layout")) {
+      clear(root);
+      root.appendChild(el("p", "empty-line", "Loading diff…"));
+    }
+    fetch(`/api/diff?path=${encodeURIComponent(path)}`, { headers: auth() })
+      .then((res) => {
+        if (!res.ok) throw new Error(`diff ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (token !== diffToken || !selected || selected.id !== taskId || activePane() !== "diff") return;
+        paintDiffData(task, data, { preserve: !!(lastGood && lastGood.taskId === taskId), skipUnchanged: true });
+      })
+      .catch(() => {
+        if (token !== diffToken || !selected || selected.id !== taskId) return;
+        showDiffFailure(task, "could not refresh");
+      })
+      .finally(() => finishDiffFetch(task));
+  }
+
+  function syncDiff(task, boardState, opts) {
+    if (!task || activePane() !== "diff") return;
+    state = boardState || state;
+    const signal = diffChangeSignal(task, state);
+    const taskChanged = diffTaskId !== "" && diffTaskId !== task.id;
+    if (taskChanged) {
+      diffExpanded = false;
+      diffActiveFile = 0;
+      diffScrollTop = 0;
+      diffPayloadSig = "";
+      lastGood = null;
+      diffSignal = "";
+      diffToken += 1;
+      diffInFlight = false;
+      diffQueued = false;
+    }
+    const reason = (opts && opts.reason) || "refresh";
+    const mustLoad = reason === "show" || (reason === "pane" && !(lastGood && lastGood.taskId === task.id));
+    // Signal includes worktree head, working-tree file stats, and status (so done/failed/cancelled re-fetches).
+    if (!mustLoad && signal === diffSignal) return;
+    diffSignal = signal;
+    if (task.diff != null || task.diff_files) {
+      paintDiffData(
+        task,
+        { diff: task.diff || "", files: task.diff_files || [] },
+        { preserve: !taskChanged && !!lastGood, skipUnchanged: !taskChanged },
+      );
+      return;
+    }
+    fetchDiff(task);
   }
 
   function renderDiff(task) {
-    const root = document.getElementById("diff");
-    clear(root);
-    if (task.diff || task.diff_files) {
-      renderDiffBody(root, { diff: task.diff || "", files: task.diff_files || [] });
-      return;
-    }
-    const path = worktreeFor(task);
-    root.appendChild(el("p", "empty-line", path ? "Loading diff…" : "No worktree for this task yet."));
-    if (!path) return;
-    fetch(`/api/diff?path=${encodeURIComponent(path)}`, { headers: auth() })
-      .then((res) => res.json())
-      .then((data) => {
-        if (selected && selected.id !== task.id) return;
-        renderDiffBody(root, data);
-      })
-      .catch(() => {
-        clear(root);
-        root.appendChild(el("p", "empty-line", "Diff unavailable."));
-      });
+    diffSignal = "";
+    diffPayloadSig = "";
+    lastGood = null;
+    diffExpanded = false;
+    diffActiveFile = 0;
+    diffScrollTop = 0;
+    diffToken += 1;
+    diffInFlight = false;
+    diffQueued = false;
+    syncDiff(task, state, { reason: "show" });
   }
 
   function renderProof(task) {
@@ -453,9 +642,9 @@ export function createDrawer({ auth, worktreeFor }) {
     if (!task) return;
     selected = task;
     state = boardState || state;
-    const active = document.querySelector(".drawer .tab[aria-selected='true']");
-    const pane = (active && active.dataset.pane) || "live";
+    const pane = activePane();
     if (pane === "live") renderLive(task);
+    if (pane === "diff") syncDiff(task, state, { reason: "refresh" });
     if (pane === "proofpane") renderProof(task);
     if (pane === "checks") renderChecks(task);
     if (pane === "costpane") renderCost(task);

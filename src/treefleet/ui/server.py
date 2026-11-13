@@ -387,6 +387,15 @@ def create_app(
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 
+    @app.middleware("http")
+    async def _revalidate_assets(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Browsers must revalidate HTML/JS/CSS; ETag 304 stays cheap."""
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         page = _PAGE.read_text(encoding="utf-8")

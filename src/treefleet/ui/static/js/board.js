@@ -621,7 +621,10 @@ function render(data) {
     .map((row) => {
       const files = Array.isArray(row.committed) ? row.committed : [];
       const bits = files.map((file) => `${file.path}:${file.additions || 0}:${file.deletions || 0}`).join(",");
-      return `${row.branch || ""}=${bits}`;
+      const working = Array.isArray(row.files)
+        ? row.files.map((file) => `${file.path}:${file.additions || 0}:${file.deletions || 0}`).join(",")
+        : "";
+      return `${row.branch || ""}=${bits}|${row.head || ""}|${working}`;
     })
     .join("|");
   const laneKey = JSON.stringify({ awaiting: data.awaiting, tasks, committedKey });
@@ -631,23 +634,23 @@ function render(data) {
   updateRunStrip(data, counts);
   if (laneKey !== laneSig) {
     laneSig = laneKey;
-  ["needs", "working", "review", "ready", "done"].forEach((id) => {
-    const stack = document.getElementById(id);
-    if (stack) stack.innerHTML = "";
-  });
+    ["needs", "working", "review", "ready", "done"].forEach((id) => {
+      const stack = document.getElementById(id);
+      if (stack) stack.innerHTML = "";
+    });
 
-  if (data.awaiting) {
-    const card = document.createElement("div");
-    card.className = "card plan";
-    const items = data.awaiting
-      .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
-      .join("");
-    card.innerHTML = `<div class="plan-head"><span class="dot orange"></span>Plan ready</div><ul>${items}</ul>`;
-    const actions = document.createElement("div");
-    actions.className = "actions";
-    const ok = document.createElement("button");
-    ok.className = "btn primary";
-    ok.type = "button";
+    if (data.awaiting) {
+      const card = document.createElement("div");
+      card.className = "card plan";
+      const items = data.awaiting
+        .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
+        .join("");
+      card.innerHTML = `<div class="plan-head"><span class="dot orange"></span>Plan ready</div><ul>${items}</ul>`;
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const ok = document.createElement("button");
+      ok.className = "btn primary";
+      ok.type = "button";
       ok.textContent = "Approve plan";
       ok.addEventListener("click", () => {
         optimistic = { stage: "fleet", awaiting: null, starting: true };
@@ -659,31 +662,37 @@ function render(data) {
       cancel.type = "button";
       cancel.textContent = "Cancel";
       cancel.addEventListener("click", () => post(`/api/runs/${data.run_id}/cancel`));
-    actions.appendChild(ok);
-    actions.appendChild(cancel);
-    card.appendChild(actions);
-    document.getElementById("needs").appendChild(card);
-  }
+      actions.appendChild(ok);
+      actions.appendChild(cancel);
+      card.appendChild(actions);
+      document.getElementById("needs").appendChild(card);
+    }
 
-  tasks.forEach((task) => {
-    document.getElementById(lane(task)).appendChild(renderCard(task));
-  });
-  playFlip();
-
-  if (!pinned) {
-    let current = null;
     tasks.forEach((task) => {
-      if (!current && lane(task) === "working") current = task;
+      document.getElementById(lane(task)).appendChild(renderCard(task));
     });
-    if (current && !isMobileBoard()) select(current, false);
-    else showDrawerEmpty();
-  } else if (selected) {
+    playFlip();
+
+    if (!pinned) {
+      let current = null;
+      tasks.forEach((task) => {
+        if (!current && lane(task) === "working") current = task;
+      });
+      if (current && !isMobileBoard()) select(current, false);
+      else showDrawerEmpty();
+    } else if (selected) {
+      const held = tasks.find((task) => task.id === selected.id);
+      if (held) select(held, !!document.querySelector(".drawer.is-open"));
+      else showDrawerEmpty();
+    } else {
+      showDrawerEmpty();
+    }
+  } else if (selected && drawer) {
     const held = tasks.find((task) => task.id === selected.id);
-    if (held) select(held, !!document.querySelector(".drawer.is-open"));
-    else showDrawerEmpty();
-  } else {
-    showDrawerEmpty();
-  }
+    if (held) {
+      selected = held;
+      drawer.refresh(held, state);
+    }
   }
   applyMobileLane();
 

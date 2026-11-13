@@ -1456,6 +1456,11 @@ th {
 .diff-line.del { background: color-mix(in srgb, var(--red) 16%, transparent); }
 .diff-line.hunk { color: var(--blue); }
 
+.diff-refresh-note {
+  color: var(--orange);
+  margin: 0 0 8px;
+}
+
 .proof-table td.ok { color: var(--green); }
 .proof-table td.bad { color: var(--red); }
 
