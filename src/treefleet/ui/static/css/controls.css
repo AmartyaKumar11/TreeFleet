@@ -69,6 +69,7 @@
   background: transparent;
   border-color: transparent;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .btn.ghost:hover:not(:disabled) {
@@ -120,9 +121,13 @@
 }
 
 .field,
-input[type="search"],
 input[type="text"],
-textarea,
+input[type="search"],
+input[type="email"],
+input[type="number"],
+input[type="password"],
+input[type="url"],
+textarea.field,
 select {
   font-family: var(--font-sans);
   font-size: var(--text-body-size);
@@ -133,9 +138,10 @@ select {
   border-radius: var(--radius-2);
   height: var(--control-h);
   padding: 0 var(--space-3);
+  box-sizing: border-box;
 }
 
-textarea {
+textarea.field {
   height: auto;
   min-height: var(--control-h);
   padding: var(--space-2) var(--space-3);
@@ -148,9 +154,14 @@ textarea::placeholder {
 }
 
 .field:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
+input[type="text"]:focus-visible,
+input[type="search"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="url"]:focus-visible,
+textarea.field:focus-visible,
+select.field:focus-visible {
   border-color: var(--accent);
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -204,36 +215,50 @@ textarea.is-error {
   gap: var(--space-4);
   height: var(--control-h);
   border-bottom: 1px solid var(--border-soft);
+  padding: 0;
 }
 
 .tabs .tab,
-.drawer .tab {
+.drawer .tabs .tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   height: var(--control-h);
   padding: 0;
+  margin: 0;
   border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--muted);
+  font-family: var(--font-sans);
   font-size: var(--text-body-sm-size);
   font-weight: 500;
+  line-height: var(--text-body-sm-leading);
   cursor: pointer;
+  transition: color var(--motion-2) var(--ease-standard), border-color var(--motion-2) var(--ease-standard);
 }
 
 .tabs .tab[aria-selected="true"],
-.drawer .tab[aria-selected="true"] {
+.drawer .tabs .tab[aria-selected="true"] {
   color: var(--text);
+  border-bottom-color: var(--accent);
 }
 
-.tabs .tab[aria-selected="true"]::after,
-.drawer .tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--accent);
-  transition: transform var(--motion-2) var(--ease-standard);
+.tabs .tab .tab-count,
+.tabs .tab .count-pill {
+  font-size: var(--text-caption-size);
+  font-weight: 500;
+}
+
+.badge-status,
+.chip.verdict,
+.chip.pass,
+.chip.fail {
+  font-family: var(--font-sans);
+  font-size: var(--text-caption-size);
+  font-weight: 500;
+  line-height: var(--text-caption-leading);
 }
 
 .chip {

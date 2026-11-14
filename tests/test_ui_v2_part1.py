@@ -152,8 +152,8 @@ def test_shell_and_kanban_layout_with_screenshots(tmp_path: Path, monkeypatch: p
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
             page.get_by_role("navigation", name="Sidebar").wait_for()
-            page.get_by_placeholder("Search").wait_for()
-            assert page.get_by_text("Ctrl+K").count() >= 1
+            page.get_by_role("button", name="Search").wait_for()
+            assert page.get_by_text("Ctrl K").count() >= 1
             page.get_by_role("button", name="New task").wait_for()
             page.get_by_role("tab", name="Kanban").wait_for()
             page.get_by_role("tab", name="Orchestrator").wait_for()

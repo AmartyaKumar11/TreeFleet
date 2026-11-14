@@ -76,6 +76,14 @@ def _rich_fixture(repo: Path) -> dict[str, object]:
         "run_id": "abcd1234",
         "needs_human": False,
         "awaiting": None,
+        "runs": [
+            {
+                "id": "abcd1234",
+                "started": time.time() - 90,
+                "goal": XSS,
+                "status": "running",
+            }
+        ],
         "tasks": [
             {
                 "id": "alpha",

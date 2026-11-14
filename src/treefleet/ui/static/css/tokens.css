@@ -59,7 +59,8 @@
   --text: oklch(0.9818 0.0054 95.0986);
   --text-secondary: oklch(0.8074 0.0142 93.0137);
   --muted: oklch(0.7713 0.0169 99.0657);
-  --muted-2: oklch(0.62 0.012 99);
+  /* 0.64 keeps placeholder AA (≥4.5:1) on --surface; was 0.62 (~4.17). */
+  --muted-2: oklch(0.64 0.012 99);
 
   --border: oklch(0.3618 0.0101 106.8928);
   --border-soft: color-mix(in oklch, var(--border) 55%, transparent);

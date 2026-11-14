@@ -42,6 +42,68 @@ function clock(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function relativeTime(ts) {
+  const stamp = Number(ts);
+  if (!Number.isFinite(stamp) || stamp <= 0) return "";
+  const delta = Math.max(0, Math.floor(Date.now() / 1000 - stamp));
+  if (delta < 45) return "just now";
+  if (delta < 3600) return `${Math.max(1, Math.floor(delta / 60))} min ago`;
+  if (delta < 86400) return `${Math.max(1, Math.floor(delta / 3600))} h ago`;
+  if (delta < 172800) return "yesterday";
+  try {
+    return new Date(stamp * 1000).toLocaleDateString();
+  } catch (_err) {
+    return "";
+  }
+}
+
+const COMPOSER_MAX_ROWS = 8;
+
+function autosizeComposer(textarea) {
+  if (!textarea) return;
+  const styles = window.getComputedStyle(textarea);
+  const line = Number.parseFloat(styles.lineHeight) || 26;
+  const max = line * COMPOSER_MAX_ROWS;
+  textarea.style.height = "auto";
+  const next = Math.min(textarea.scrollHeight, max);
+  textarea.style.height = `${Math.max(line, next)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > max + 1 ? "auto" : "hidden";
+}
+
+function syncComposerEnabled(data) {
+  const gateOpen = !!(data && data.awaiting);
+  const goal = document.getElementById("goal");
+  const run = document.getElementById("run");
+  const gate = document.getElementById("composer-gate");
+  const composer = document.getElementById("new-run");
+  const empty = !String((goal && goal.value) || "").trim();
+  if (composer) composer.classList.toggle("is-disabled", gateOpen);
+  if (gate) gate.hidden = !gateOpen;
+  if (goal) goal.disabled = gateOpen || replay;
+  if (run) {
+    run.disabled = gateOpen || replay || empty || run.classList.contains("is-loading");
+  }
+  const followGoal = document.getElementById("follow-goal");
+  const followRun = document.getElementById("follow-run");
+  if (followGoal) followGoal.disabled = gateOpen || replay;
+  if (followRun) {
+    const followEmpty = !String((followGoal && followGoal.value) || "").trim();
+    followRun.disabled = gateOpen || replay || followEmpty;
+  }
+}
+
+function setRunLoading(loading) {
+  const run = document.getElementById("run");
+  if (!run) return;
+  run.classList.toggle("is-loading", loading);
+  const icon = run.querySelector(".icon use");
+  if (icon) {
+    icon.setAttribute("href", loading ? "/static/icons.svg#icon-loader-circle" : "/static/icons.svg#icon-arrow-right");
+  }
+  if (loading) run.disabled = true;
+  else syncComposerEnabled(state);
+}
+
 function lane(task) {
   return task.lane || "working";
 }
@@ -208,7 +270,7 @@ function playFlip() {
 }
 
 function modelIcon() {
-  return `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg>`;
+  return `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-sparkles"></use></svg>`;
 }
 
 function gitGlyph() {
@@ -332,16 +394,117 @@ function updateRunStrip(data, counts) {
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
   const summary = document.getElementById("summary-elapsed");
   if (summary) summary.textContent = shown;
+  const spinner = document.getElementById("run-strip-spinner");
+  const activeWork =
+    info.stage !== "done" &&
+    info.stage !== "integrate" &&
+    !/^Done|^Blocked|^Idle|^Timed/i.test(info.line) &&
+    data.stage !== "done";
+  if (spinner) spinner.hidden = !activeWork || data.stage === "done";
   const last = document.querySelector('#stage-stepper li[data-stage="integrate"], #stage-stepper li[data-stage="pr"]');
   if (last) {
     last.dataset.stage = data.pr_mode ? "pr" : "integrate";
-    last.textContent = data.pr_mode ? "pr" : "integrate";
+    const label = last.querySelector(".stage-label");
+    if (label) label.textContent = data.pr_mode ? "pr" : "integrate";
+    else last.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) node.textContent = "";
+    });
   }
+  const blocked =
+    /blocked/i.test(info.line) ||
+    data.stage === "timed_out" ||
+    /fail/i.test(String(data.message || ""));
   const names = [...document.querySelectorAll("#stage-stepper li")].map((item) => item.dataset.stage);
-  const idx = names.indexOf(info.stage);
+  let idx = names.indexOf(info.stage);
+  if (idx < 0 && data.stage === "timed_out") idx = names.indexOf("fleet");
+  if (idx < 0 && blocked) idx = Math.max(0, names.indexOf("guard"));
+  if (info.stage === "done" || data.stage === "done") idx = names.length;
   document.querySelectorAll("#stage-stepper li").forEach((item, i) => {
-    item.classList.toggle("is-current", i === idx);
-    item.classList.toggle("is-done", idx >= 0 && i < idx);
+    const done = idx > i || (data.stage === "done" && !blocked);
+    const current = !done && i === idx;
+    const failed = blocked && current;
+    item.classList.toggle("is-done", done && !failed);
+    item.classList.toggle("is-current", current && !failed);
+    item.classList.toggle("is-failed", failed);
+    const icon = item.querySelector(".stage-icon use");
+    if (icon) {
+      if (failed) icon.setAttribute("href", "/static/icons.svg#icon-alert-circle");
+      else if (current) icon.setAttribute("href", "/static/icons.svg#icon-loader-circle");
+      else icon.setAttribute("href", "/static/icons.svg#icon-check");
+    }
+    const svg = item.querySelector(".stage-icon");
+    if (svg) {
+      svg.classList.toggle("stage-icon-spin", current && !failed);
+      if (current || failed || done) svg.style.display = "inline-block";
+      else svg.style.display = "none";
+    }
+    item.removeAttribute("title");
+  });
+}
+
+function runStatusMeta(item, data) {
+  const id = String(item.id || "idle");
+  let status = String(item.status || "");
+  if (!status && id === data.run_id) {
+    if (data.needs_human || data.awaiting) status = "needs";
+    else if (data.stage === "done") status = "done";
+    else if (/fail|timed_out|blocked/i.test(String(data.message || "")) || data.stage === "timed_out") status = "error";
+    else status = "running";
+  }
+  if (!status) status = "running";
+  const map = {
+    needs: { cls: "is-needs needs", label: "needs you" },
+    done: { cls: "is-success green", label: "done" },
+    success: { cls: "is-success green", label: "done" },
+    error: { cls: "is-error", label: "failed" },
+    failed: { cls: "is-error", label: "failed" },
+    running: { cls: "is-running accent", label: "running" },
+  };
+  return map[status] || map.running;
+}
+
+function renderRunHistory(data) {
+  const runList = document.getElementById("run-history");
+  if (!runList) return;
+  runList.innerHTML = "";
+  const runs =
+    Array.isArray(data.runs) && data.runs.length
+      ? data.runs
+      : [{ id: data.run_id || "idle", goal: data.goal || "", started: data.started_at, status: "" }];
+  runs.forEach((item, index) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("role", "option");
+    const id = String(item.id || "idle");
+    const goal = String(item.goal != null ? item.goal : id === data.run_id ? data.goal || "" : "");
+    const meta = runStatusMeta(item, data);
+    if (id === data.run_id) btn.setAttribute("aria-current", "true");
+    btn.dataset.runId = id;
+    btn.dataset.index = String(index);
+    btn.setAttribute(
+      "aria-label",
+      `${meta.label} run ${id}${goal ? `: ${goal}` : ""}`,
+    );
+    btn.addEventListener("click", () => {
+      if (id && id !== "idle") {
+        selectedRun = id;
+        refresh();
+      }
+    });
+    btn.innerHTML = `<span class="dot ${meta.cls}" aria-hidden="true"></span><span class="run-id">${esc(
+      id,
+    )}</span><span class="run-time" data-started="${esc(item.started || "")}">${esc(
+      relativeTime(item.started),
+    )}</span><span class="run-goal">${esc(goal)}</span>`;
+    li.appendChild(btn);
+    runList.appendChild(li);
+  });
+}
+
+function refreshRelativeTimes() {
+  document.querySelectorAll(".run-list .run-time[data-started]").forEach((el) => {
+    el.textContent = relativeTime(el.dataset.started);
   });
 }
 
@@ -593,37 +756,10 @@ function render(data) {
   else if (data.stage === "done" && !finished) finished = Date.now() / 1000;
   if (optimistic && data.stage === "fleet" && !data.awaiting) optimistic = null;
 
-  const runList = document.getElementById("run-history");
-  if (runList) {
-    runList.innerHTML = "";
-    const runs = Array.isArray(data.runs) && data.runs.length ? data.runs : [{ id: data.run_id || "idle" }];
-    const statusDot = data.needs_human || data.awaiting ? "needs" : data.stage === "done" ? "green" : "accent";
-    runs.forEach((item) => {
-      const li = document.createElement("li");
-      const btn = document.createElement("button");
-      btn.type = "button";
-      const id = String(item.id || "idle");
-      if (id === data.run_id) btn.setAttribute("aria-current", "true");
-      btn.addEventListener("click", () => {
-        if (id && id !== "idle") {
-          selectedRun = id;
-          refresh();
-        }
-      });
-      const dotClass = id === data.run_id ? statusDot : "accent";
-      const dotLabel =
-        dotClass === "needs" || dotClass === "orange"
-          ? "needs you"
-          : dotClass === "green"
-            ? "done"
-            : dotClass === "accent"
-              ? "running"
-              : dotClass;
-      btn.innerHTML = `<span class="dot ${dotClass}" title="${esc(dotLabel)}"></span><span class="mono">${esc(id)}</span>`;
-      li.appendChild(btn);
-      runList.appendChild(li);
-    });
-  }
+  renderRunHistory(data);
+  syncComposerEnabled(data);
+  autosizeComposer(document.getElementById("goal"));
+  autosizeComposer(document.getElementById("follow-goal"));
 
   const tasks = data.tasks || [];
   const committedKey = (data.worktrees || [])
@@ -867,29 +1003,123 @@ document.querySelectorAll(".details-tab").forEach((tab) => {
   });
 });
 
-document.getElementById("run").addEventListener("click", () => {
+function submitNewRun() {
+  const goalEl = document.getElementById("goal");
+  const goal = String((goalEl && goalEl.value) || "");
+  if (!goal.trim() || replay) return;
   const auto = document.getElementById("auto").getAttribute("aria-checked") === "true";
+  const err = document.getElementById("error");
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  setRunLoading(true);
   post("/api/runs", {
-    goal: document.getElementById("goal").value,
+    goal,
     worker_model: document.getElementById("model").value,
     plan_approval: !auto,
   })
-    .then((res) => res.json())
-    .then((data) => {
-      if (data.error) {
-        document.getElementById("error").hidden = false;
-        document.getElementById("error").textContent = data.error;
+    .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      setRunLoading(false);
+      if (!ok || data.error) {
+        if (err) {
+          err.hidden = false;
+          err.textContent = data.error || "Could not start run";
+        }
         return;
       }
       started = Date.now() / 1000;
       selectedRun = data.run_id || "";
       refresh();
+    })
+    .catch(() => {
+      setRunLoading(false);
+      if (err) {
+        err.hidden = false;
+        err.textContent = "Could not start run";
+      }
     });
-});
+}
+
+document.getElementById("run").addEventListener("click", () => submitNewRun());
 
 document.getElementById("new-task").addEventListener("click", () => {
   setView("kanban");
   document.getElementById("goal").focus();
+});
+
+const overflowNew = document.getElementById("overflow-new-task");
+if (overflowNew) {
+  overflowNew.addEventListener("click", () => {
+    document.getElementById("topbar-more-menu").hidden = true;
+    document.getElementById("topbar-more").setAttribute("aria-expanded", "false");
+    document.getElementById("new-task").click();
+  });
+}
+
+document.getElementById("topbar-more")?.addEventListener("click", () => {
+  const menu = document.getElementById("topbar-more-menu");
+  const btn = document.getElementById("topbar-more");
+  const open = menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+});
+
+function bindComposerField(textareaId, runBtnId, submitFn) {
+  const area = document.getElementById(textareaId);
+  if (!area) return;
+  area.addEventListener("input", () => {
+    autosizeComposer(area);
+    syncComposerEnabled(state);
+  });
+  area.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      if (submitFn) submitFn();
+      else document.getElementById(runBtnId)?.click();
+    }
+  });
+}
+
+bindComposerField("goal", "run", submitNewRun);
+bindComposerField("follow-goal", "follow-run");
+
+const sidebarSearch = document.getElementById("sidebar-search");
+if (sidebarSearch) {
+  sidebarSearch.addEventListener("click", () => {
+    if (palette) palette.open();
+  });
+}
+
+function setSidebarOpen(open) {
+  document.querySelector(".shell")?.classList.toggle("sidebar-open", open);
+  document.getElementById("sidebar")?.classList.toggle("is-sheet-open", open);
+  const scrim = document.getElementById("sidebar-scrim");
+  if (scrim) scrim.hidden = !open;
+}
+
+document.getElementById("sidebar-toggle")?.addEventListener("click", () => {
+  const open = !document.querySelector(".shell")?.classList.contains("sidebar-open");
+  setSidebarOpen(open);
+});
+document.getElementById("sidebar-scrim")?.addEventListener("click", () => setSidebarOpen(false));
+
+document.getElementById("run-history")?.addEventListener("keydown", (event) => {
+  const buttons = [...document.querySelectorAll("#run-history button")];
+  if (!buttons.length) return;
+  const active = document.activeElement;
+  const idx = buttons.indexOf(active);
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    buttons[Math.min(buttons.length - 1, Math.max(0, idx) + 1)]?.focus();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    buttons[Math.max(0, (idx < 0 ? 0 : idx) - 1)]?.focus();
+  } else if (event.key === "Enter" && idx >= 0) {
+    event.preventDefault();
+    buttons[idx].click();
+  }
 });
 
 document.querySelectorAll('.view-toggle [role="tab"]').forEach((tab) => {
@@ -1001,6 +1231,10 @@ fetch("/api/models", { headers: auth() })
 
 if (replay) document.getElementById("replay").hidden = false;
 applyMobileLane();
+syncComposerEnabled(state);
+autosizeComposer(document.getElementById("goal"));
+autosizeComposer(document.getElementById("follow-goal"));
 refresh();
 setInterval(refresh, 1000);
 setInterval(tick, 1000);
+setInterval(refreshRelativeTimes, 30000);

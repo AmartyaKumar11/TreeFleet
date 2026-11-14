@@ -327,7 +327,40 @@ class Board:
                 except OSError:
                     continue
         ordered = sorted(rows, key=lambda key: rows[key], reverse=True)
-        return [{"id": key, "started": rows[key]} for key in ordered]
+        catalog: list[dict[str, float | str]] = []
+        for key in ordered:
+            goal = self.goals.get(key, "")
+            status = "running"
+            if key in self.finished:
+                status = "done"
+            elif key in self.approvals and self.approvals[key].waiting():
+                status = "needs"
+            record_path = self.runs / key / "run.json"
+            if record_path.is_file():
+                try:
+                    from treefleet.sessions import load_run
+
+                    record = load_run(record_path)
+                    if not goal:
+                        goal = record.goal
+                    if key not in self.started and key not in self.finished:
+                        stage = str(record.stage or "")
+                        if stage in {"done", "integrate"}:
+                            status = "done"
+                        elif stage == "approve":
+                            status = "needs"
+                        elif stage in {"failed", "timed_out", "error"}:
+                            status = "error"
+                        else:
+                            status = "running"
+                except (OSError, ValueError):
+                    pass
+            clean, _count = redact_payload({"goal": goal})
+            goal_text = str(clean.get("goal") if isinstance(clean, dict) else goal)
+            if len(goal_text) > 140:
+                goal_text = goal_text[:140]
+            catalog.append({"id": key, "started": rows[key], "goal": goal_text, "status": status})
+        return catalog
 
 
 def create_app(

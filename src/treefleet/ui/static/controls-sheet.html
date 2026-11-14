@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TreeFleet controls sheet</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/controls.css">
+<style>
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+  h1 { font-family: var(--font-serif); font-weight: 400; }
+  section { margin-bottom: 32px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+  .state { min-width: 120px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>Controls sheet</h1>
+  <section>
+    <h2 class="type-micro">Buttons</h2>
+    <div class="row"><span class="state">default</span>
+      <button class="btn primary" type="button">Primary</button>
+      <button class="btn secondary" type="button">Secondary</button>
+      <button class="btn ghost" type="button">Ghost</button>
+      <button class="btn danger" type="button">Danger</button>
+      <button class="btn icon-btn" type="button" aria-label="Icon"><svg class="icon"><use href="/static/icons.svg#icon-settings"></use></svg></button>
+    </div>
+    <div class="row"><span class="state">disabled</span>
+      <button class="btn primary" type="button" disabled>Primary</button>
+      <button class="btn secondary" type="button" disabled>Secondary</button>
+    </div>
+  </section>
+  <section>
+    <h2 class="type-micro">Fields</h2>
+    <div class="row">
+      <input class="field" id="sheet-text" type="text" placeholder="Text input" value="">
+      <input class="field" type="search" placeholder="Search field">
+      <select class="field"><option>Select</option><option>Two</option></select>
+      <textarea class="field" rows="2" placeholder="Textarea"></textarea>
+    </div>
+  </section>
+  <section>
+    <h2 class="type-micro">Tabs</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" type="button">Live output</button>
+      <button class="tab" role="tab" aria-selected="false" type="button">Diff</button>
+      <button class="tab" role="tab" aria-selected="false" type="button">Proof</button>
+    </div>
+  </section>
+  <section>
+    <h2 class="type-micro">Chips and badges</h2>
+    <div class="row">
+      <span class="chip">composer-2.5</span>
+      <span class="chip verdict approve">approve</span>
+      <span class="chip verdict reject">reject</span>
+      <span class="badge-status">Needs you 2</span>
+      <span class="count-pill">3</span>
+      <kbd>Ctrl K</kbd>
+    </div>
+  </section>
+  <section>
+    <h2 class="type-micro">Segmented</h2>
+    <div class="segmented" role="tablist">
+      <button role="tab" type="button" aria-selected="true">Kanban</button>
+      <button role="tab" type="button" aria-selected="false">Orchestrator</button>
+    </div>
+  </section>
+</body>
+</html>

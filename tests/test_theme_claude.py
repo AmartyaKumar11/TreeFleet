@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "treefleet" / "ui" / "static"
 TOKENS = STATIC / "css" / "tokens.css"
 BOARD_CSS = STATIC / "css" / "board.css"
+CONTROLS_CSS = STATIC / "css" / "controls.css"
 UI_JS = (STATIC / "js").glob("*.js")
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
@@ -176,11 +177,12 @@ def test_no_blue_or_hardcoded_colors_outside_tokens() -> None:
     assert "--status-needs: oklch(0.6898 0.1581 290.4107)" in tokens
 
     board = BOARD_CSS.read_text(encoding="utf-8")
+    controls = CONTROLS_CSS.read_text(encoding="utf-8")
     assert _OLD_BLUE not in board
     assert not _BLUE_VAR.search(board)
     assert not _BLUE_TOKEN.search(board)
     assert not _HIGHLIGHT.search(board)
-    assert "var(--accent-strong)" in board
+    assert "var(--accent-strong)" in controls
     assert not _HEX.search(board), f"hex left in board.css: {_HEX.findall(board)}"
     assert not _RGB.search(board), f"rgb left in board.css: {_RGB.findall(board)}"
 

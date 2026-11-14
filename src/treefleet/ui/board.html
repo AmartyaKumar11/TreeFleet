@@ -13,38 +13,48 @@
 </head>
 <body>
 <div id="replay" class="replay" {{REPLAY_ATTR}}>REPLAY</div>
+<div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
 <div class="shell">
-  <nav class="sidebar" aria-label="Sidebar">
+  <nav class="sidebar" id="sidebar" aria-label="Sidebar">
     <div class="brand">
       <svg class="brand-mark icon-20" aria-hidden="true"><use href="/static/icons.svg#icon-trees"></use></svg>
       <span class="brand-word">TreeFleet</span>
     </div>
-    <label class="search">
-      <span class="visually-hidden">Search</span>
+    <button class="search" type="button" id="sidebar-search" aria-label="Search">
       <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-search"></use></svg>
-      <input type="search" placeholder="Search" aria-label="Search">
-      <kbd class="search-hint">Ctrl+K</kbd>
-    </label>
-    <div class="side-block">
-      <h2 class="type-micro">Project</h2>
-      <div class="project-name" id="side-project">TreeFleet</div>
-      <h2 class="type-micro">Run history</h2>
-      <ul class="run-list" id="run-history"></ul>
+      <span class="search-label">Search</span>
+      <kbd class="search-hint">Ctrl K</kbd>
+    </button>
+    <div class="side-block side-scroll">
+      <h2 class="type-micro side-label">Project</h2>
+      <button type="button" class="project-item is-active" id="side-project" aria-current="page">TreeFleet</button>
+      <h2 class="type-micro side-label">Run history</h2>
+      <ul class="run-list" id="run-history" role="listbox" aria-label="Run history"></ul>
     </div>
     <div class="side-foot">
-      <button class="side-link btn ghost" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg> Settings</button>
+      <button class="side-link btn ghost" type="button" id="side-settings"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg> <span class="side-link-label">Settings</span></button>
+      <p class="side-version type-caption" id="app-version">0.1.0</p>
     </div>
   </nav>
 
   <div class="workspace">
     <header class="topbar">
+      <button class="icon-btn topbar-menu" id="sidebar-toggle" type="button" aria-label="Open menu" title="Menu">
+        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-menu"></use></svg>
+      </button>
       <h1 id="title" class="type-title-lg">TreeFleet</h1>
-      <button class="btn secondary" id="new-task" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-plus"></use></svg> New task</button>
+      <button class="btn secondary topbar-new" id="new-task" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-plus"></use></svg> New task</button>
       <div class="view-toggle segmented" role="tablist" aria-label="Board view">
         <button role="tab" type="button" data-view="kanban" aria-selected="true">Kanban</button>
         <button role="tab" type="button" data-view="orchestrator" aria-selected="false">Orchestrator</button>
       </div>
       <span class="spacer"></span>
+      <span class="timer mono type-code-sm" id="elapsed" aria-label="Elapsed">0:00</span>
+      <button class="icon-btn" id="bell" type="button" aria-label="Notifications" title="Notifications">
+        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-bell"></use></svg>
+        <span class="badge" id="attention-badge" hidden>1</span>
+      </button>
+      <span class="pill attention badge-status" id="attention" hidden>Needs you</span>
       <div class="settings-wrap">
         <button class="icon-btn" id="run-settings" type="button" aria-label="Run settings" aria-expanded="false" aria-controls="settings-popover" title="Run settings">
           <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg>
@@ -56,12 +66,14 @@
           </button>
         </div>
       </div>
-      <button class="icon-btn" id="bell" type="button" aria-label="Notifications" title="Notifications">
-        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-bell"></use></svg>
-        <span class="badge" id="attention-badge" hidden>1</span>
-      </button>
-      <span class="timer mono type-code-sm" id="elapsed">0:00</span>
-      <span class="pill attention badge-status" id="attention" hidden>Needs you</span>
+      <div class="topbar-overflow">
+        <button class="icon-btn topbar-more-btn" id="topbar-more" type="button" aria-label="More actions" title="More" aria-expanded="false" aria-controls="topbar-more-menu">
+          <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ellipsis"></use></svg>
+        </button>
+        <div class="topbar-more-menu" id="topbar-more-menu" hidden>
+          <button type="button" id="overflow-new-task">New task</button>
+        </div>
+      </div>
     </header>
 
     <div class="board-body">
@@ -74,23 +86,32 @@
         </div>
 
         <section class="composer" aria-label="New run" id="new-run">
-          <textarea id="goal" class="type-body-lg" aria-label="Goal" placeholder="Describe what to build" rows="1"></textarea>
+          <textarea id="goal" class="type-body-lg composer-input" aria-label="Goal" placeholder="Describe what to build" rows="1"></textarea>
           <div class="composer-tools">
-            <select id="model" aria-label="Worker model"></select>
-            <button class="btn primary" id="run" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
+            <label class="routing-select">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-sparkles"></use></svg>
+              <span class="routing-label">Smart routing</span>
+              <select id="model" class="routing-native" aria-label="Worker model"></select>
+            </label>
+            <span class="composer-hint type-caption">Ctrl Enter to run</span>
+            <button class="btn primary" id="run" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
           </div>
-          <p class="err" id="error" hidden></p>
+          <p class="composer-gate type-caption" id="composer-gate" hidden>Approve or reject the plan to continue</p>
+          <p class="err banner-error" id="error" hidden></p>
         </section>
 
         <section class="run-strip" id="run-strip" aria-label="Run status" aria-live="polite">
-          <p class="run-status" id="run-status">Idle</p>
+          <div class="run-strip-left">
+            <span class="spinner run-strip-spinner" id="run-strip-spinner" hidden aria-hidden="true"></span>
+            <p class="run-status" id="run-status">Idle</p>
+          </div>
           <ol class="stage-stepper" id="stage-stepper">
-            <li data-stage="guard">guard</li>
-            <li data-stage="plan">plan</li>
-            <li data-stage="approve">approve</li>
-            <li data-stage="fleet">fleet</li>
-            <li data-stage="review">review</li>
-            <li data-stage="integrate">integrate</li>
+            <li data-stage="guard"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">guard</span></li>
+            <li data-stage="plan"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">plan</span></li>
+            <li data-stage="approve"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">approve</span></li>
+            <li data-stage="fleet"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">fleet</span></li>
+            <li data-stage="review"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">review</span></li>
+            <li data-stage="integrate"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">integrate</span></li>
           </ol>
         </section>
 
@@ -127,11 +148,16 @@
           </div>
           <div class="orch-footer">
             <button class="jump-latest" id="jump-latest" type="button" hidden>Jump to latest</button>
-            <footer class="orch-composer" aria-label="Follow-up run">
-              <textarea id="follow-goal" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
+            <footer class="composer is-compact orch-composer" aria-label="Follow-up run">
+              <textarea id="follow-goal" class="type-body-lg composer-input" aria-label="Follow-up goal" placeholder="Send a follow-up goal" rows="1"></textarea>
               <div class="composer-tools">
-                <select id="follow-model" aria-label="Follow-up worker model"></select>
-                <button class="btn primary" id="follow-run" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
+                <label class="routing-select">
+                  <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-sparkles"></use></svg>
+                  <span class="routing-label">Smart routing</span>
+                  <select id="follow-model" class="routing-native" aria-label="Follow-up worker model"></select>
+                </label>
+                <span class="composer-hint type-caption">Ctrl Enter to run</span>
+                <button class="btn primary" id="follow-run" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-right"></use></svg> Run</button>
               </div>
             </footer>
           </div>
@@ -217,7 +243,7 @@
 <div id="command-palette" class="command-palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="command-backdrop" id="command-backdrop"></div>
   <div class="command-panel">
-    <input id="command-input" type="search" placeholder="Type a command" aria-label="Command" autocomplete="off" aria-controls="command-list">
+    <input id="command-input" class="field" type="search" placeholder="Type a command" aria-label="Command" autocomplete="off" aria-controls="command-list">
     <div id="command-list" role="listbox" aria-label="Commands"></div>
   </div>
 </div>

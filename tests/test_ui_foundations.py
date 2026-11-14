@@ -19,20 +19,8 @@ pytestmark = pytest.mark.phase8
 ROOT = Path(__file__).resolve().parents[1]
 BOARD_CSS = ROOT / "src" / "treefleet" / "ui" / "static" / "css" / "board.css"
 
-# Selectors/areas owned by later tasks (15.D2–D6); literals there are allowlisted until those land.
+# Selectors/areas owned by later tasks (15.D3–D6); 15.D2 prefixes were ratcheted out.
 LITERAL_ALLOWLIST_SELECTORS = (
-    ".shell",
-    ".sidebar",
-    ".side-",
-    ".brand",
-    ".search",
-    ".topbar",
-    ".workspace",
-    ".board-body",
-    ".main",
-    ".composer",
-    ".run-strip",
-    ".run-",
     ".lanes",
     ".lane",
     ".card",
