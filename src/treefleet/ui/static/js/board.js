@@ -160,17 +160,54 @@ function elapsedText() {
 }
 
 function isMobileBoard() {
-  return window.matchMedia("(max-width: 1100px)").matches;
+  return window.matchMedia("(max-width: 1023px)").matches;
+}
+
+const DRAWER_WIDTH_KEY = "treefleet.drawer.width";
+
+function readDrawerWidth() {
+  try {
+    const raw = localStorage.getItem(DRAWER_WIDTH_KEY);
+    const n = raw ? Number(raw) : 480;
+    if (Number.isFinite(n)) return Math.min(720, Math.max(360, n));
+  } catch (_err) {
+    /* ignore */
+  }
+  return 480;
+}
+
+function writeDrawerWidth(px) {
+  try {
+    localStorage.setItem(DRAWER_WIDTH_KEY, String(px));
+  } catch (_err) {
+    /* ignore */
+  }
+}
+
+function applyDrawerWidth(px) {
+  const width = Math.min(720, Math.max(360, Math.round(px)));
+  document.documentElement.style.setProperty("--drawer-width", `${width}px`);
+  const handle = document.getElementById("drawer-resize");
+  if (handle) handle.setAttribute("aria-valuenow", String(width));
+  return width;
 }
 
 function syncSheet(taskOpen) {
-  const drawerEl = document.querySelector(".drawer");
+  const drawerEl = document.getElementById("task-drawer") || document.querySelector(".drawer");
+  const body = document.querySelector(".board-body");
   const backdrop = document.getElementById("drawer-backdrop");
   const close = document.getElementById("drawer-close");
   const mobile = isMobileBoard();
-  if (drawerEl) drawerEl.classList.toggle("is-open", !!(taskOpen && mobile));
+  if (body) body.classList.toggle("has-drawer", !!taskOpen && !mobile);
+  if (drawerEl) {
+    drawerEl.hidden = !taskOpen;
+    drawerEl.classList.toggle("is-open", !!(taskOpen && mobile));
+    drawerEl.classList.toggle("is-visible", !!taskOpen);
+  }
   if (backdrop) backdrop.hidden = !(taskOpen && mobile);
   if (close) close.hidden = !taskOpen;
+  if (taskOpen) requestAnimationFrame(() => syncLaneRails());
+  else requestAnimationFrame(() => syncLaneRails());
 }
 
 function showDrawerEmpty() {
@@ -187,16 +224,6 @@ function showDrawerEmpty() {
       cardFocusId = String(returnId);
     }
   }
-  document.getElementById("task-title").textContent = "No task selected";
-  document.getElementById("task-meta").textContent = "";
-  document.getElementById("drawer-empty").hidden = false;
-  document.getElementById("drawer-task").hidden = true;
-  document.getElementById("summary-stage").textContent = (optimistic && optimistic.stage) || state.stage || "guard";
-  document.getElementById("summary-working").textContent = String(lastCounts.working || 0);
-  document.getElementById("summary-needs").textContent = String(lastCounts.needs || 0);
-  document.getElementById("summary-review").textContent = String(lastCounts.review || 0);
-  document.getElementById("summary-ready").textContent = String(lastCounts.ready || 0);
-  document.getElementById("summary-elapsed").textContent = elapsedText();
 }
 
 window.__tfClearSelection = showDrawerEmpty;
@@ -436,27 +463,20 @@ function updateRunStrip(data, counts) {
     statusEl.textContent = info.line;
     statusEl.dataset.tone = info.tone || "";
     statusEl.classList.toggle("is-error", info.tone === "error");
+    statusEl.classList.toggle("is-needs", info.tone === "needs");
   }
   const shown = elapsedText();
   document.getElementById("elapsed").textContent = shown;
-  document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
-  const summary = document.getElementById("summary-elapsed");
-  if (summary) summary.textContent = shown;
+  const metricsElapsed = document.getElementById("metrics-elapsed");
+  if (metricsElapsed) metricsElapsed.textContent = `Elapsed ${shown}`;
   const spinner = document.getElementById("run-strip-spinner");
+  const needsIcon = document.getElementById("run-strip-needs");
+  const alert = document.getElementById("run-strip-alert");
   const failed = info.tone === "error";
+  const needs = info.tone === "needs";
   const activeWork = info.tone === "running";
-  if (spinner) {
-    spinner.hidden = !activeWork;
-    spinner.classList.toggle("is-error", false);
-  }
-  let alert = document.getElementById("run-strip-alert");
-  if (!alert && statusEl && statusEl.parentElement) {
-    alert = document.createElement("span");
-    alert.id = "run-strip-alert";
-    alert.className = "run-strip-alert";
-    alert.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-alert-circle"></use></svg>`;
-    statusEl.parentElement.insertBefore(alert, statusEl);
-  }
+  if (spinner) spinner.hidden = !activeWork;
+  if (needsIcon) needsIcon.hidden = !needs;
   if (alert) alert.hidden = !failed;
   const last = document.querySelector('#stage-stepper li[data-stage="integrate"], #stage-stepper li[data-stage="pr"]');
   if (last) {
@@ -468,6 +488,12 @@ function updateRunStrip(data, counts) {
   let idx = names.indexOf(info.stage);
   if (idx < 0 && failed) idx = Math.max(0, names.indexOf("fleet"));
   if (info.line === "Done" || data.stage === "done") idx = names.length;
+  const stageIndex = Math.min(Math.max(idx < 0 ? 0 : idx, 0), names.length - 1);
+  const compact = document.getElementById("run-status-compact");
+  if (compact) {
+    const label = names[stageIndex] || info.stage || "guard";
+    compact.textContent = `Stage ${stageIndex + 1} of ${names.length}: ${label}`;
+  }
   document.querySelectorAll("#stage-stepper li").forEach((item, i) => {
     const done = idx > i || (info.line === "Done" && !failed);
     const current = !done && i === idx;
@@ -487,6 +513,13 @@ function updateRunStrip(data, counts) {
       svg.style.display = current || isFailed || done ? "inline-block" : "none";
     }
     item.removeAttribute("title");
+  });
+  document.querySelectorAll("#stage-dots li").forEach((item, i) => {
+    const done = idx > i || (info.line === "Done" && !failed);
+    const current = !done && i === idx;
+    item.classList.toggle("is-done", done);
+    item.classList.toggle("is-current", current);
+    item.classList.toggle("is-upcoming", !done && !current);
   });
 }
 
@@ -865,6 +898,10 @@ function setEmpty(tableId, emptyId, count) {
 }
 
 function select(task, fromUser) {
+  if (fromUser && selected && String(selected.id) === String(task.id) && pinned) {
+    showDrawerEmpty();
+    return;
+  }
   if (fromUser) pinned = true;
   if (isMobileBoard() && !fromUser) {
     showDrawerEmpty();
@@ -878,13 +915,14 @@ function select(task, fromUser) {
     if (drawer) drawer.refresh(task, state);
     return;
   }
+  const swapping = !!(selected && pinned && fromUser);
   selected = task;
   document.querySelectorAll(".card.is-selected").forEach((el) => el.classList.remove("is-selected"));
   document.querySelectorAll(".card[data-task-id]").forEach((el) => {
     if (el.dataset.taskId === task.id) el.classList.add("is-selected");
   });
   syncSheet(true);
-  if (drawer) drawer.show(task, state);
+  if (drawer) drawer.show(task, state, { fade: swapping, keepTab: swapping });
 }
 
 function openEvents(runId) {
@@ -944,7 +982,7 @@ function applyMobileLane() {
 
 function syncLaneRails() {
   const strip = document.querySelector(".lanes");
-  if (!strip || isMobileBoard()) {
+  if (!strip || isMobileBoard() || strip.classList.contains("is-board-empty")) {
     document.querySelectorAll(".lane.is-rail").forEach((laneEl) => {
       laneEl.classList.remove("is-rail");
       laneEl.tabIndex = -1;
@@ -954,8 +992,20 @@ function syncLaneRails() {
     strip?.classList.remove("is-cramped");
     return;
   }
-  // Measure fit with rails off so collapse state does not oscillate.
   const lanes = [...document.querySelectorAll(".lane")];
+  const anyCards = lanes.some((laneEl) => laneEl.querySelector(".stack .card"));
+  // Rails only when at least one lane has cards (not an entirely empty board).
+  if (!anyCards) {
+    lanes.forEach((laneEl) => {
+      laneEl.classList.remove("is-rail");
+      laneEl.tabIndex = -1;
+      laneEl.removeAttribute("role");
+      laneEl.removeAttribute("aria-label");
+    });
+    strip.classList.remove("is-cramped");
+    return;
+  }
+  // Measure fit with rails off so collapse state does not oscillate.
   lanes.forEach((laneEl) => laneEl.classList.remove("is-rail"));
   const cramped = strip.scrollWidth > strip.clientWidth + 4;
   strip.classList.toggle("is-cramped", cramped);
@@ -1139,21 +1189,21 @@ function render(data) {
     if (laneScrolls[id] != null) stack.scrollTop = laneScrolls[id];
   });
 
+  const boardEmpty = document.getElementById("board-empty");
+  const hasAnyCards = tasks.length > 0 || !!data.awaiting;
+  if (boardEmpty) boardEmpty.hidden = hasAnyCards;
+  document.querySelector(".lanes")?.classList.toggle("is-board-empty", !hasAnyCards);
+
   if (laneKey !== laneSig) {
     laneSig = laneKey;
     playFlip();
-    if (!pinned) {
-      let current = null;
-      tasks.forEach((task) => {
-        if (!current && lane(task) === "working") current = task;
-      });
-      if (current && !isMobileBoard()) select(current, false);
-      else showDrawerEmpty();
-    } else if (selected) {
+    if (pinned && selected) {
       const held = tasks.find((task) => task.id === selected.id);
-      if (held) select(held, !!document.querySelector(".drawer.is-open"));
-      else showDrawerEmpty();
-    } else {
+      if (held) {
+        selected = held;
+        if (drawer) drawer.refresh(held, state);
+      } else showDrawerEmpty();
+    } else if (!pinned) {
       showDrawerEmpty();
     }
   } else if (selected && drawer) {
@@ -1528,6 +1578,71 @@ document.getElementById("drawer-close").addEventListener("click", () => showDraw
 document.getElementById("drawer-grab").addEventListener("click", () => showDrawerEmpty());
 document.getElementById("drawer-backdrop").addEventListener("click", () => showDrawerEmpty());
 
+(function bindDrawerResize() {
+  applyDrawerWidth(readDrawerWidth());
+  const handle = document.getElementById("drawer-resize");
+  if (!handle) return;
+  let dragging = false;
+  let startX = 0;
+  let startW = 480;
+  const onMove = (event) => {
+    if (!dragging) return;
+    const dx = startX - event.clientX;
+    applyDrawerWidth(startW + dx);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    const now =
+      Number(getComputedStyle(document.documentElement).getPropertyValue("--drawer-width").replace("px", "")) || 480;
+    writeDrawerWidth(now);
+    syncLaneRails();
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (isMobileBoard()) return;
+    dragging = true;
+    startX = event.clientX;
+    startW = readDrawerWidth();
+    handle.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+  handle.addEventListener("dblclick", () => {
+    applyDrawerWidth(480);
+    writeDrawerWidth(480);
+    syncLaneRails();
+  });
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const cur = readDrawerWidth();
+    const next = applyDrawerWidth(cur + (event.key === "ArrowLeft" ? 16 : -16));
+    writeDrawerWidth(next);
+    syncLaneRails();
+  });
+})();
+
+document.getElementById("branch-copy")?.addEventListener("click", async () => {
+  const meta = document.getElementById("task-meta");
+  const full = meta?.getAttribute("data-branch") || meta?.getAttribute("title") || meta?.textContent || "";
+  const btn = document.getElementById("branch-copy");
+  try {
+    if (full && navigator.clipboard) await navigator.clipboard.writeText(full);
+    if (btn) {
+      btn.title = "Copied";
+      btn.setAttribute("aria-label", "Copied");
+      setTimeout(() => {
+        btn.title = "Copy branch";
+        btn.setAttribute("aria-label", "Copy branch");
+      }, 1500);
+    }
+  } catch (_err) {
+    /* ignore */
+  }
+});
+
 (function bindDrawerSwipe() {
   const drawerEl = document.querySelector(".drawer");
   if (!drawerEl) return;
@@ -1574,6 +1689,8 @@ fetch("/api/models", { headers: auth() })
   });
 
 if (replay) document.getElementById("replay").hidden = false;
+applyDrawerWidth(readDrawerWidth());
+syncSheet(false);
 applyMobileLane();
 syncComposerEnabled(state);
 autosizeComposer(document.getElementById("goal"));
@@ -1583,6 +1700,8 @@ bindCardKeyboard();
 window.addEventListener("resize", () => {
   laneRailExpanded.clear();
   syncLaneRails();
+  if (selected) syncSheet(true);
+  else syncSheet(false);
 });
 refresh();
 setInterval(refresh, 1000);

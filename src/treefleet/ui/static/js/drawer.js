@@ -65,6 +65,8 @@ function fileStatSig(files) {
 
 export function createDrawer({ auth, worktreeFor }) {
   let followTail = true;
+  let wrapLines = false;
+  let showTimestamps = false;
   let liveOffset = 0;
   let selected = null;
   let state = {};
@@ -78,13 +80,27 @@ export function createDrawer({ auth, worktreeFor }) {
   let diffScrollTop = 0;
   let diffToken = 0;
   let lastGood = null;
+  let paneScroll = {};
+  let lastTaskId = "";
 
   function activePane() {
     const active = document.querySelector(".drawer .tab[aria-selected='true']");
     return (active && active.dataset.pane) || "live";
   }
 
+  function rememberPaneScroll() {
+    document.querySelectorAll(".drawer .pane").forEach((pane) => {
+      if (!pane.hidden) paneScroll[pane.id] = pane.scrollTop;
+    });
+  }
+
+  function restorePaneScroll(id) {
+    const pane = document.getElementById(id);
+    if (pane && paneScroll[id] != null) pane.scrollTop = paneScroll[id];
+  }
+
   function setPane(id) {
+    rememberPaneScroll();
     document.querySelectorAll(".drawer .tab").forEach((tab) => {
       const on = tab.dataset.pane === id;
       tab.setAttribute("aria-selected", String(on));
@@ -93,59 +109,157 @@ export function createDrawer({ auth, worktreeFor }) {
     document.querySelectorAll(".drawer .pane").forEach((pane) => {
       pane.hidden = pane.id !== id;
     });
+    restorePaneScroll(id);
     if (id === "diff" && selected) syncDiff(selected, state, { reason: "pane" });
+  }
+
+  function lineKind(raw) {
+    const text = String(raw || "");
+    const lower = text.toLowerCase();
+    if (/error|traceback|exception|failed|fatal/.test(lower)) return "error";
+    if (/^\s*(edit|write|writing|patched)\b/.test(lower) || /\bediting\b/.test(lower)) return "edit";
+    if (/^\s*(run|running|\$|cmd|shell|command)\b/.test(lower)) return "command";
+    if (/^\s*(read|reading|search|glob|find)\b/.test(lower)) return "search";
+    return "plain";
+  }
+
+  function appendLiveLine(log, raw, ts) {
+    const kind = lineKind(raw);
+    const row = el("div", `live-line live-${kind}`);
+    if (showTimestamps && ts) row.appendChild(el("span", "live-ts", String(ts)));
+    if (kind === "edit" || kind === "command" || kind === "search") {
+      const icon = kind === "edit" ? "pencil" : kind === "command" ? "terminal" : "search";
+      const mark = el("span", "live-tool-icon");
+      mark.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${icon}"></use></svg>`;
+      row.appendChild(mark);
+    }
+    row.appendChild(document.createTextNode(String(raw)));
+    log.appendChild(row);
   }
 
   function renderLive(task) {
     const root = document.getElementById("live");
     let toolbar = root.querySelector(".live-toolbar");
+    const events = (state.events || []).filter((event) => !event.task_id || event.task_id === task.id);
+    const hasTs = events.some((event) => event.ts);
     if (!toolbar) {
       clear(root);
       toolbar = el("div", "live-toolbar");
-      const pause = el("button", "btn ghost");
-      pause.type = "button";
-      const setPauseLabel = () => {
-        pause.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${
+      const follow = el("button", "btn ghost live-follow");
+      follow.type = "button";
+      follow.setAttribute("aria-pressed", "true");
+      const setFollowLabel = () => {
+        follow.setAttribute("aria-pressed", String(followTail));
+        follow.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${
           followTail ? "pause" : "play"
-        }"></use></svg> ${followTail ? "Pause" : "Follow"}`;
+        }"></use></svg><span>${followTail ? "Follow" : "Follow"}</span>`;
+        follow.setAttribute("aria-label", followTail ? "Follow on" : "Follow off");
+        follow.title = followTail ? "Following output" : "Follow output";
       };
-      setPauseLabel();
-      pause.addEventListener("click", () => {
+      setFollowLabel();
+      follow.addEventListener("click", () => {
         followTail = !followTail;
-        setPauseLabel();
-        if (followTail) renderLive(task);
+        setFollowLabel();
+        if (followTail) renderLive(selected || task);
+        syncJump();
       });
-      const copy = el("button", "btn ghost");
+      const wrap = el("button", "btn ghost live-wrap");
+      wrap.type = "button";
+      wrap.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-wrap-text"></use></svg><span>Wrap</span>`;
+      wrap.setAttribute("aria-label", "Wrap lines");
+      wrap.title = "Wrap lines";
+      wrap.addEventListener("click", () => {
+        wrapLines = !wrapLines;
+        wrap.setAttribute("aria-pressed", String(wrapLines));
+        const log = root.querySelector(".live-log");
+        if (log) log.classList.toggle("is-wrap", wrapLines);
+      });
+      const pause = el("button", "btn ghost icon-btn live-pause");
+      pause.type = "button";
+      pause.setAttribute("aria-label", "Pause");
+      pause.title = "Pause";
+      pause.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-pause"></use></svg>`;
+      pause.addEventListener("click", () => {
+        followTail = false;
+        setFollowLabel();
+        syncJump();
+      });
+      const copy = el("button", "btn ghost icon-btn live-copy");
       copy.type = "button";
-      const setCopyLabel = (label) => {
-        copy.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg> ${label}`;
-      };
-      setCopyLabel("Copy");
+      copy.setAttribute("aria-label", "Copy");
+      copy.title = "Copy";
+      copy.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg>`;
       copy.addEventListener("click", async () => {
         const text = ((selected && selected.lines) || []).join("\n");
         try {
           if (navigator.clipboard) await navigator.clipboard.writeText(text);
-          setCopyLabel("Copied");
+          copy.title = "Copied";
           setTimeout(() => {
-            setCopyLabel("Copy");
+            copy.title = "Copy";
           }, 1200);
         } catch (_err) {
           /* ignore */
         }
       });
+      const tsBtn = el("button", "btn ghost live-ts-toggle", "Timestamps");
+      tsBtn.type = "button";
+      tsBtn.hidden = !hasTs;
+      tsBtn.addEventListener("click", () => {
+        showTimestamps = !showTimestamps;
+        tsBtn.setAttribute("aria-pressed", String(showTimestamps));
+        renderLive(selected || task);
+      });
+      // Pause/Copy first so existing identity tests keep button indices stable.
       toolbar.appendChild(pause);
       toolbar.appendChild(copy);
+      toolbar.appendChild(follow);
+      toolbar.appendChild(wrap);
+      toolbar.appendChild(tsBtn);
       root.appendChild(toolbar);
+      const jump = el("button", "jump-latest", "Jump to latest");
+      jump.type = "button";
+      jump.hidden = true;
+      jump.addEventListener("click", () => {
+        followTail = true;
+        setFollowLabel();
+        renderLive(selected || task);
+        syncJump();
+      });
+      root.appendChild(jump);
+    } else {
+      const tsBtn = toolbar.querySelector(".live-ts-toggle");
+      if (tsBtn) tsBtn.hidden = !hasTs;
+    }
+
+    function syncJump() {
+      const jump = root.querySelector(".jump-latest");
+      if (jump) jump.hidden = followTail;
     }
 
     const lines = task.lines || [];
     const total = lines.length;
     let start = liveOffset;
     if (followTail && total > LIVE_CAP) start = Math.max(0, total - LIVE_CAP);
-    const sig = JSON.stringify({ start, followTail, lines });
+    const running = /run|working|editing|reading/i.test(String(task.status || task.action || "")) || task.action;
+    const sig = JSON.stringify({ start, followTail, wrapLines, showTimestamps, lines });
     const existing = root.querySelector(".live-log");
-    if (existing && existing.dataset.sig === sig) return;
-    root.querySelectorAll(".earlier-lines, .live-log").forEach((node) => node.remove());
+    if (existing && existing.dataset.sig === sig) {
+      syncJump();
+      return;
+    }
+    root.querySelectorAll(".earlier-lines, .live-log, .live-empty").forEach((node) => node.remove());
+    if (!lines.length) {
+      const empty = el("div", "live-empty");
+      empty.appendChild(el("h3", "type-title-lg", running ? "Waiting for output" : "No output"));
+      if (running) {
+        const spin = el("span", "spinner");
+        spin.setAttribute("aria-hidden", "true");
+        empty.appendChild(spin);
+      }
+      root.appendChild(empty);
+      syncJump();
+      return;
+    }
     if (start > 0) {
       const earlier = el("button", "btn ghost earlier-lines", "Show earlier lines");
       earlier.type = "button";
@@ -157,12 +271,28 @@ export function createDrawer({ auth, worktreeFor }) {
       root.appendChild(earlier);
     }
     const log = el("div", "live-log");
+    log.classList.toggle("is-wrap", wrapLines);
     log.dataset.sig = sig;
-    lines.slice(start).forEach((line) => {
-      log.appendChild(el("div", "live-line", String(line)));
+    log.addEventListener("scroll", () => {
+      if (log.scrollTop + log.clientHeight < log.scrollHeight - 24) {
+        if (followTail) {
+          followTail = false;
+          const follow = root.querySelector(".live-follow");
+          if (follow) {
+            follow.setAttribute("aria-pressed", "false");
+            follow.title = "Follow output";
+          }
+          syncJump();
+        }
+      }
+    });
+    lines.slice(start).forEach((line, i) => {
+      const event = events[start + i];
+      appendLiveLine(log, line, event && event.ts);
     });
     root.appendChild(log);
     if (followTail) log.scrollTop = log.scrollHeight;
+    syncJump();
   }
 
   function keepDiffLine(raw) {
@@ -461,36 +591,88 @@ export function createDrawer({ auth, worktreeFor }) {
     syncDiff(task, state, { reason: "show" });
   }
 
+  function statusWords(task) {
+    if (task.needs_human || task.status === "needs_review") return "needs you";
+    if (task.status === "failed") return "failed";
+    if (task.verdict === "approve" || task.lane === "ready") return "ready";
+    if (task.lane === "review") return "in review";
+    if (task.status === "running" || task.action) return "running";
+    return task.status || "task";
+  }
+
+  function middleTruncate(text, max = 36) {
+    const value = String(text || "");
+    if (value.length <= max) return value;
+    const parts = value.split("/");
+    const last = parts[parts.length - 1] || value.slice(-8);
+    const prefixBudget = Math.max(6, max - last.length - 1);
+    let prefix = value.slice(0, prefixBudget);
+    if (parts.length > 1) {
+      const head = parts.slice(0, Math.min(2, parts.length - 1)).join("/");
+      prefix = head.length <= prefixBudget ? head : value.slice(0, prefixBudget);
+    }
+    return `${prefix}…/${last}`;
+  }
+
+  function detailRow(host, { ok, label, value, detail, open }) {
+    const row = el("div", `detail-row${ok ? "" : " is-fail"}`);
+    const btn = el("button", "detail-row-head");
+    btn.type = "button";
+    const icon = el("span", "detail-status");
+    icon.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${
+      ok ? "check" : "alert-circle"
+    }"></use></svg>`;
+    btn.appendChild(icon);
+    btn.appendChild(el("span", ok ? "chip pass" : "chip fail", ok ? "pass" : "fail"));
+    btn.appendChild(el("span", "detail-label type-body-sm", label));
+    btn.appendChild(el("span", "detail-value type-code-sm", value));
+    const chev = el("span", "detail-chevron");
+    chev.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-down"></use></svg>`;
+    btn.appendChild(chev);
+    const body = el("pre", "detail-body check-output type-code");
+    body.textContent = detail || "";
+    if (!detail) {
+      chev.hidden = true;
+      btn.disabled = true;
+      body.hidden = true;
+    } else {
+      body.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+      btn.addEventListener("click", () => {
+        body.hidden = !body.hidden;
+        btn.setAttribute("aria-expanded", String(!body.hidden));
+      });
+    }
+    row.appendChild(btn);
+    if (detail) row.appendChild(body);
+    host.appendChild(row);
+  }
+
   function renderProof(task) {
     const root = document.getElementById("proofpane");
     clear(root);
     const proof = proofFrom(state, task);
     if (!proof) {
-      root.appendChild(el("p", "empty-line", "Proof rows are in the isolation table."));
+      root.appendChild(el("p", "empty-line type-body-sm", "No isolation proof for this task yet."));
       paintToolErrors(root, state, task);
       return;
     }
-    const table = el("table", "proof-table");
-    const body = document.createElement("tbody");
+    const list = el("div", "detail-list");
     const rows = [
-      ["Process cwd", proof.process_cwd_matches],
-      ["Toplevel", proof.toplevel_matches],
-      ["Registered", proof.registered_in_worktree_list],
-      ["Canary absent", proof.canary_absent],
-      ["Within scope", proof.changes_within_allowed_paths],
+      ["Process cwd", proof.process_cwd_matches, proof.process_cwd_matches ? "yes" : "no"],
+      ["Toplevel", proof.toplevel_matches, proof.toplevel_matches ? "yes" : "no"],
+      ["Registered", proof.registered_in_worktree_list, proof.registered_in_worktree_list ? "yes" : "no"],
+      ["Canary absent", proof.canary_absent, proof.canary_absent ? "yes" : "no"],
+      [
+        "Within scope",
+        proof.changes_within_allowed_paths,
+        proof.changes_within_allowed_paths ? "yes" : "no",
+      ],
     ];
-    rows.forEach(([label, ok]) => {
-      const tr = document.createElement("tr");
-      tr.appendChild(el("th", null, label));
-      const td = el("td", ok ? "ok" : "bad", ok ? "yes ✓" : "NO ✗");
-      tr.appendChild(td);
-      body.appendChild(tr);
+    rows.forEach(([label, ok, value]) => {
+      let detail = "";
       if (label === "Process cwd" && !ok && proof.cwd_attempts && proof.cwd_attempts.length) {
-        const detail = document.createElement("tr");
-        const cell = document.createElement("td");
-        cell.colSpan = 2;
-        cell.className = "proof-detail";
-        cell.textContent = proof.cwd_attempts
+        detail = proof.cwd_attempts
           .map((attempt) => {
             const children = (attempt.child_pids || []).join(",");
             const head = `pid ${attempt.pid ?? "unresolved"} started ${attempt.pid_started ?? "-"} alive ${attempt.alive} children ${children}${attempt.error ? " " + attempt.error : ""}`;
@@ -500,22 +682,20 @@ export function createDrawer({ auth, worktreeFor }) {
             return [head, ...lines].join("\n");
           })
           .join("\n");
-        detail.appendChild(cell);
-        body.appendChild(detail);
       }
+      detailRow(list, { ok: !!ok, label, value, detail, open: !ok });
     });
-    table.appendChild(body);
-    root.appendChild(table);
+    root.appendChild(list);
     paintToolErrors(root, state, task);
     if (proof.contained_violation || (proof.reverted_paths && proof.reverted_paths.length)) {
       root.appendChild(el("p", "violation-title", "Contained violation · reverted paths"));
-      const list = el("ul", "reverted-paths");
+      const paths = el("ul", "reverted-paths");
       (proof.reverted_paths || []).forEach((path) => {
         const item = document.createElement("li");
         item.textContent = String(path);
-        list.appendChild(item);
+        paths.appendChild(item);
       });
-      root.appendChild(list);
+      root.appendChild(paths);
     }
   }
 
@@ -524,36 +704,36 @@ export function createDrawer({ auth, worktreeFor }) {
     clear(root);
     const checks = task.checks || [];
     if (!checks.length) {
-      root.appendChild(el("p", "empty-line", "No checks for this task."));
-    }
-    checks.forEach((check) => {
-      const row = el("div", "check-row");
-      const head = el("div", "check-head");
-      const status = el("span", check.passed ? "chip pass" : "chip fail", check.passed ? "pass" : "fail");
-      head.appendChild(status);
-      head.appendChild(el("strong", null, check.name || "check"));
-      head.appendChild(
-        el(
-          "span",
-          "muted",
-          `exit ${check.exit_code ?? "?"} · ${check.duration_s != null ? `${check.duration_s}s` : "—"}`,
-        ),
-      );
-      row.appendChild(head);
-      if (check.output) {
-        const toggle = el("button", "btn ghost", "Output");
-        toggle.type = "button";
-        const out = el("pre", "check-output");
-        out.hidden = true;
-        out.textContent = String(check.output);
-        toggle.addEventListener("click", () => {
-          out.hidden = !out.hidden;
+      root.appendChild(el("p", "empty-line type-body-sm", "No checks ran for this task."));
+    } else {
+      const groups = new Map();
+      checks.forEach((check) => {
+        const source = String(check.source || check.group || "checks");
+        if (!groups.has(source)) groups.set(source, []);
+        groups.get(source).push(check);
+      });
+      groups.forEach((items, source) => {
+        root.appendChild(el("p", "type-micro detail-group", source));
+        const list = el("div", "detail-list");
+        items.forEach((check) => {
+          const ok = check.passed !== false;
+          const value = `exit ${check.exit_code ?? "?"} · ${
+            check.duration_s != null ? `${check.duration_s}s` : "—"
+          }`;
+          const before = list.children.length;
+          detailRow(list, {
+            ok,
+            label: check.name || "check",
+            value,
+            detail: check.output ? String(check.output) : "",
+            open: !ok,
+          });
+          const row = list.children[before];
+          if (row) row.classList.add("check-row");
         });
-        row.appendChild(toggle);
-        row.appendChild(out);
-      }
-      root.appendChild(row);
-    });
+        root.appendChild(list);
+      });
+    }
     const reason = String(task.reason || "").trim();
     const suggestions = Array.isArray(task.suggestions) ? task.suggestions.filter(Boolean) : [];
     if (reason || suggestions.length) {
@@ -584,7 +764,15 @@ export function createDrawer({ auth, worktreeFor }) {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) return "unpriced";
     if (n < 0.0001) return "<$0.0001";
-    return `$${n.toFixed(4)}`;
+    if (n < 1) return `$${n.toFixed(4)}`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  function formatTokens(n) {
+    if (n == null || n === "") return "—";
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n);
+    return num.toLocaleString("en-US");
   }
 
   function renderCost(task) {
@@ -595,23 +783,28 @@ export function createDrawer({ auth, worktreeFor }) {
       (state.report && state.report.metrics && state.report.metrics.costs) ||
       [];
     if (!costs.length) {
-      root.appendChild(el("p", "empty-line", "No cost rows yet."));
+      root.appendChild(el("p", "empty-line type-body-sm", "No cost rows yet."));
       return;
     }
     const table = el("table", "cost-table");
     const head = document.createElement("thead");
     const hr = document.createElement("tr");
-    ["Role", "Tokens", "USD"].forEach((label) => hr.appendChild(el("th", null, label)));
+    ["Role", "Tokens", "USD", ""].forEach((label) => hr.appendChild(el("th", "type-micro", label)));
     head.appendChild(hr);
     table.appendChild(head);
     const body = document.createElement("tbody");
     let total = 0;
     let priced = false;
+    const pricedRows = costs
+      .map((row) => Number(row.usd))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const maxShare = pricedRows.reduce((a, b) => a + b, 0) || 1;
     costs.forEach((row) => {
       const tr = document.createElement("tr");
       tr.appendChild(el("td", null, costRole(row)));
-      tr.appendChild(el("td", "mono", row.tokens != null ? String(row.tokens) : "—"));
+      tr.appendChild(el("td", "mono tabular", formatTokens(row.tokens)));
       const usd = document.createElement("td");
+      usd.className = "mono tabular";
       const text = formatUsd(row.usd, row.label);
       if (text === "unpriced" || text === "usage not reported") {
         usd.appendChild(el("span", "pill", text));
@@ -623,24 +816,82 @@ export function createDrawer({ auth, worktreeFor }) {
         }
       }
       tr.appendChild(usd);
+      const barCell = document.createElement("td");
+      barCell.className = "cost-bar-cell";
+      const bar = el("span", "cost-bar");
+      const share = Number(row.usd);
+      const pct = Number.isFinite(share) && share > 0 ? Math.max(4, Math.round((share / maxShare) * 100)) : 0;
+      bar.style.width = `${pct}%`;
+      barCell.appendChild(bar);
+      tr.appendChild(barCell);
       body.appendChild(tr);
     });
     table.appendChild(body);
+    const foot = document.createElement("tfoot");
+    const fr = document.createElement("tr");
+    fr.className = "cost-total-row";
+    fr.appendChild(el("td", null, "Total"));
+    fr.appendChild(el("td", null, ""));
+    const totalTd = el("td", "mono tabular");
+    totalTd.textContent = priced ? formatUsd(total) : "unpriced";
+    fr.appendChild(totalTd);
+    fr.appendChild(el("td", null, ""));
+    foot.appendChild(fr);
+    table.appendChild(foot);
     root.appendChild(table);
-    const foot = el("p", "cost-total mono");
-    foot.textContent = priced ? `Total ${formatUsd(total)}` : "Total unpriced";
-    root.appendChild(foot);
+    const summary = el("p", "cost-total mono");
+    summary.textContent = priced ? `Total ${formatUsd(total)}` : "Total unpriced";
+    root.appendChild(summary);
+  }
+
+  function paintHeader(task) {
+    const title = document.getElementById("task-title");
+    const meta = document.getElementById("task-meta");
+    const badge = document.getElementById("task-status-badge");
+    const copy = document.getElementById("branch-copy");
+    if (title) {
+      title.textContent = task.title || task.id || "Task";
+      title.title = task.title || "";
+    }
+    const branch = task.branch || "";
+    if (meta) {
+      meta.textContent = middleTruncate(branch);
+      meta.title = branch;
+      meta.setAttribute("data-branch", branch);
+    }
+    if (copy) copy.hidden = !branch;
+    if (badge) {
+      const words = statusWords(task);
+      badge.hidden = !words;
+      badge.textContent = words;
+      badge.dataset.status = words.replace(/\s+/g, "-");
+    }
   }
 
   function show(task, boardState, opts) {
+    const keepTab = !!(opts && opts.keepTab);
+    const fade = !!(opts && opts.fade);
     selected = task;
     state = boardState || {};
+    if (String(task.id) !== String(lastTaskId)) {
+      paneScroll = {};
+      lastTaskId = String(task.id);
+      if (!keepTab) {
+        /* keep current tab only when swapping with keepTab */
+      }
+    }
     if (!(opts && opts.keepOffset)) liveOffset = 0;
     if (!(opts && opts.keepFollow)) followTail = true;
-    document.getElementById("drawer-empty").hidden = true;
-    document.getElementById("drawer-task").hidden = false;
-    document.getElementById("task-title").textContent = task.title || "";
-    document.getElementById("task-meta").textContent = task.branch || "";
+    const empty = document.getElementById("drawer-empty");
+    const taskPane = document.getElementById("drawer-task");
+    if (empty) empty.hidden = true;
+    if (taskPane) taskPane.hidden = false;
+    paintHeader(task);
+    const host = document.getElementById("task-drawer") || document.querySelector(".drawer");
+    if (fade && host) {
+      host.classList.add("is-fading");
+      setTimeout(() => host.classList.remove("is-fading"), 100);
+    }
     renderLive(task);
     renderDiff(task);
     renderProof(task);

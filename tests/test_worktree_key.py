@@ -113,6 +113,7 @@ def test_tabs_stay_on_the_selected_run(tmp_path: Path, monkeypatch: pytest.Monke
             labels = page.locator("#git-graph .graph-label").all_inner_texts()
             assert any(label == "tf/aaa/alpha" for label in labels)
             assert all("tf/bbb/" not in label for label in labels)
+            card.click()
             page.get_by_role("tab", name="Live output").click()
             assert "live-from-aaa" in page.locator("#live").inner_text()
             page.get_by_role("tab", name="Checks").click()

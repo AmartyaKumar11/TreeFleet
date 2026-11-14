@@ -183,6 +183,8 @@ def test_buttons_survive_refresh_and_approve_click_spans_one(tmp_path: Path, mon
             page.goto(f"http://127.0.0.1:{ready_port}/", wait_until="domcontentloaded")
             for width in (1440, 390):
                 page.set_viewport_size({"width": width, "height": 900 if width > 400 else 844})
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(80)
                 if width < 500:
                     page.locator('.mobile-lane-tabs button[data-lane="ready"]').click()
                 page.locator(".card", has_text="Alpha").click()

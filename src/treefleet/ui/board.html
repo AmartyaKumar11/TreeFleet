@@ -103,7 +103,10 @@
         <section class="run-strip" id="run-strip" aria-label="Run status" aria-live="polite">
           <div class="run-strip-left">
             <span class="spinner run-strip-spinner" id="run-strip-spinner" hidden aria-hidden="true"></span>
+            <span class="run-strip-icon" id="run-strip-needs" hidden aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-hand"></use></svg></span>
+            <span class="run-strip-icon is-error" id="run-strip-alert" hidden aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-alert-circle"></use></svg></span>
             <p class="run-status" id="run-status">Idle</p>
+            <p class="run-status-compact" id="run-status-compact" hidden>Stage 1 of 6: guard</p>
           </div>
           <ol class="stage-stepper" id="stage-stepper">
             <li data-stage="guard"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">guard</span></li>
@@ -113,9 +116,21 @@
             <li data-stage="review"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">review</span></li>
             <li data-stage="integrate"><svg class="icon stage-icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span class="stage-label">integrate</span></li>
           </ol>
+          <ol class="stage-dots" id="stage-dots" aria-hidden="true" hidden>
+            <li data-stage="guard"></li>
+            <li data-stage="plan"></li>
+            <li data-stage="approve"></li>
+            <li data-stage="fleet"></li>
+            <li data-stage="review"></li>
+            <li data-stage="integrate"></li>
+          </ol>
         </section>
 
         <section class="view" id="view-kanban" aria-label="Kanban">
+          <div class="board-empty" id="board-empty" hidden>
+            <h2 class="type-title-lg">No tasks yet</h2>
+            <p class="type-body-sm muted">Describe what to build above and press Ctrl Enter.</p>
+          </div>
           <div class="mobile-lane-tabs segmented" role="tablist" aria-label="Lanes">
             <button type="button" role="tab" data-lane="working" data-label="Working" aria-selected="true">Working <span class="n">0</span></button>
             <button type="button" role="tab" data-lane="needs" data-label="Needs you" aria-selected="false">Needs you <span class="n">0</span></button>
@@ -200,29 +215,36 @@
       </main>
 
       <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
-      <aside class="drawer" aria-label="Task details">
-        <header>
+      <aside class="drawer" id="task-drawer" aria-label="Task details" hidden>
+        <div
+          class="drawer-resize"
+          id="drawer-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuemin="360"
+          aria-valuemax="720"
+          aria-valuenow="480"
+          aria-label="Resize drawer"
+          tabindex="0"
+        ></div>
+        <header class="drawer-header">
           <button class="drawer-grab" id="drawer-grab" type="button" aria-label="Dismiss sheet"></button>
           <div class="drawer-head">
-            <div>
-              <h3 id="task-title">No task selected</h3>
-              <div class="mono muted" id="task-meta"></div>
+            <div class="drawer-title-block">
+              <h3 id="task-title" class="type-title-lg drawer-title">Task</h3>
+              <div class="drawer-meta-row">
+                <span class="mono muted type-code-sm" id="task-meta" title=""></span>
+                <button class="icon-btn" id="branch-copy" type="button" aria-label="Copy branch" title="Copy branch" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg>
+                </button>
+                <span class="badge-status drawer-status" id="task-status-badge" hidden></span>
+              </div>
             </div>
             <button class="btn ghost icon-btn drawer-close" id="drawer-close" type="button" aria-label="Close" title="Close"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-x"></use></svg></button>
           </div>
         </header>
-        <div id="drawer-empty" class="drawer-empty">
-          <p class="empty-line">Select a task on the board to inspect live output, diffs and proofs.</p>
-          <dl class="run-summary" id="run-summary">
-            <div><dt>Stage</dt><dd id="summary-stage">guard</dd></div>
-            <div><dt>Working</dt><dd id="summary-working">0</dd></div>
-            <div><dt>Needs you</dt><dd id="summary-needs">0</dd></div>
-            <div><dt>In review</dt><dd id="summary-review">0</dd></div>
-            <div><dt>Ready</dt><dd id="summary-ready">0</dd></div>
-            <div><dt>Elapsed</dt><dd class="mono" id="summary-elapsed">0:00</dd></div>
-          </dl>
-        </div>
-        <div id="drawer-task" hidden>
+        <div id="drawer-empty" class="drawer-empty" hidden></div>
+        <div id="drawer-task">
           <div class="tabs" role="tablist" aria-label="Task detail tabs">
             <button class="tab" role="tab" aria-selected="true" data-pane="live" type="button" tabindex="0">Live output</button>
             <button class="tab" role="tab" aria-selected="false" data-pane="diff" type="button" tabindex="-1">Diff</button>
@@ -230,11 +252,13 @@
             <button class="tab" role="tab" aria-selected="false" data-pane="checks" type="button" tabindex="-1">Checks</button>
             <button class="tab" role="tab" aria-selected="false" data-pane="costpane" type="button" tabindex="-1">Cost</button>
           </div>
-          <div class="pane log" id="live" role="tabpanel" aria-readonly="true"></div>
-          <div class="pane" id="diff" role="tabpanel" hidden></div>
-          <div class="pane" id="proofpane" role="tabpanel" hidden></div>
-          <div class="pane" id="checks" role="tabpanel" hidden></div>
-          <div class="pane" id="costpane" role="tabpanel" hidden></div>
+          <div class="drawer-panes">
+            <div class="pane log" id="live" role="tabpanel" aria-readonly="true"></div>
+            <div class="pane" id="diff" role="tabpanel" hidden></div>
+            <div class="pane" id="proofpane" role="tabpanel" hidden></div>
+            <div class="pane" id="checks" role="tabpanel" hidden></div>
+            <div class="pane" id="costpane" role="tabpanel" hidden></div>
+          </div>
         </div>
       </aside>
     </div>

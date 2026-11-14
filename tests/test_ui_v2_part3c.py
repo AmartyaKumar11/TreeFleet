@@ -286,7 +286,8 @@ def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.
             page.wait_for_timeout(100)
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/3c/diff-390.png")), full_page=True)
             assert page.locator("#drawer-backdrop").is_visible()
-            page.locator("#drawer-backdrop").click()
+            # Bottom sheet covers the backdrop center; hit the exposed scrim at the top.
+            page.locator("#drawer-backdrop").click(position={"x": 8, "y": 8})
             page.wait_for_timeout(100)
             assert page.locator(".drawer").evaluate("el => el.classList.contains('is-open')") is False
             browser.close()

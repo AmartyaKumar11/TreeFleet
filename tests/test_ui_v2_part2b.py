@@ -278,8 +278,7 @@ def test_kanban_equal_lanes_sticky_headers_and_drawer_empty(tmp_path: Path, monk
             for name in ("Working", "Needs you", "In review", "Ready to merge"):
                 assert any(name in title for title in metrics["titles"])
             drawer = page.locator(".drawer")
-            assert "Select a task" in drawer.inner_text() or "select a task" in drawer.inner_text().lower()
-            assert "Working" in drawer.inner_text()
+            assert drawer.evaluate("el => el.hidden || !el.classList.contains('is-visible')")
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-kanban-16-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)

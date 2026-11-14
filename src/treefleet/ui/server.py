@@ -513,7 +513,12 @@ def create_app(
         return JSONResponse({"run_id": run_id})
 
     @app.get("/api/diff")
-    def diff(path: str) -> JSONResponse:
+    def diff(
+        path: str,
+        full: int = 0,
+        file: str | None = None,
+    ) -> JSONResponse:
+        from treefleet.git.diff_view import build_diff_payload
         from treefleet.git.worktrees import list_worktrees
 
         try:
@@ -523,19 +528,28 @@ def create_app(
             return JSONResponse({"error": "unknown worktree"}, status_code=404)
         if target not in allowed or target.resolve() == repo.resolve():
             return JSONResponse({"error": "unknown worktree"}, status_code=404)
-        from treefleet.git.proofs import diff_stats
-
         base = board.base_sha or "HEAD"
-        full = run_git(["diff", base], cwd=target)
-        text = full.stdout or ""
+        file_filter = None
+        if file:
+            # Same path discipline as the worktree root: reject escapes.
+            try:
+                rel = Path(file.replace("\\", "/"))
+                if rel.is_absolute() or ".." in rel.parts:
+                    return JSONResponse({"error": "invalid file"}, status_code=400)
+                file_filter = rel.as_posix()
+            except (OSError, ValueError):
+                return JSONResponse({"error": "invalid file"}, status_code=400)
         try:
-            files = [change.model_dump() for change in diff_stats(target, base)]
+            payload = build_diff_payload(target, base, full=bool(full), file_filter=file_filter)
         except Exception:
-            files = []
-        extra = [item["path"] for item in files if f"diff --git a/{item['path']}" not in text]
-        if extra:
-            text += "\nUntracked:\n" + "\n".join(extra)
-        body, _count = redact_payload({"diff": text[:8000], "files": files})
+            payload = {
+                "diff": "",
+                "files": [],
+                "truncated": False,
+                "total_bytes": 0,
+                "shown_bytes": 0,
+            }
+        body, _count = redact_payload(payload)
         return JSONResponse(body)
 
     @app.post("/api/runs/{run_id}/approve")

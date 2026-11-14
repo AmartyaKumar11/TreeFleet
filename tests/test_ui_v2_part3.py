@@ -228,12 +228,15 @@ def test_xss_payloads_render_literally(tmp_path: Path, monkeypatch: pytest.Monke
             assert XSS in diff.inner_text()
             assert diff.locator("img").count() == 0
             assert diff.locator("script").count() == 0
-            meta = page.locator("#task-meta").inner_text()
-            assert XSS in meta
+            meta = page.locator("#task-meta")
+            assert XSS in (meta.get_attribute("title") or meta.inner_text())
             page.get_by_role("tab", name="Checks").click()
             checks = page.locator("#checks")
-            page.locator(".check-row", has_text="ruff").locator("button").click()
-            assert XSS in checks.inner_text()
+            row = page.locator(".check-row", has_text="ruff")
+            body = row.locator(".check-output, .detail-body")
+            if body.count() and body.first.is_hidden():
+                row.locator("button").first.click()
+            assert XSS in (body.inner_text() if body.count() else checks.inner_text())
             assert checks.locator("img").count() == 0
             assert checks.locator("script").count() == 0
             assert page.evaluate("() => window.__xss") in (None, False)
@@ -359,7 +362,9 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
             page.locator(".card", has_text="Parser tests").first.click()
             page.wait_for_timeout(50)
             page.keyboard.press("Escape")
-            assert "No task selected" in page.locator("#task-title").inner_text()
+            assert page.locator("#task-drawer").is_hidden() or page.locator(".drawer").evaluate(
+                "el => el.hidden || !el.classList.contains('is-visible')"
+            )
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/part3-graph-palette-1440.png")), full_page=True)
             browser.close()
     finally:
