@@ -116,28 +116,28 @@
         </section>
 
         <section class="view" id="view-kanban" aria-label="Kanban">
-          <div class="mobile-lane-tabs" role="tablist" aria-label="Lanes">
-            <button type="button" data-lane="working" data-label="Working" aria-selected="true">Working 0</button>
-            <button type="button" data-lane="needs" data-label="Needs you" aria-selected="false">Needs you 0</button>
-            <button type="button" data-lane="review" data-label="In review" aria-selected="false">In review 0</button>
-            <button type="button" data-lane="ready" data-label="Ready to merge" aria-selected="false">Ready to merge 0</button>
+          <div class="mobile-lane-tabs segmented" role="tablist" aria-label="Lanes">
+            <button type="button" role="tab" data-lane="working" data-label="Working" aria-selected="true">Working <span class="n">0</span></button>
+            <button type="button" role="tab" data-lane="needs" data-label="Needs you" aria-selected="false">Needs you <span class="n">0</span></button>
+            <button type="button" role="tab" data-lane="review" data-label="In review" aria-selected="false">In review <span class="n">0</span></button>
+            <button type="button" role="tab" data-lane="ready" data-label="Ready to merge" aria-selected="false">Ready to merge <span class="n">0</span></button>
           </div>
           <section class="lanes" aria-label="Tasks by state">
-            <div class="lane is-active" id="lane-working">
-              <h2><span class="dot accent"></span>Working <span class="n">0</span></h2>
-              <div class="stack" id="working"></div>
+            <div class="lane is-active" id="lane-working" data-lane="working">
+              <h2 class="lane-head"><span class="dot accent is-running" aria-hidden="true"></span><span class="lane-label type-title-sm">Working</span> <span class="n count-pill">0</span></h2>
+              <div class="stack" id="working" role="list"></div>
             </div>
-            <div class="lane" id="lane-needs">
-              <h2><span class="dot needs"></span>Needs you <span class="n">0</span></h2>
-              <div class="stack" id="needs"></div>
+            <div class="lane" id="lane-needs" data-lane="needs">
+              <h2 class="lane-head"><span class="dot needs" aria-hidden="true"></span><span class="lane-label type-title-sm">Needs you</span> <span class="n count-pill">0</span></h2>
+              <div class="stack" id="needs" role="list"></div>
             </div>
-            <div class="lane" id="lane-review">
-              <h2><span class="dot yellow"></span>In review <span class="n">0</span></h2>
-              <div class="stack" id="review"></div>
+            <div class="lane" id="lane-review" data-lane="review">
+              <h2 class="lane-head"><span class="dot yellow" aria-hidden="true"></span><span class="lane-label type-title-sm">In review</span> <span class="n count-pill">0</span></h2>
+              <div class="stack" id="review" role="list"></div>
             </div>
-            <div class="lane" id="lane-ready">
-              <h2><span class="dot green"></span>Ready to merge <span class="n">0</span></h2>
-              <div class="stack" id="ready"></div>
+            <div class="lane" id="lane-ready" data-lane="ready">
+              <h2 class="lane-head"><span class="dot green" aria-hidden="true"></span><span class="lane-label type-title-sm">Ready to merge</span> <span class="n count-pill">0</span></h2>
+              <div class="stack" id="ready" role="list"></div>
             </div>
           </section>
         </section>

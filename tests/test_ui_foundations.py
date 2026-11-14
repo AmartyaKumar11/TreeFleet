@@ -19,14 +19,8 @@ pytestmark = pytest.mark.phase8
 ROOT = Path(__file__).resolve().parents[1]
 BOARD_CSS = ROOT / "src" / "treefleet" / "ui" / "static" / "css" / "board.css"
 
-# Selectors/areas owned by later tasks (15.D3–D6); 15.D2 prefixes were ratcheted out.
+# Selectors/areas owned by later tasks (15.D4–D6); 15.D3 prefixes were ratcheted out.
 LITERAL_ALLOWLIST_SELECTORS = (
-    ".lanes",
-    ".lane",
-    ".card",
-    ".stack",
-    ".git-graph",
-    ".graph-",
     ".drawer",
     ".diff-",
     ".live-",
@@ -44,9 +38,6 @@ LITERAL_ALLOWLIST_SELECTORS = (
     ".check-",
     ".cost-",
     ".tab",
-    ".pill",
-    ".badge",
-    ".timer",
     ".switch",
     ".log",
     ".sys-",
@@ -54,21 +45,12 @@ LITERAL_ALLOWLIST_SELECTORS = (
     ".choice-",
     ".review-",
     ".reverted",
-    ".action-",
-    ".merge-",
     ".spinner",
-    ".dot",
-    ".empty-",
-    ".err",
-    ".note",
     ".reason",
     ".replay",
     ".view-toggle",
     ".knob",
     ".track",
-    ".icon-btn",
-    ".btn.ghost",
-    ".mono",
     "@media",
     ":focus",
     "outline",

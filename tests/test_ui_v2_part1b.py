@@ -352,7 +352,7 @@ def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
             details.get_by_role("tab", name="Guards").click()
             assert "allowed" in page.locator("#guards").inner_text()
             details.get_by_role("tab", name="Proof").click()
-            assert "Within scope" in page.get_by_label("Isolation proof").inner_text()
+            assert "Within scope" in page.get_by_role("tabpanel", name="Isolation proof").inner_text()
 
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/part1b-desktop-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})

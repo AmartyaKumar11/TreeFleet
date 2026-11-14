@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import threading
 import time
@@ -451,22 +452,22 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             page.get_by_label("Worktrees").wait_for()
             assert r"C:\wt\abcd1234\beta" in page.get_by_label("Worktrees").inner_text()
             details.get_by_role("tab", name="Proof").click()
-            proof = page.get_by_label("Isolation proof")
+            proof = page.get_by_role("tabpanel", name="Isolation proof")
             assert "Within scope" in proof.inner_text()
             assert "yes" in proof.inner_text()
             assert page.locator("#live").get_attribute("aria-readonly") == "true"
             assert "editing README.md" in page.locator("#working").inner_text()
             assert "+6" in page.locator("#working").inner_text()
-            assert "-0" in page.locator("#working").inner_text()
+            assert "−0" in page.locator("#working").inner_text() or "-0" in page.locator("#working").inner_text()
             assert "needs review" in page.locator("#needs").inner_text()
             assert "git -C" not in page.locator("#needs").inner_text()
             assert "No new changes since last review" in page.locator("#needs").inner_text()
-            page.get_by_role("button", name="Admin").click()
+            page.locator(".card[data-task-id]").filter(has_text="Admin").click()
             page.locator(".drawer").get_by_role("tab", name="Checks").click()
             detail = page.locator("#checks").inner_text()
             assert "94 lines" in detail
             assert "worker made no changes" in detail
-            page.get_by_role("button", name="Notifier").click()
+            page.locator(".card[data-task-id]").filter(has_text="Notifier").click()
             details.get_by_role("tab", name="Guards").click()
             guards = page.locator("#guards").inner_text()
             assert "malformed tool result" not in guards
@@ -481,7 +482,7 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             assert "Tool errors: 1" in proof_pane
             assert "malformed tool result" in proof_pane
             assert "{" not in proof_pane
-            page.get_by_role("button", name="Parser").click()
+            page.locator(".card[data-task-id]").filter(has_text="Parser").click()
             page.wait_for_timeout(1200)
             assert page.locator("#task-title").inner_text() == "Parser"
             assert page.locator("#elapsed").inner_text() == "0:12"
@@ -583,7 +584,8 @@ def test_stubbed_stream_shows_work_while_the_run_is_open(tmp_path: Path, monkeyp
             assert page.locator("#working .chip.lines").count() == 0
             subprocess.run(["git", "add", "README.md"], cwd=worktree, check=True, capture_output=True)
             subprocess.run(["git", "commit", "-m", "edit"], cwd=worktree, check=True, capture_output=True)
-            page.get_by_text("README.md +1 -0").wait_for(timeout=8000)
+            page.locator("#working .chip.lines").wait_for(timeout=8000)
+            assert re.search(r"\+1\s*[−-]\s*0", page.locator("#working").inner_text())
             add(
                 3,
                 "review_verdict",

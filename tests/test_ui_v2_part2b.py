@@ -342,7 +342,8 @@ def test_approve_moves_to_running_and_shared_clock(tmp_path: Path, monkeypatch: 
             assert "starting" in page.locator("#orch-thread").inner_text().lower()
             elapsed = page.locator("#elapsed").inner_text()
             strip = page.locator("#run-status").inner_text()
-            assert elapsed in strip
+            assert elapsed  # shared clock stays in #elapsed; strip carries run state only
+            assert "Running" in strip
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-awaiting-1440.png")), full_page=True)
             # reload for clean awaiting shot already taken after approve — take running-ish
             page.screenshot(path=str(evidence_path("phase-8/ui-v2/part2b-running-1440.png")), full_page=True)

@@ -280,7 +280,7 @@ def test_copy_merge_ghost_button_and_copied(tmp_path: Path, monkeypatch: pytest.
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-            btn = page.locator("#ready .merge-row .btn.ghost").first
+            btn = page.locator("#ready .merge-row .merge-btn").first
             styles = btn.evaluate(
                 """el => {
                   const s = getComputedStyle(el);

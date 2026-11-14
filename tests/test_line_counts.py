@@ -195,8 +195,8 @@ def test_cards_use_this_run_and_skip_empty_branches(tmp_path: Path, monkeypatch:
             notes = page.locator(".card", has_text="Notes")
             gamma = page.locator(".card", has_text="Gamma")
             admin.wait_for()
-            assert admin.locator(".chip.lines").inner_text() == "+76 -0"
-            assert notes.locator(".chip.lines").inner_text() == "+33 -0"
+            assert admin.locator(".chip.lines").inner_text() == "+76 −0"
+            assert notes.locator(".chip.lines").inner_text() == "+33 −0"
             assert gamma.locator(".chip.lines").count() == 0
             browser.close()
     finally:

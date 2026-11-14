@@ -108,7 +108,7 @@ def test_tabs_stay_on_the_selected_run(tmp_path: Path, monkeypatch: pytest.Monke
             page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             card = page.locator(".card", has_text="Alpha")
             card.wait_for()
-            assert card.locator(".chip.lines").inner_text() == "+10 -0"
+            assert card.locator(".chip.lines").inner_text() == "+10 −0"
             assert "other.py" not in card.inner_text()
             labels = page.locator("#git-graph .graph-label").all_inner_texts()
             assert any(label == "tf/aaa/alpha" for label in labels)

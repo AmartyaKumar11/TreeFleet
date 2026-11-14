@@ -368,7 +368,13 @@ def test_placeholder_contrast_and_controls_sheet(tmp_path: Path, monkeypatch: py
             )
             assert muted.startswith("oklch")
 
-            page.goto(f"http://127.0.0.1:{port}/static/controls-sheet.html", wait_until="networkidle")
+            missing = page.request.get(f"http://127.0.0.1:{port}/static/controls-sheet.html")
+            assert missing.status == 404
+
+            fixture_html = (ROOT / "tests/fixtures/controls-sheet.html").read_text(encoding="utf-8")
+            fixture_html = fixture_html.replace('href="/static/', f'href="http://127.0.0.1:{port}/static/')
+            fixture_html = fixture_html.replace('href="/static/icons', f'href="http://127.0.0.1:{port}/static/icons')
+            page.set_content(fixture_html, wait_until="networkidle")
             field = page.locator("#sheet-text")
             styles = field.evaluate(
                 """el => {

@@ -135,7 +135,10 @@ def test_part3d_cards_and_graph(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
             assert style["ellipsis"] == "ellipsis"
             assert style["min"] == "0px"
             assert style["flex"] == "1"
-            assert style["title"] == style["text"]
+            # Middle truncation: full branch in title, shortened label keeps the last segment.
+            assert style["title"] != style["text"]
+            assert "…" in style["text"] or "..." in style["text"]
+            assert style["text"].endswith("ill-not-fit-8") or "ill-not-fit-8" in style["text"]
             assert "feature-branch-name" in style["title"]
             page.locator("#needs").screenshot(path=str(evidence_path("phase-8/ui-v2/3d/needs-1440.png")))
             page.locator("button[data-graph-more]").click()

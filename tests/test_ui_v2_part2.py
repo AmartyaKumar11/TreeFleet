@@ -341,7 +341,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             "blocked",
             _fixture_blocked,
             {
-                "strip": "Blocked",
+                "strip": "Failed at",
                 "texts": ["Input guard blocked", "goal exceeds the length cap"],
                 "no": ["Started", "Approve plan"],
             },
@@ -374,7 +374,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             "needs-review",
             _fixture_needs_review,
             {
-                "strip": "Reviewing",
+                "strip": "Running",
                 "texts": ["Reviewing 3 branches", "no new diff", "Notifier lint"],
                 "no": [],
             },
@@ -430,7 +430,7 @@ def test_orchestrator_thread_states_and_screenshots(
             strip = page.locator("#run-status").inner_text()
             assert expect["strip"] in strip
             # exactly one primary state word
-            states = ["Blocked", "Awaiting approval", "Running", "Reviewing", "Integrating", "Done"]
+            states = ["Failed at", "Awaiting approval", "Running", "Done", "Cancelled"]
             assert sum(1 for word in states if word in strip) == 1
             body = thread_el.inner_text()
             for text in expect["texts"]:

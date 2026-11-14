@@ -1,5 +1,6 @@
 .env
 runs/
+**/_to_delete/
 .venv*/
 .venv-orch/
 .venv-worker/

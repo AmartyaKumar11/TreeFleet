@@ -24,6 +24,10 @@ let palette = null;
 let optimistic = null;
 let laneSig = "";
 let lastCounts = { working: 0, needs: 0, review: 0, ready: 0 };
+let boardReady = false;
+const laneRailExpanded = new Set();
+const mobileLaneByRun = new Map();
+let cardFocusId = null;
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) =>
@@ -57,16 +61,17 @@ function relativeTime(ts) {
   }
 }
 
-const COMPOSER_MAX_ROWS = 8;
-
 function autosizeComposer(textarea) {
   if (!textarea) return;
+  const compact = !!textarea.closest(".composer.is-compact");
+  const maxRows = compact ? 6 : 8;
   const styles = window.getComputedStyle(textarea);
-  const line = Number.parseFloat(styles.lineHeight) || 26;
-  const max = line * COMPOSER_MAX_ROWS;
+  const line = Number.parseFloat(styles.lineHeight) || (compact ? 36 : 26);
+  const minH = compact ? 36 : line;
+  const max = line * maxRows;
   textarea.style.height = "auto";
-  const next = Math.min(textarea.scrollHeight, max);
-  textarea.style.height = `${Math.max(line, next)}px`;
+  const next = Math.min(Math.max(textarea.scrollHeight, minH), max);
+  textarea.style.height = `${next}px`;
   textarea.style.overflowY = textarea.scrollHeight > max + 1 ? "auto" : "hidden";
 }
 
@@ -169,10 +174,19 @@ function syncSheet(taskOpen) {
 }
 
 function showDrawerEmpty() {
+  const returnId = selected?.id || cardFocusId;
   selected = null;
   pinned = false;
   document.querySelectorAll(".card.is-selected").forEach((el) => el.classList.remove("is-selected"));
   syncSheet(false);
+  if (returnId) {
+    const card = document.querySelector(`.card[data-task-id="${CSS.escape(String(returnId))}"]`);
+    if (card) {
+      card.tabIndex = 0;
+      card.focus({ preventScroll: true });
+      cardFocusId = String(returnId);
+    }
+  }
   document.getElementById("task-title").textContent = "No task selected";
   document.getElementById("task-meta").textContent = "";
   document.getElementById("drawer-empty").hidden = false;
@@ -277,11 +291,18 @@ function gitGlyph() {
   return `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-git-branch"></use></svg>`;
 }
 
-function middleTruncate(text, max = 32) {
+function middleTruncate(text, max = 36) {
   const value = String(text || "");
   if (value.length <= max) return value;
-  const keep = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+  const parts = value.split("/");
+  const last = parts[parts.length - 1] || value.slice(-8);
+  const prefixBudget = Math.max(6, max - last.length - 1);
+  let prefix = value.slice(0, prefixBudget);
+  if (parts.length > 1) {
+    const head = parts.slice(0, Math.min(2, parts.length - 1)).join("/");
+    prefix = head.length <= prefixBudget ? head : value.slice(0, prefixBudget);
+  }
+  return `${prefix}…/${last}`;
 }
 
 function taskAge(task) {
@@ -300,13 +321,28 @@ function setLaneCounts(tasks, awaiting) {
     const el = document.querySelector(`#lane-${id} .n`);
     if (el) el.textContent = String(counts[id]);
     const tab = document.querySelector(`.mobile-lane-tabs [data-lane="${id}"]`);
-    if (tab) tab.textContent = `${tab.dataset.label} ${counts[id]}`;
+    if (tab) {
+      const n = tab.querySelector(".n");
+      if (n) n.textContent = String(counts[id]);
+      else tab.textContent = `${tab.dataset.label} ${counts[id]}`;
+    }
   });
   syncDoneLane(counts.done > 0);
   const doneCount = document.querySelector("#lane-done .n");
   if (doneCount) doneCount.textContent = String(counts.done);
   const doneTab = document.querySelector('.mobile-lane-tabs [data-lane="done"]');
-  if (doneTab) doneTab.textContent = `Done ${counts.done}`;
+  if (doneTab) {
+    const n = doneTab.querySelector(".n");
+    if (n) n.textContent = String(counts.done);
+    else doneTab.textContent = `Done ${counts.done}`;
+  }
+  const runId = state.run_id || "";
+  if (runId && !mobileLaneByRun.has(runId)) {
+    const order = ["working", "needs", "review", "ready", "done"];
+    const first = order.find((id) => counts[id] > 0) || "working";
+    mobileLane = first;
+    mobileLaneByRun.set(runId, first);
+  }
   return counts;
 }
 
@@ -325,8 +361,9 @@ function syncDoneLane(show) {
     const created = document.createElement("div");
     created.className = "lane";
     created.id = "lane-done";
+    created.dataset.lane = "done";
     created.innerHTML =
-      '<h2><span class="dot green"></span>Done <span class="n">0</span></h2><div class="stack" id="done"></div>';
+      '<h2 class="lane-head"><span class="dot green" aria-hidden="true"></span><span class="lane-label type-title-sm">Done</span> <span class="n count-pill">0</span></h2><div class="stack" id="done" role="list"></div>';
     lanes.appendChild(created);
   }
   if (!tab && tabs) {
@@ -349,7 +386,13 @@ function runStripState(data, counts) {
   const awaiting = optimistic && optimistic.awaiting === null ? null : data.awaiting;
   const total = (data.tasks || []).length || (awaiting ? awaiting.length : 0);
   const active = counts.working || (optimistic && optimistic.starting ? total : 0);
-  const elapsed = elapsedText();
+  const msg = String(data.message || "");
+  const cancelled = stage === "cancelled" || /cancell?ed/i.test(msg);
+  const failed =
+    stage === "timed_out" ||
+    stage === "failed" ||
+    stage === "error" ||
+    (/fail|timed.?out/i.test(msg) && !cancelled);
   const blocked =
     !(optimistic && optimistic.stage === "fleet") &&
     ((data.message && /blocked/i.test(data.message)) ||
@@ -359,84 +402,89 @@ function runStripState(data, counts) {
           (event.payload || {}).stage === "input" &&
           (event.payload || {}).allowed === false,
       ));
-  if (blocked) {
-    const why = (data.message || "").replace(/^input blocked:\s*/i, "") || "input blocked";
-    return { line: `Blocked · ${why}`, stage: "guard" };
+  if (cancelled) return { line: "Cancelled", stage: stage === "cancelled" ? "guard" : stage, tone: "muted" };
+  if (failed || blocked) {
+    const failStage = blocked ? "guard" : stage === "timed_out" ? "fleet" : stage;
+    return { line: `Failed at ${failStage}`, stage: failStage, tone: "error" };
   }
-  if (awaiting) return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
-  if (data.status_line) {
-    return { line: `${data.status_line} · ${elapsed}`, stage: data.status_stage || stage };
+  if (awaiting || stage === "approve") return { line: "Awaiting approval", stage: "approve", tone: "needs" };
+  if (stage === "done") return { line: "Done", stage: "integrate", tone: "success" };
+  if (data.status_line && data.status_stage) {
+    return { line: data.status_line, stage: data.status_stage, tone: "running" };
   }
-  if (data.pr_mode && (stage === "done" || stage === "timed_out" || stage === "awaiting_prs" || stage === "pr")) {
-    const label = stage === "timed_out" ? "Timed out" : stage === "done" ? "Done" : "PRs open";
-    return { line: `${label} · ${elapsed}`, stage: "pr" };
+  if (data.pr_mode && (stage === "awaiting_prs" || stage === "pr")) {
+    return { line: "Running · PRs open", stage: "pr", tone: "running" };
   }
-  if (data.pr_mode && (stage === "review" || stage === "integrate")) {
-    return { line: `PRs open · ${elapsed}`, stage: "pr" };
-  }
-  if (stage === "done") return { line: `Done · ${elapsed}`, stage: "integrate" };
-  if (stage === "integrate") return { line: `Integrating · ${elapsed}`, stage: "integrate" };
-  if (stage === "review") return { line: `Reviewing · ${elapsed}`, stage: "review" };
+  if (stage === "integrate") return { line: `Running · ${active || 0} of ${total || 0} tasks`, stage: "integrate", tone: "running" };
+  if (stage === "review") return { line: `Running · ${active || 0} of ${total || 0} tasks`, stage: "review", tone: "running" };
   if (stage === "fleet" || active || (optimistic && optimistic.starting)) {
-    return { line: `Running · ${active || total || 0} of ${total || active || 0} tasks · ${elapsed}`, stage: "fleet" };
+    return {
+      line: `Running · ${active || total || 0} of ${total || active || 0} tasks`,
+      stage: "fleet",
+      tone: "running",
+    };
   }
-  if (stage === "plan") return { line: `Planning · ${elapsed}`, stage: "plan" };
-  if (stage === "approve") return { line: `Awaiting approval · ${elapsed}`, stage: "approve" };
-  if (stage === "guard") return { line: `Guarding · ${elapsed}`, stage: "guard" };
-  return { line: `Idle · ${elapsed}`, stage };
+  if (stage === "plan") return { line: "Running · Planning", stage: "plan", tone: "running" };
+  if (stage === "guard") return { line: "Running · Guarding", stage: "guard", tone: "running" };
+  return { line: "Idle", stage, tone: "muted" };
 }
 
 function updateRunStrip(data, counts) {
   const info = runStripState(data, counts);
-  document.getElementById("run-status").textContent = info.line;
+  const statusEl = document.getElementById("run-status");
+  if (statusEl) {
+    statusEl.textContent = info.line;
+    statusEl.dataset.tone = info.tone || "";
+    statusEl.classList.toggle("is-error", info.tone === "error");
+  }
   const shown = elapsedText();
   document.getElementById("elapsed").textContent = shown;
   document.getElementById("metrics-elapsed").textContent = `Elapsed ${shown}`;
   const summary = document.getElementById("summary-elapsed");
   if (summary) summary.textContent = shown;
   const spinner = document.getElementById("run-strip-spinner");
-  const activeWork =
-    info.stage !== "done" &&
-    info.stage !== "integrate" &&
-    !/^Done|^Blocked|^Idle|^Timed/i.test(info.line) &&
-    data.stage !== "done";
-  if (spinner) spinner.hidden = !activeWork || data.stage === "done";
+  const failed = info.tone === "error";
+  const activeWork = info.tone === "running";
+  if (spinner) {
+    spinner.hidden = !activeWork;
+    spinner.classList.toggle("is-error", false);
+  }
+  let alert = document.getElementById("run-strip-alert");
+  if (!alert && statusEl && statusEl.parentElement) {
+    alert = document.createElement("span");
+    alert.id = "run-strip-alert";
+    alert.className = "run-strip-alert";
+    alert.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-alert-circle"></use></svg>`;
+    statusEl.parentElement.insertBefore(alert, statusEl);
+  }
+  if (alert) alert.hidden = !failed;
   const last = document.querySelector('#stage-stepper li[data-stage="integrate"], #stage-stepper li[data-stage="pr"]');
   if (last) {
     last.dataset.stage = data.pr_mode ? "pr" : "integrate";
     const label = last.querySelector(".stage-label");
     if (label) label.textContent = data.pr_mode ? "pr" : "integrate";
-    else last.childNodes.forEach((node) => {
-      if (node.nodeType === Node.TEXT_NODE) node.textContent = "";
-    });
   }
-  const blocked =
-    /blocked/i.test(info.line) ||
-    data.stage === "timed_out" ||
-    /fail/i.test(String(data.message || ""));
   const names = [...document.querySelectorAll("#stage-stepper li")].map((item) => item.dataset.stage);
   let idx = names.indexOf(info.stage);
-  if (idx < 0 && data.stage === "timed_out") idx = names.indexOf("fleet");
-  if (idx < 0 && blocked) idx = Math.max(0, names.indexOf("guard"));
-  if (info.stage === "done" || data.stage === "done") idx = names.length;
+  if (idx < 0 && failed) idx = Math.max(0, names.indexOf("fleet"));
+  if (info.line === "Done" || data.stage === "done") idx = names.length;
   document.querySelectorAll("#stage-stepper li").forEach((item, i) => {
-    const done = idx > i || (data.stage === "done" && !blocked);
+    const done = idx > i || (info.line === "Done" && !failed);
     const current = !done && i === idx;
-    const failed = blocked && current;
-    item.classList.toggle("is-done", done && !failed);
-    item.classList.toggle("is-current", current && !failed);
-    item.classList.toggle("is-failed", failed);
+    const isFailed = failed && current;
+    item.classList.toggle("is-done", done && !isFailed);
+    item.classList.toggle("is-current", current && !isFailed);
+    item.classList.toggle("is-failed", isFailed);
     const icon = item.querySelector(".stage-icon use");
     if (icon) {
-      if (failed) icon.setAttribute("href", "/static/icons.svg#icon-alert-circle");
+      if (isFailed) icon.setAttribute("href", "/static/icons.svg#icon-alert-circle");
       else if (current) icon.setAttribute("href", "/static/icons.svg#icon-loader-circle");
       else icon.setAttribute("href", "/static/icons.svg#icon-check");
     }
     const svg = item.querySelector(".stage-icon");
     if (svg) {
-      svg.classList.toggle("stage-icon-spin", current && !failed);
-      if (current || failed || done) svg.style.display = "inline-block";
-      else svg.style.display = "none";
+      svg.classList.toggle("stage-icon-spin", current && !isFailed);
+      svg.style.display = current || isFailed || done ? "inline-block" : "none";
     }
     item.removeAttribute("title");
   });
@@ -547,11 +595,39 @@ function reviewNote(task) {
   return { text: text.slice(0, limit), tone };
 }
 
-function renderCard(task) {
-  const button = document.createElement("button");
+function formatLineCounts(counts) {
+  const addCls = counts.added ? "add" : "add is-zero";
+  const delCls = counts.removed ? "del" : "del is-zero";
+  return `<span class="chip lines"><span class="${addCls}">+${counts.added}</span> <span class="${delCls}">−${counts.removed}</span></span>`;
+}
+
+function cardStatusWords(task) {
+  if (lane(task) === "needs" || task.needs_human || task.status === "needs_review") return "needs you";
+  if (task.status === "failed") return "failed";
+  if (lane(task) === "ready" || task.verdict === "approve") return "ready";
+  if (lane(task) === "review") return "in review";
+  if (isRunning(task)) return "running";
+  return task.status || lane(task) || "task";
+}
+
+function paintCardShell(button, task) {
+  const selected = button.classList.contains("is-selected");
+  const hot = button.classList.contains("is-graph-hot");
   button.className = "card";
+  if (lane(task) === "needs" || task.needs_human || task.status === "needs_review") {
+    button.classList.add("is-needs");
+  }
+  if (selected) button.classList.add("is-selected");
+  if (hot) button.classList.add("is-graph-hot");
   button.type = "button";
   button.dataset.taskId = task.id;
+  button.setAttribute("role", "listitem");
+  // Status first with an em dash so get_by_label("Isolation proof") still hits the pane only.
+  button.setAttribute("aria-label", `${cardStatusWords(task)} — ${task.title || task.id}`);
+}
+
+function fillCard(button, task) {
+  paintCardShell(button, task);
   const files = filesFor(task);
   const counts = lineCounts(files);
   const running = isRunning(task);
@@ -580,15 +656,14 @@ function renderCard(task) {
     const label = passing ? "checks passing" : failing ? "checks failing" : "checks pending";
     chips.push(`<span class="chip ${passing ? "pass" : failing ? "fail" : ""}">${label}</span>`);
   }
-  if (counts.count) {
-    chips.push(
-      `<span class="chip lines"><span class="add">+${counts.added}</span> <span class="del">-${counts.removed}</span></span>`,
-    );
-  }
+  if (counts.count) chips.push(formatLineCounts(counts));
   if (task.round) chips.push(`<span class="chip round">revise ${esc(task.round)}</span>`);
   const note = reviewNote(task);
-  const noteHtml = note.text
-    ? `<div class="${note.tone === "needs" ? "reason" : "note"}">${esc(note.text)}</div>`
+  const fullNote = note.text;
+  const noteHtml = fullNote
+    ? `<div class="note-row"><div class="${note.tone === "needs" ? "reason" : "note"}" title="${esc(
+        fullNote,
+      )}">${esc(fullNote)}</div><button type="button" class="btn ghost show-more" data-show-more="1">Show more</button></div>`
     : "";
   const age = taskAge(task);
   const action = running
@@ -598,56 +673,187 @@ function renderCard(task) {
     : "";
   const verdictClass = ["approve", "reject", "revise", "needs_review"].includes(verdictLabel) ? verdictLabel : "";
   const verdict = verdictLabel
-    ? `<div class="verdict-row"><span class="chip verdict ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span></div>${noteHtml}`
+    ? `<div class="verdict-row"><span class="chip verdict badge-status ${verdictClass}">${esc(
+        verdictLabel.replaceAll("_", " "),
+      )}</span>${noteHtml}</div>`
     : noteHtml;
+  const branchFull = task.branch || task.id || "";
   const mergeCmd = task.pr_number
     ? `gh pr merge ${task.pr_number} --repo ${state.pr_repo || ""} --squash`
     : `git -C ${state.repo || ""} merge ${task.branch || task.id}`;
-  const mergeBtn =
-    lane(task) === "ready"
-      ? `<div class="merge-row"><button class="btn ghost merge-btn" type="button" data-merge="${esc(
-          mergeCmd,
-        )}"><span class="merge-label">Copy merge command</span></button></div>`
-      : "";
-  button.innerHTML = `
+  const body = `
     <div class="model-row">
-      <span class="model">${modelIcon()}<span>${esc(task.model || "model")}</span></span>
-      <span class="age"${task.age_s != null ? ' data-fixed="1"' : ""}>${esc(age)}</span>
+      <span class="model chip">${modelIcon()}<span class="model-text">${esc(task.model || "model")}</span></span>
+      <span class="age timer type-code-sm"${task.age_s != null ? ' data-fixed="1"' : ""}>${esc(age)}</span>
     </div>
-    <div class="title">${esc(task.title)}</div>
-    <span class="branch mono" title="${esc(task.branch || task.id)}">${gitGlyph()}<span>${esc(
-      middleTruncate(task.branch || task.id),
+    <div class="title type-title-sm" title="${esc(task.title || "")}">${esc(task.title)}</div>
+    <span class="branch type-code-sm" title="${esc(branchFull)}" data-branch="${esc(branchFull)}">${gitGlyph()}<span class="branch-text">${esc(
+      middleTruncate(branchFull),
     )}</span></span>
     ${action}
     ${verdict}
-    ${task.notice ? `<div class="note">${esc(task.notice)}</div>` : ""}
+    ${task.notice ? `<div class="note" title="${esc(task.notice)}">${esc(task.notice)}</div>` : ""}
     ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
-    ${mergeBtn}
   `;
-  button.addEventListener("click", (event) => {
-    const link = event.target.closest("[data-pr-url]");
-    if (link) {
-      event.stopPropagation();
-      const url = link.getAttribute("data-pr-url");
-      if (url) window.open(url, "_blank", "noopener");
-      return;
+  const mergeExisting = button.querySelector("[data-merge]");
+  const keepHot = button.classList.contains("is-graph-hot");
+  const keepSelected = button.classList.contains("is-selected");
+  button.innerHTML = body;
+  // innerHTML teardown can fire pointerout and clear highlight classes — restore them.
+  if (keepHot) button.classList.add("is-graph-hot");
+  if (keepSelected) button.classList.add("is-selected");
+  if (lane(task) === "ready") {
+    let merge = mergeExisting;
+    if (!merge) {
+      const row = document.createElement("div");
+      row.className = "merge-row";
+      merge = document.createElement("button");
+      merge.className = "btn secondary merge-btn";
+      merge.type = "button";
+      merge.innerHTML = `<span class="merge-label">Copy merge command</span>`;
+      row.appendChild(merge);
+      button.appendChild(row);
+    } else {
+      const row = merge.closest(".merge-row") || merge.parentElement;
+      if (row) button.appendChild(row);
     }
-    const merge = event.target.closest("[data-merge]");
-    if (merge) {
-      event.stopPropagation();
-      const cmd = merge.getAttribute("data-merge");
-      if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
-      merge.classList.add("copied");
-      merge.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="merge-label">Copied</span>`;
-      setTimeout(() => {
-        merge.classList.remove("copied");
-        merge.innerHTML = `<span class="merge-label">Copy merge command</span>`;
-      }, 2000);
-      return;
+    merge.setAttribute("data-merge", mergeCmd);
+    if (!merge.querySelector(".merge-label") && !merge.classList.contains("copied")) {
+      merge.innerHTML = `<span class="merge-label">Copy merge command</span>`;
     }
-    select(task, true);
-  });
+  }
   return button;
+}
+
+function renderCard(task) {
+  return fillCard(document.createElement("button"), task);
+}
+
+function handleCardClick(event) {
+  const card = event.target.closest?.(".card[data-task-id]");
+  if (!card) return;
+  const task = (state.tasks || []).find((item) => String(item.id) === String(card.dataset.taskId));
+  if (!task) return;
+  const more = event.target.closest("[data-show-more]");
+  if (more) {
+    event.stopPropagation();
+    select(task, true);
+    const proofTab = document.querySelector('.drawer .tab[data-pane="proofpane"]');
+    if (proofTab) proofTab.click();
+    return;
+  }
+  const link = event.target.closest("[data-pr-url]");
+  if (link) {
+    event.stopPropagation();
+    const url = link.getAttribute("data-pr-url");
+    if (url) window.open(url, "_blank", "noopener");
+    return;
+  }
+  const merge = event.target.closest("[data-merge]");
+  if (merge) {
+    event.stopPropagation();
+    const cmd = merge.getAttribute("data-merge");
+    if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+    merge.classList.add("copied");
+    merge.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="merge-label">Copied</span>`;
+    setTimeout(() => {
+      merge.classList.remove("copied");
+      merge.innerHTML = `<span class="merge-label">Copy merge command</span>`;
+    }, 2000);
+    return;
+  }
+  select(task, true);
+}
+
+function planStepsHtml(awaiting) {
+  return (awaiting || [])
+    .map(
+      (task, i) =>
+        `<li class="plan-step" role="presentation" title="${esc(task.title)}"><span class="plan-num">${i + 1}.</span> <span class="plan-step-text">${esc(
+          task.title,
+        )}</span></li>`,
+    )
+    .join("");
+}
+
+function bindPlanActions(card, runId) {
+  const ok = card.querySelector(".plan-approve");
+  const cancel = card.querySelector(".plan-cancel");
+  if (ok) {
+    ok.onclick = () => {
+      optimistic = { stage: "fleet", awaiting: null, starting: true };
+      post(`/api/runs/${runId}/approve`);
+      updateRunStrip(state, lastCounts);
+    };
+  }
+  if (cancel) {
+    cancel.onclick = () => post(`/api/runs/${runId}/cancel`);
+  }
+}
+
+function renderPlanCard(awaiting, runId) {
+  const card = document.createElement("div");
+  card.className = "card plan";
+  card.dataset.planCard = "1";
+  card.setAttribute("role", "listitem");
+  card.innerHTML = `<div class="plan-head"><span class="dot needs" aria-hidden="true"></span>Plan ready</div><ol class="plan-steps">${planStepsHtml(
+    awaiting,
+  )}</ol>`;
+  const actions = document.createElement("div");
+  actions.className = "actions plan-actions";
+  const ok = document.createElement("button");
+  ok.className = "btn primary plan-approve";
+  ok.type = "button";
+  ok.textContent = "Approve plan";
+  const cancel = document.createElement("button");
+  cancel.className = "btn ghost plan-cancel";
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  actions.appendChild(ok);
+  actions.appendChild(cancel);
+  card.appendChild(actions);
+  bindPlanActions(card, runId);
+  return card;
+}
+
+function syncPlanCard(card, awaiting, runId) {
+  const ol = card.querySelector(".plan-steps");
+  if (ol) ol.innerHTML = planStepsHtml(awaiting);
+  bindPlanActions(card, runId);
+  return card;
+}
+
+function ensureEmptyLane(stack) {
+  if (!stack) return;
+  let empty = stack.querySelector(".lane-empty");
+  const hasCards = stack.querySelector(".card, .card.plan");
+  if (hasCards) {
+    if (empty) empty.remove();
+    return;
+  }
+  if (!empty) {
+    empty = document.createElement("div");
+    empty.className = "lane-empty";
+    empty.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-inbox"></use></svg><span class="type-caption">No tasks</span>`;
+    stack.appendChild(empty);
+  }
+}
+
+function ensureSkeletons() {
+  ["working", "needs", "review", "ready"].forEach((id) => {
+    const stack = document.getElementById(id);
+    if (!stack || stack.querySelector(".card, .skeleton-card, .lane-empty")) return;
+    for (let i = 0; i < 2; i += 1) {
+      const sk = document.createElement("div");
+      sk.className = "skeleton skeleton-card";
+      sk.setAttribute("aria-hidden", "true");
+      stack.appendChild(sk);
+    }
+  });
+}
+
+function clearSkeletons() {
+  document.querySelectorAll(".skeleton-card").forEach((el) => el.remove());
 }
 
 function setEmpty(tableId, emptyId, count) {
@@ -726,11 +932,117 @@ function post(url, body) {
 }
 
 function applyMobileLane() {
+  const runId = state.run_id || "";
+  if (runId && mobileLaneByRun.has(runId)) mobileLane = mobileLaneByRun.get(runId);
   document.querySelectorAll(".lane").forEach((el) => {
     el.classList.toggle("is-active", el.id === `lane-${mobileLane}`);
   });
   document.querySelectorAll(".mobile-lane-tabs button").forEach((btn) => {
     btn.setAttribute("aria-selected", String(btn.dataset.lane === mobileLane));
+  });
+}
+
+function syncLaneRails() {
+  const strip = document.querySelector(".lanes");
+  if (!strip || isMobileBoard()) {
+    document.querySelectorAll(".lane.is-rail").forEach((laneEl) => {
+      laneEl.classList.remove("is-rail");
+      laneEl.tabIndex = -1;
+      laneEl.removeAttribute("role");
+      laneEl.removeAttribute("aria-label");
+    });
+    strip?.classList.remove("is-cramped");
+    return;
+  }
+  // Measure fit with rails off so collapse state does not oscillate.
+  const lanes = [...document.querySelectorAll(".lane")];
+  lanes.forEach((laneEl) => laneEl.classList.remove("is-rail"));
+  const cramped = strip.scrollWidth > strip.clientWidth + 4;
+  strip.classList.toggle("is-cramped", cramped);
+  lanes.forEach((laneEl) => {
+    const id = laneEl.dataset.lane || laneEl.id.replace(/^lane-/, "");
+    const stack = laneEl.querySelector(".stack");
+    const hasCards = !!(stack && stack.querySelector(".card"));
+    const expanded = laneRailExpanded.has(id);
+    const asRail = cramped && !hasCards && !expanded;
+    laneEl.classList.toggle("is-rail", asRail);
+    laneEl.tabIndex = asRail ? 0 : -1;
+    if (asRail) {
+      laneEl.setAttribute("role", "button");
+      laneEl.setAttribute(
+        "aria-label",
+        `Expand ${laneEl.querySelector(".lane-label")?.textContent || id} lane`,
+      );
+    } else {
+      laneEl.removeAttribute("role");
+      laneEl.removeAttribute("aria-label");
+    }
+  });
+}
+
+function expandLaneRail(laneEl) {
+  const id = laneEl.dataset.lane || laneEl.id.replace(/^lane-/, "");
+  laneRailExpanded.add(id);
+  laneEl.classList.remove("is-rail");
+  syncLaneRails();
+}
+
+let cardKeysBound = false;
+function bindCardKeyboard() {
+  if (cardKeysBound) return;
+  cardKeysBound = true;
+  document.querySelector(".lanes")?.addEventListener("click", handleCardClick);
+  document.addEventListener("keydown", (event) => {
+    const card = event.target.closest?.(".card[data-task-id]");
+    if (!card) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      card.click();
+      return;
+    }
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const laneEl = card.closest(".lane");
+    const cards = [...(laneEl?.querySelectorAll(".card[data-task-id]") || [])];
+    const idx = cards.indexOf(card);
+    if (event.key === "ArrowUp" && idx > 0) {
+      cards[idx - 1].tabIndex = 0;
+      card.tabIndex = -1;
+      cards[idx - 1].focus();
+      cardFocusId = cards[idx - 1].dataset.taskId;
+      return;
+    }
+    if (event.key === "ArrowDown" && idx < cards.length - 1) {
+      cards[idx + 1].tabIndex = 0;
+      card.tabIndex = -1;
+      cards[idx + 1].focus();
+      cardFocusId = cards[idx + 1].dataset.taskId;
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const lanes = [...document.querySelectorAll(".lane:not(.is-rail)")];
+      const li = lanes.indexOf(laneEl);
+      const nextLane = lanes[li + (event.key === "ArrowRight" ? 1 : -1)];
+      if (!nextLane) return;
+      const target = nextLane.querySelector(".card[data-task-id]");
+      if (!target) return;
+      card.tabIndex = -1;
+      target.tabIndex = 0;
+      target.focus();
+      cardFocusId = target.dataset.taskId;
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    const rail = event.target.closest?.(".lane.is-rail");
+    if (!rail) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      expandLaneRail(rail);
+    }
+  });
+  document.querySelector(".lanes")?.addEventListener("click", (event) => {
+    const rail = event.target.closest(".lane.is-rail");
+    if (rail) expandLaneRail(rail);
   });
 }
 
@@ -777,47 +1089,59 @@ function render(data) {
   lastCounts = counts;
   notifyHuman(needsCount(counts));
   updateRunStrip(data, counts);
+  clearSkeletons();
+  boardReady = true;
+  const focusBefore = document.activeElement;
+  const focusTaskId =
+    focusBefore && focusBefore.classList && focusBefore.classList.contains("card")
+      ? focusBefore.dataset.taskId
+      : cardFocusId;
+  const scrollLeft = document.querySelector(".lanes")?.scrollLeft || 0;
+  const laneScrolls = {};
+  document.querySelectorAll(".lane .stack").forEach((stack) => {
+    laneScrolls[stack.id] = stack.scrollTop;
+  });
+
+  const byLane = { needs: [], working: [], review: [], ready: [], done: [] };
+  tasks.forEach((task) => {
+    const id = lane(task);
+    if (!byLane[id]) byLane[id] = [];
+    byLane[id].push(task);
+  });
+
+  Object.keys(byLane).forEach((id) => {
+    const stack = document.getElementById(id);
+    if (!stack) return;
+    const wanted = new Set(byLane[id].map((task) => String(task.id)));
+    if (id === "needs" && data.awaiting) wanted.add("__plan__");
+    [...stack.querySelectorAll(".card[data-task-id], .card.plan")].forEach((el) => {
+      const key = el.dataset.planCard ? "__plan__" : el.dataset.taskId;
+      if (!wanted.has(key)) el.remove();
+    });
+    if (id === "needs" && data.awaiting) {
+      let plan = stack.querySelector(".card.plan");
+      if (plan) syncPlanCard(plan, data.awaiting, data.run_id);
+      else stack.insertBefore(renderPlanCard(data.awaiting, data.run_id), stack.firstChild);
+    } else {
+      const plan = stack.querySelector(".card.plan");
+      if (plan) plan.remove();
+    }
+    byLane[id].forEach((task) => {
+      const existing = stack.querySelector(`.card[data-task-id="${CSS.escape(String(task.id))}"]`);
+      if (existing) fillCard(existing, task);
+      else {
+        const next = renderCard(task);
+        next.tabIndex = -1;
+        stack.appendChild(next);
+      }
+    });
+    ensureEmptyLane(stack);
+    if (laneScrolls[id] != null) stack.scrollTop = laneScrolls[id];
+  });
+
   if (laneKey !== laneSig) {
     laneSig = laneKey;
-    ["needs", "working", "review", "ready", "done"].forEach((id) => {
-      const stack = document.getElementById(id);
-      if (stack) stack.innerHTML = "";
-    });
-
-    if (data.awaiting) {
-      const card = document.createElement("div");
-      card.className = "card plan";
-      const items = data.awaiting
-        .map((task) => `<li>${esc(task.title)} · ${esc((task.allowed_paths || []).join(", "))}</li>`)
-        .join("");
-      card.innerHTML = `<div class="plan-head"><span class="dot needs"></span>Plan ready</div><ul>${items}</ul>`;
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      const ok = document.createElement("button");
-      ok.className = "btn primary";
-      ok.type = "button";
-      ok.textContent = "Approve plan";
-      ok.addEventListener("click", () => {
-        optimistic = { stage: "fleet", awaiting: null, starting: true };
-        post(`/api/runs/${data.run_id}/approve`);
-        updateRunStrip(data, lastCounts);
-      });
-      const cancel = document.createElement("button");
-      cancel.className = "btn ghost";
-      cancel.type = "button";
-      cancel.textContent = "Cancel";
-      cancel.addEventListener("click", () => post(`/api/runs/${data.run_id}/cancel`));
-      actions.appendChild(ok);
-      actions.appendChild(cancel);
-      card.appendChild(actions);
-      document.getElementById("needs").appendChild(card);
-    }
-
-    tasks.forEach((task) => {
-      document.getElementById(lane(task)).appendChild(renderCard(task));
-    });
     playFlip();
-
     if (!pinned) {
       let current = null;
       tasks.forEach((task) => {
@@ -839,7 +1163,19 @@ function render(data) {
       drawer.refresh(held, state);
     }
   }
+
+  const lanesEl = document.querySelector(".lanes");
+  if (lanesEl) lanesEl.scrollLeft = scrollLeft;
+  if (focusTaskId) {
+    const again = document.querySelector(`.card[data-task-id="${CSS.escape(focusTaskId)}"]`);
+    if (again && focusBefore && document.body.contains(again)) {
+      again.focus({ preventScroll: true });
+      cardFocusId = focusTaskId;
+    }
+  }
+  syncLaneRails();
   applyMobileLane();
+  bindCardKeyboard();
 
   const body = document.querySelector("#worktrees tbody");
   body.innerHTML = "";
@@ -1129,8 +1465,16 @@ document.querySelectorAll('.view-toggle [role="tab"]').forEach((tab) => {
 document.querySelectorAll(".mobile-lane-tabs button").forEach((btn) => {
   btn.addEventListener("click", () => {
     mobileLane = btn.dataset.lane;
+    if (state.run_id) mobileLaneByRun.set(state.run_id, mobileLane);
     applyMobileLane();
   });
+});
+document.querySelector(".mobile-lane-tabs")?.addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-lane]");
+  if (!btn) return;
+  mobileLane = btn.dataset.lane;
+  if (state.run_id) mobileLaneByRun.set(state.run_id, mobileLane);
+  applyMobileLane();
 });
 
 drawer = createDrawer({ auth, worktreeFor });
@@ -1234,6 +1578,12 @@ applyMobileLane();
 syncComposerEnabled(state);
 autosizeComposer(document.getElementById("goal"));
 autosizeComposer(document.getElementById("follow-goal"));
+ensureSkeletons();
+bindCardKeyboard();
+window.addEventListener("resize", () => {
+  laneRailExpanded.clear();
+  syncLaneRails();
+});
 refresh();
 setInterval(refresh, 1000);
 setInterval(tick, 1000);
