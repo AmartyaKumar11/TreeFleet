@@ -1,5 +1,8 @@
 /** Task drawer panes. Untrusted text goes through textContent / createTextNode only. */
 
+import { statusKey, statusWords as sharedStatusWords } from "./status.js";
+import { createDiffPane } from "./diff-render.js";
+
 const LIVE_CAP = 80;
 const DIFF_CAP = 2000;
 
@@ -41,14 +44,6 @@ function toolErrorsFor(boardState, task) {
   });
 }
 
-function paintToolErrors(root, boardState, task) {
-  const errors = toolErrorsFor(boardState, task);
-  root.appendChild(el("p", "empty-line", `Tool errors: ${errors.length}`));
-  errors.forEach((event) => {
-    root.appendChild(el("p", "empty-line", toolErrorText(event)));
-  });
-}
-
 export function costRole(row) {
   const component = String((row && (row.component || row.role)) || "");
   if (component === "cursor") return "coder";
@@ -67,6 +62,7 @@ export function createDrawer({ auth, worktreeFor }) {
   let followTail = true;
   let wrapLines = false;
   let showTimestamps = false;
+  let livePaused = false;
   let liveOffset = 0;
   let selected = null;
   let state = {};
@@ -75,17 +71,15 @@ export function createDrawer({ auth, worktreeFor }) {
   let diffTaskId = "";
   let diffInFlight = false;
   let diffQueued = false;
-  let diffExpanded = false;
-  let diffActiveFile = 0;
-  let diffScrollTop = 0;
   let diffToken = 0;
   let lastGood = null;
   let paneScroll = {};
   let lastTaskId = "";
+  let activePaneId = "live";
+  let diffRenderer = null;
 
   function activePane() {
-    const active = document.querySelector(".drawer .tab[aria-selected='true']");
-    return (active && active.dataset.pane) || "live";
+    return activePaneId || "live";
   }
 
   function rememberPaneScroll() {
@@ -100,17 +94,19 @@ export function createDrawer({ auth, worktreeFor }) {
   }
 
   function setPane(id) {
+    const next = id || "live";
     rememberPaneScroll();
+    activePaneId = next;
     document.querySelectorAll(".drawer .tab").forEach((tab) => {
-      const on = tab.dataset.pane === id;
+      const on = tab.dataset.pane === next;
       tab.setAttribute("aria-selected", String(on));
       tab.tabIndex = on ? 0 : -1;
     });
     document.querySelectorAll(".drawer .pane").forEach((pane) => {
-      pane.hidden = pane.id !== id;
+      pane.hidden = pane.id !== next;
     });
-    restorePaneScroll(id);
-    if (id === "diff" && selected) syncDiff(selected, state, { reason: "pane" });
+    restorePaneScroll(next);
+    if (next === "diff" && selected) syncDiff(selected, state, { reason: "pane" });
   }
 
   function lineKind(raw) {
@@ -142,24 +138,35 @@ export function createDrawer({ auth, worktreeFor }) {
     let toolbar = root.querySelector(".live-toolbar");
     const events = (state.events || []).filter((event) => !event.task_id || event.task_id === task.id);
     const hasTs = events.some((event) => event.ts);
+    const setFollowLabel = (follow) => {
+      if (!follow) return;
+      follow.setAttribute("aria-pressed", String(followTail));
+      follow.classList.toggle("is-on", followTail);
+      follow.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-arrow-down-to-line"></use></svg><span>Follow</span>`;
+      follow.setAttribute("aria-label", followTail ? "Follow on" : "Follow off");
+      follow.title = followTail ? "Following output" : "Follow output";
+    };
+    const setPauseLabel = (pause) => {
+      if (!pause) return;
+      pause.setAttribute("aria-pressed", String(livePaused));
+      pause.classList.toggle("is-on", livePaused);
+      const icon = livePaused ? "play" : "pause";
+      const label = livePaused ? "Resume" : "Pause";
+      pause.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${icon}"></use></svg><span>${label}</span>`;
+      pause.setAttribute("aria-label", label);
+      pause.title = label;
+    };
     if (!toolbar) {
       clear(root);
       toolbar = el("div", "live-toolbar");
       const follow = el("button", "btn ghost live-follow");
       follow.type = "button";
-      follow.setAttribute("aria-pressed", "true");
-      const setFollowLabel = () => {
-        follow.setAttribute("aria-pressed", String(followTail));
-        follow.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${
-          followTail ? "pause" : "play"
-        }"></use></svg><span>${followTail ? "Follow" : "Follow"}</span>`;
-        follow.setAttribute("aria-label", followTail ? "Follow on" : "Follow off");
-        follow.title = followTail ? "Following output" : "Follow output";
-      };
-      setFollowLabel();
+      setFollowLabel(follow);
       follow.addEventListener("click", () => {
         followTail = !followTail;
-        setFollowLabel();
+        if (followTail) livePaused = false;
+        setFollowLabel(follow);
+        setPauseLabel(toolbar.querySelector(".live-pause"));
         if (followTail) renderLive(selected || task);
         syncJump();
       });
@@ -168,20 +175,36 @@ export function createDrawer({ auth, worktreeFor }) {
       wrap.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-wrap-text"></use></svg><span>Wrap</span>`;
       wrap.setAttribute("aria-label", "Wrap lines");
       wrap.title = "Wrap lines";
+      wrap.setAttribute("aria-pressed", "false");
       wrap.addEventListener("click", () => {
         wrapLines = !wrapLines;
         wrap.setAttribute("aria-pressed", String(wrapLines));
+        wrap.classList.toggle("is-on", wrapLines);
         const log = root.querySelector(".live-log");
         if (log) log.classList.toggle("is-wrap", wrapLines);
       });
-      const pause = el("button", "btn ghost icon-btn live-pause");
+      const tsBtn = el("button", "btn ghost live-ts-toggle");
+      tsBtn.type = "button";
+      tsBtn.innerHTML = `<span>Timestamps</span>`;
+      tsBtn.setAttribute("aria-label", "Timestamps");
+      tsBtn.title = "Timestamps";
+      tsBtn.hidden = !hasTs;
+      tsBtn.setAttribute("aria-pressed", String(showTimestamps));
+      tsBtn.addEventListener("click", () => {
+        showTimestamps = !showTimestamps;
+        tsBtn.setAttribute("aria-pressed", String(showTimestamps));
+        tsBtn.classList.toggle("is-on", showTimestamps);
+        renderLive(selected || task);
+      });
+      const spacer = el("span", "live-toolbar-spacer");
+      const pause = el("button", "btn ghost live-pause");
       pause.type = "button";
-      pause.setAttribute("aria-label", "Pause");
-      pause.title = "Pause";
-      pause.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-pause"></use></svg>`;
+      setPauseLabel(pause);
       pause.addEventListener("click", () => {
-        followTail = false;
-        setFollowLabel();
+        livePaused = !livePaused;
+        if (livePaused) followTail = false;
+        setPauseLabel(pause);
+        setFollowLabel(toolbar.querySelector(".live-follow"));
         syncJump();
       });
       const copy = el("button", "btn ghost icon-btn live-copy");
@@ -201,27 +224,21 @@ export function createDrawer({ auth, worktreeFor }) {
           /* ignore */
         }
       });
-      const tsBtn = el("button", "btn ghost live-ts-toggle", "Timestamps");
-      tsBtn.type = "button";
-      tsBtn.hidden = !hasTs;
-      tsBtn.addEventListener("click", () => {
-        showTimestamps = !showTimestamps;
-        tsBtn.setAttribute("aria-pressed", String(showTimestamps));
-        renderLive(selected || task);
-      });
-      // Pause/Copy first so existing identity tests keep button indices stable.
-      toolbar.appendChild(pause);
-      toolbar.appendChild(copy);
       toolbar.appendChild(follow);
       toolbar.appendChild(wrap);
       toolbar.appendChild(tsBtn);
+      toolbar.appendChild(spacer);
+      toolbar.appendChild(pause);
+      toolbar.appendChild(copy);
       root.appendChild(toolbar);
       const jump = el("button", "jump-latest", "Jump to latest");
       jump.type = "button";
       jump.hidden = true;
       jump.addEventListener("click", () => {
         followTail = true;
-        setFollowLabel();
+        livePaused = false;
+        setFollowLabel(toolbar.querySelector(".live-follow"));
+        setPauseLabel(toolbar.querySelector(".live-pause"));
         renderLive(selected || task);
         syncJump();
       });
@@ -229,11 +246,18 @@ export function createDrawer({ auth, worktreeFor }) {
     } else {
       const tsBtn = toolbar.querySelector(".live-ts-toggle");
       if (tsBtn) tsBtn.hidden = !hasTs;
+      setFollowLabel(toolbar.querySelector(".live-follow"));
+      setPauseLabel(toolbar.querySelector(".live-pause"));
     }
 
     function syncJump() {
       const jump = root.querySelector(".jump-latest");
       if (jump) jump.hidden = followTail;
+    }
+
+    if (livePaused) {
+      syncJump();
+      return;
     }
 
     const lines = task.lines || [];
@@ -277,11 +301,7 @@ export function createDrawer({ auth, worktreeFor }) {
       if (log.scrollTop + log.clientHeight < log.scrollHeight - 24) {
         if (followTail) {
           followTail = false;
-          const follow = root.querySelector(".live-follow");
-          if (follow) {
-            follow.setAttribute("aria-pressed", "false");
-            follow.title = "Follow output";
-          }
+          setFollowLabel(root.querySelector(".live-follow"));
           syncJump();
         }
       }
@@ -295,144 +315,18 @@ export function createDrawer({ auth, worktreeFor }) {
     syncJump();
   }
 
-  function keepDiffLine(raw) {
-    const text = String(raw);
-    if (!text) return false;
-    if (text.startsWith("diff --git") || text.startsWith("index ") || text.startsWith("---") || text.startsWith("+++")) {
-      return false;
-    }
-    return true;
-  }
-
-  function appendDiffLine(body, raw, number) {
-    const row = el("div", "diff-line");
-    const text = String(raw);
-    if (text.startsWith("+")) row.classList.add("add");
-    else if (text.startsWith("-")) row.classList.add("del");
-    else if (text.startsWith("@@")) row.classList.add("hunk");
-    row.appendChild(el("span", "ln", String(number)));
-    row.appendChild(el("span", "code", text));
-    body.appendChild(row);
-  }
-
-  function paintDiff(body, lines) {
-    let number = 1;
-    lines.filter(keepDiffLine).forEach((line) => {
-      appendDiffLine(body, line, number);
-      number += 1;
+  function initDiffRenderer() {
+    const root = document.getElementById("diff");
+    if (!root || diffRenderer) return;
+    diffRenderer = createDiffPane(root, {
+      auth,
+      getWorktreePath: worktreeFor,
+      onFetch: (opts) => {
+        if (selected) {
+          fetchDiff(selected, opts);
+        }
+      }
     });
-  }
-
-  function captureDiffViewState(root) {
-    const scroller = root.querySelector(".diff-view") || root.querySelector(".diff-body");
-    if (scroller) diffScrollTop = scroller.scrollTop;
-    const active = root.querySelector(".diff-file.is-active");
-    if (active && active.parentElement) {
-      diffActiveFile = Math.max(0, [...active.parentElement.children].indexOf(active));
-    }
-    const more = [...root.querySelectorAll("button")].find((btn) => btn.textContent === "Show more");
-    if (more) diffExpanded = false;
-  }
-
-  function renderDiffBody(root, data, opts) {
-    const note = opts && opts.note ? String(opts.note) : "";
-    const preserve = opts && opts.preserve;
-    if (preserve) captureDiffViewState(root);
-    const activeIndex = preserve ? diffActiveFile : 0;
-    const expanded = preserve ? diffExpanded : false;
-    const scrollTop = preserve ? diffScrollTop : 0;
-    clear(root);
-    if (note) root.appendChild(el("p", "diff-refresh-note empty-line", note));
-    const wrap = el("div", "diff-layout");
-    const files = el("div", "diff-files");
-    const view = el("div", "diff-view");
-    const fileRows = data.files || data.diff_files || [];
-
-    function showFile(index) {
-      diffActiveFile = index;
-      clear(view);
-      [...files.children].forEach((child, i) => {
-        child.classList.toggle("is-active", i === index);
-      });
-      const file = fileRows[index];
-      if (!file) {
-        view.appendChild(el("p", "empty-line", data.diff || data.error || "No diff."));
-        return;
-      }
-      if (file.binary) {
-        view.appendChild(el("p", "empty-line", `Binary file · ${file.path}`));
-        return;
-      }
-      const raw = String(data.diff || "");
-      const marker = `diff --git a/${file.path}`;
-      let chunk = raw;
-      if (raw.includes(marker)) {
-        const start = raw.indexOf(marker);
-        const next = raw.indexOf("\ndiff --git ", start + 1);
-        chunk = next === -1 ? raw.slice(start) : raw.slice(start, next);
-      }
-      const lines = chunk.split("\n");
-      const visible = lines.filter(keepDiffLine);
-      const body = el("div", "diff-body");
-      const useAll = expanded || visible.length <= DIFF_CAP;
-      paintDiff(body, useAll ? visible : visible.slice(0, DIFF_CAP));
-      view.appendChild(body);
-      if (!useAll) {
-        const more = el("button", "btn ghost", "Show more");
-        more.type = "button";
-        more.addEventListener("click", () => {
-          diffExpanded = true;
-          clear(body);
-          paintDiff(body, visible);
-          more.remove();
-        });
-        view.appendChild(more);
-      }
-    }
-
-    if (!fileRows.length) {
-      const body = el("div", "diff-body");
-      const lines = String(data.diff || data.error || "No diff.").split("\n");
-      const useAll = expanded || lines.length <= DIFF_CAP;
-      paintDiff(body, useAll ? lines : lines.slice(0, DIFF_CAP));
-      wrap.appendChild(body);
-      if (!useAll) {
-        const more = el("button", "btn ghost", "Show more");
-        more.type = "button";
-        more.addEventListener("click", () => {
-          diffExpanded = true;
-          clear(body);
-          paintDiff(body, lines);
-          more.remove();
-        });
-        wrap.appendChild(more);
-      }
-      root.appendChild(wrap);
-      if (preserve) body.scrollTop = scrollTop;
-      return;
-    }
-
-    fileRows.forEach((file, index) => {
-      const btn = el("button", "diff-file", null);
-      btn.type = "button";
-      btn.appendChild(el("span", "path", file.path));
-      const counts = el("span", "counts");
-      if (file.binary) {
-        counts.appendChild(el("span", "binary-tag", "binary"));
-      } else {
-        counts.appendChild(el("span", "add", `+${file.additions || 0}`));
-        counts.appendChild(document.createTextNode(" "));
-        counts.appendChild(el("span", "del", `-${file.deletions || 0}`));
-      }
-      btn.appendChild(counts);
-      btn.addEventListener("click", () => showFile(index));
-      files.appendChild(btn);
-    });
-    wrap.appendChild(files);
-    wrap.appendChild(view);
-    root.appendChild(wrap);
-    showFile(Math.min(activeIndex, Math.max(0, fileRows.length - 1)));
-    if (preserve) view.scrollTop = scrollTop;
   }
 
   function diffChangeSignal(task, boardState) {
@@ -460,43 +354,38 @@ export function createDrawer({ auth, worktreeFor }) {
   }
 
   function paintDiffData(task, data, opts) {
-    const root = document.getElementById("diff");
-    if (!root) return;
+    initDiffRenderer();
+    if (!diffRenderer) return;
     const next = payloadSig(data);
     if (opts && opts.skipUnchanged && next === diffPayloadSig && diffTaskId === task.id) {
-      const note = root.querySelector(".diff-refresh-note");
-      if (note) note.remove();
       return;
     }
-    renderDiffBody(root, data, {
-      preserve: !!(opts && opts.preserve),
-      note: opts && opts.note ? opts.note : "",
-    });
+    const preserve = !!(opts && opts.preserve);
+    diffRenderer.render(data, { preserve, skeleton: false });
     diffPayloadSig = next;
     diffTaskId = task.id;
     lastGood = { taskId: task.id, data };
   }
 
   function showDiffFailure(task, message) {
-    const root = document.getElementById("diff");
-    if (!root) return;
+    initDiffRenderer();
+    if (!diffRenderer) return;
     if (lastGood && lastGood.taskId === task.id) {
-      paintDiffData(task, lastGood.data, { preserve: true, note: message, skipUnchanged: false });
+      paintDiffData(task, lastGood.data, { preserve: true, skipUnchanged: false });
       diffPayloadSig = payloadSig(lastGood.data);
+      const root = document.getElementById("diff");
+      if (root) {
+        let note = root.querySelector(".diff-refresh-note");
+        if (!note) {
+          note = el("p", "diff-refresh-note empty-line", message || "could not refresh");
+          root.insertBefore(note, root.firstChild);
+        } else {
+          note.textContent = message || "could not refresh";
+        }
+      }
       return;
     }
-    if (!root.querySelector(".diff-layout") && !root.querySelector(".diff-body")) {
-      clear(root);
-      root.appendChild(el("p", "empty-line", message || "Diff unavailable."));
-    } else {
-      let note = root.querySelector(".diff-refresh-note");
-      if (!note) {
-        note = el("p", "diff-refresh-note empty-line", message || "could not refresh");
-        root.insertBefore(note, root.firstChild);
-      } else {
-        note.textContent = message || "could not refresh";
-      }
-    }
+    diffRenderer.render({ error: message || "could not refresh" }, { preserve: false });
   }
 
   function finishDiffFetch(task) {
@@ -509,13 +398,14 @@ export function createDrawer({ auth, worktreeFor }) {
     diffQueued = false;
   }
 
-  function fetchDiff(task) {
+  function fetchDiff(task, opts = {}) {
     const path = worktreeFor(task);
-    const root = document.getElementById("diff");
+    initDiffRenderer();
     if (!path) {
       if (!(lastGood && lastGood.taskId === task.id)) {
-        clear(root);
-        root.appendChild(el("p", "empty-line", "No worktree for this task yet."));
+        if (diffRenderer) {
+          diffRenderer.render(null, { skeleton: false });
+        }
       }
       return;
     }
@@ -526,11 +416,16 @@ export function createDrawer({ auth, worktreeFor }) {
     diffInFlight = true;
     const token = ++diffToken;
     const taskId = task.id;
-    if (!(lastGood && lastGood.taskId === taskId) && root && !root.querySelector(".diff-layout")) {
-      clear(root);
-      root.appendChild(el("p", "empty-line", "Loading diff…"));
+    if (!(lastGood && lastGood.taskId === taskId) && diffRenderer) {
+      diffRenderer.render(null, { skeleton: true });
     }
-    fetch(`/api/diff?path=${encodeURIComponent(path)}`, { headers: auth() })
+    
+    // Build URL with optional parameters
+    let url = `/api/diff?path=${encodeURIComponent(path)}`;
+    if (opts.full) url += `&full=1`;
+    if (opts.file) url += `&file=${encodeURIComponent(opts.file)}`;
+    
+    fetch(url, { headers: auth() })
       .then((res) => {
         if (!res.ok) throw new Error(`diff ${res.status}`);
         return res.json();
@@ -552,9 +447,6 @@ export function createDrawer({ auth, worktreeFor }) {
     const signal = diffChangeSignal(task, state);
     const taskChanged = diffTaskId !== "" && diffTaskId !== task.id;
     if (taskChanged) {
-      diffExpanded = false;
-      diffActiveFile = 0;
-      diffScrollTop = 0;
       diffPayloadSig = "";
       lastGood = null;
       diffSignal = "";
@@ -582,9 +474,6 @@ export function createDrawer({ auth, worktreeFor }) {
     diffSignal = "";
     diffPayloadSig = "";
     lastGood = null;
-    diffExpanded = false;
-    diffActiveFile = 0;
-    diffScrollTop = 0;
     diffToken += 1;
     diffInFlight = false;
     diffQueued = false;
@@ -592,12 +481,7 @@ export function createDrawer({ auth, worktreeFor }) {
   }
 
   function statusWords(task) {
-    if (task.needs_human || task.status === "needs_review") return "needs you";
-    if (task.status === "failed") return "failed";
-    if (task.verdict === "approve" || task.lane === "ready") return "ready";
-    if (task.lane === "review") return "in review";
-    if (task.status === "running" || task.action) return "running";
-    return task.status || "task";
+    return sharedStatusWords(task);
   }
 
   function middleTruncate(text, max = 36) {
@@ -614,6 +498,17 @@ export function createDrawer({ auth, worktreeFor }) {
     return `${prefix}…/${last}`;
   }
 
+  function paintToolErrors(list, boardState, task) {
+    const errors = toolErrorsFor(boardState, task);
+    detailRow(list, {
+      ok: errors.length === 0,
+      label: "Tool errors",
+      value: String(errors.length),
+      detail: errors.length ? errors.map((event) => toolErrorText(event)).join("\n") : "",
+      open: errors.length > 0,
+    });
+  }
+
   function detailRow(host, { ok, label, value, detail, open }) {
     const row = el("div", `detail-row${ok ? "" : " is-fail"}`);
     const btn = el("button", "detail-row-head");
@@ -623,13 +518,17 @@ export function createDrawer({ auth, worktreeFor }) {
       ok ? "check" : "alert-circle"
     }"></use></svg>`;
     btn.appendChild(icon);
-    btn.appendChild(el("span", ok ? "chip pass" : "chip fail", ok ? "pass" : "fail"));
-    btn.appendChild(el("span", "detail-label type-body-sm", label));
-    btn.appendChild(el("span", "detail-value type-code-sm", value));
+    const sr = el("span", "visually-hidden", ok ? "pass" : "fail");
+    btn.appendChild(sr);
+    const labelEl = el("span", "detail-label type-body-sm", label);
+    labelEl.title = String(label || "");
+    btn.appendChild(labelEl);
+    const valueEl = el("span", `detail-value type-code-sm${ok ? "" : " is-fail"}`, value);
+    btn.appendChild(valueEl);
     const chev = el("span", "detail-chevron");
     chev.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-down"></use></svg>`;
     btn.appendChild(chev);
-    const body = el("pre", "detail-body check-output type-code");
+    const body = el("pre", "detail-body check-output type-code-sm");
     body.textContent = detail || "";
     if (!detail) {
       chev.hidden = true;
@@ -637,27 +536,32 @@ export function createDrawer({ auth, worktreeFor }) {
       body.hidden = true;
     } else {
       body.hidden = !open;
-      btn.setAttribute("aria-expanded", String(open));
+      btn.setAttribute("aria-expanded", String(!!open));
+      row.classList.toggle("is-open", !!open);
       btn.addEventListener("click", () => {
-        body.hidden = !body.hidden;
-        btn.setAttribute("aria-expanded", String(!body.hidden));
+        const next = body.hidden;
+        body.hidden = !next;
+        row.classList.toggle("is-open", next);
+        btn.setAttribute("aria-expanded", String(next));
       });
     }
     row.appendChild(btn);
     if (detail) row.appendChild(body);
     host.appendChild(row);
+    return row;
   }
 
   function renderProof(task) {
     const root = document.getElementById("proofpane");
     clear(root);
     const proof = proofFrom(state, task);
+    const list = el("div", "detail-list");
     if (!proof) {
       root.appendChild(el("p", "empty-line type-body-sm", "No isolation proof for this task yet."));
-      paintToolErrors(root, state, task);
+      paintToolErrors(list, state, task);
+      root.appendChild(list);
       return;
     }
-    const list = el("div", "detail-list");
     const rows = [
       ["Process cwd", proof.process_cwd_matches, proof.process_cwd_matches ? "yes" : "no"],
       ["Toplevel", proof.toplevel_matches, proof.toplevel_matches ? "yes" : "no"],
@@ -685,8 +589,8 @@ export function createDrawer({ auth, worktreeFor }) {
       }
       detailRow(list, { ok: !!ok, label, value, detail, open: !ok });
     });
+    paintToolErrors(list, state, task);
     root.appendChild(list);
-    paintToolErrors(root, state, task);
     if (proof.contained_violation || (proof.reverted_paths && proof.reverted_paths.length)) {
       root.appendChild(el("p", "violation-title", "Contained violation · reverted paths"));
       const paths = el("ul", "reverted-paths");
@@ -713,25 +617,25 @@ export function createDrawer({ auth, worktreeFor }) {
         groups.get(source).push(check);
       });
       groups.forEach((items, source) => {
-        root.appendChild(el("p", "type-micro detail-group", source));
+        const card = el("div", "check-group");
+        card.appendChild(el("p", "type-micro detail-group", source));
         const list = el("div", "detail-list");
         items.forEach((check) => {
           const ok = check.passed !== false;
           const value = `exit ${check.exit_code ?? "?"} · ${
             check.duration_s != null ? `${check.duration_s}s` : "—"
           }`;
-          const before = list.children.length;
-          detailRow(list, {
+          const row = detailRow(list, {
             ok,
             label: check.name || "check",
             value,
             detail: check.output ? String(check.output) : "",
             open: !ok,
           });
-          const row = list.children[before];
           if (row) row.classList.add("check-row");
         });
-        root.appendChild(list);
+        card.appendChild(list);
+        root.appendChild(card);
       });
     }
     const reason = String(task.reason || "").trim();
@@ -786,25 +690,25 @@ export function createDrawer({ auth, worktreeFor }) {
       root.appendChild(el("p", "empty-line type-body-sm", "No cost rows yet."));
       return;
     }
-    const table = el("table", "cost-table");
-    const head = document.createElement("thead");
-    const hr = document.createElement("tr");
-    ["Role", "Tokens", "USD", ""].forEach((label) => hr.appendChild(el("th", "type-micro", label)));
-    head.appendChild(hr);
-    table.appendChild(head);
-    const body = document.createElement("tbody");
+    const grid = el("div", "cost-table");
+    const head = el("div", "cost-row cost-head type-micro");
+    ["Role", "Tokens", "USD", "Share"].forEach((label, i) => {
+      const cell = el("span", i === 0 ? "cost-role" : "cost-num", label);
+      head.appendChild(cell);
+    });
+    grid.appendChild(head);
     let total = 0;
+    let totalTokens = 0;
     let priced = false;
     const pricedRows = costs
       .map((row) => Number(row.usd))
       .filter((n) => Number.isFinite(n) && n > 0);
     const maxShare = pricedRows.reduce((a, b) => a + b, 0) || 1;
     costs.forEach((row) => {
-      const tr = document.createElement("tr");
-      tr.appendChild(el("td", null, costRole(row)));
-      tr.appendChild(el("td", "mono tabular", formatTokens(row.tokens)));
-      const usd = document.createElement("td");
-      usd.className = "mono tabular";
+      const tr = el("div", "cost-row");
+      tr.appendChild(el("span", "cost-role", costRole(row)));
+      tr.appendChild(el("span", "cost-num mono tabular", formatTokens(row.tokens)));
+      const usd = el("span", "cost-num mono tabular");
       const text = formatUsd(row.usd, row.label);
       if (text === "unpriced" || text === "usage not reported") {
         usd.appendChild(el("span", "pill", text));
@@ -816,32 +720,31 @@ export function createDrawer({ auth, worktreeFor }) {
         }
       }
       tr.appendChild(usd);
-      const barCell = document.createElement("td");
-      barCell.className = "cost-bar-cell";
+      const barCell = el("span", "cost-bar-cell");
+      const track = el("span", "cost-bar-track");
       const bar = el("span", "cost-bar");
       const share = Number(row.usd);
-      const pct = Number.isFinite(share) && share > 0 ? Math.max(4, Math.round((share / maxShare) * 100)) : 0;
-      bar.style.width = `${pct}%`;
-      barCell.appendChild(bar);
+      let pct = 0;
+      if (Number.isFinite(share) && share > 0) {
+        pct = Math.max(3, Math.round((share / maxShare) * 100));
+      }
+      bar.style.width = pct ? `${pct}%` : "0";
+      track.appendChild(bar);
+      barCell.appendChild(track);
       tr.appendChild(barCell);
-      body.appendChild(tr);
+      const tok = Number(row.tokens);
+      if (Number.isFinite(tok)) totalTokens += tok;
+      grid.appendChild(tr);
     });
-    table.appendChild(body);
-    const foot = document.createElement("tfoot");
-    const fr = document.createElement("tr");
-    fr.className = "cost-total-row";
-    fr.appendChild(el("td", null, "Total"));
-    fr.appendChild(el("td", null, ""));
-    const totalTd = el("td", "mono tabular");
+    const fr = el("div", "cost-row cost-total-row");
+    fr.appendChild(el("span", "cost-role", "Total"));
+    fr.appendChild(el("span", "cost-num mono tabular", formatTokens(totalTokens)));
+    const totalTd = el("span", "cost-num mono tabular cost-total");
     totalTd.textContent = priced ? formatUsd(total) : "unpriced";
     fr.appendChild(totalTd);
-    fr.appendChild(el("td", null, ""));
-    foot.appendChild(fr);
-    table.appendChild(foot);
-    root.appendChild(table);
-    const summary = el("p", "cost-total mono");
-    summary.textContent = priced ? `Total ${formatUsd(total)}` : "Total unpriced";
-    root.appendChild(summary);
+    fr.appendChild(el("span", "cost-bar-cell", ""));
+    grid.appendChild(fr);
+    root.appendChild(grid);
   }
 
   function paintHeader(task) {
@@ -862,23 +765,25 @@ export function createDrawer({ auth, worktreeFor }) {
     if (copy) copy.hidden = !branch;
     if (badge) {
       const words = statusWords(task);
+      const key = statusKey(task);
       badge.hidden = !words;
       badge.textContent = words;
-      badge.dataset.status = words.replace(/\s+/g, "-");
+      badge.dataset.status = key;
+      // Never use the absolute-positioned `.badge` notification class here.
+      badge.className = `badge-status drawer-status status-${key}`;
     }
   }
 
   function show(task, boardState, opts) {
     const keepTab = !!(opts && opts.keepTab);
     const fade = !!(opts && opts.fade);
+    const swapped = String(task.id) !== String(lastTaskId);
     selected = task;
     state = boardState || {};
-    if (String(task.id) !== String(lastTaskId)) {
+    if (swapped) {
       paneScroll = {};
       lastTaskId = String(task.id);
-      if (!keepTab) {
-        /* keep current tab only when swapping with keepTab */
-      }
+      if (!keepTab) activePaneId = "live";
     }
     if (!(opts && opts.keepOffset)) liveOffset = 0;
     if (!(opts && opts.keepFollow)) followTail = true;
@@ -897,6 +802,8 @@ export function createDrawer({ auth, worktreeFor }) {
     renderProof(task);
     renderChecks(task);
     renderCost(task);
+    // Single source of truth: tab selection and visible panel always re-applied together.
+    setPane(activePaneId || "live");
   }
 
   function refresh(task, boardState) {

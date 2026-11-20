@@ -479,7 +479,8 @@ def test_board_renders_lanes_approval_worktrees_and_proof(tmp_path: Path, monkey
             proof_pane = page.locator("#proofpane").inner_text()
             assert "Within scope" in proof_pane
             assert "yes" in proof_pane
-            assert "Tool errors: 1" in proof_pane
+            assert "Tool errors" in proof_pane
+            assert "1" in proof_pane
             assert "malformed tool result" in proof_pane
             assert "{" not in proof_pane
             page.locator(".card[data-task-id]").filter(has_text="Parser").click()

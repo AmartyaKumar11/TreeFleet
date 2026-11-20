@@ -108,8 +108,9 @@ def test_diff_external_and_textconv_never_run(tmp_path: Path) -> None:
 
 
 def test_symlink_outside_worktree_skipped(tmp_path: Path) -> None:
+    """Skipped on Windows without symlink privilege; see test_resolve_inside_* in d4a2."""
     if os.name == "nt":
-        pytest.skip("symlink privileges vary on Windows")
+        pytest.skip("symlink privileges vary on Windows; containment covered by resolve_inside unit tests")
     repo = tmp_path / "repo"
     _git(repo)
     outside = tmp_path / "secret.txt"

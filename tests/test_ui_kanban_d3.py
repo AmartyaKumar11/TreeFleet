@@ -126,8 +126,9 @@ def test_run_strip_states_agree_with_stepper(tmp_path: Path, monkeypatch: pytest
     cases = [
         ("fleet", None, "", "Running ·", "is-current"),
         ("approve", [{"id": "p", "title": "P", "allowed_paths": []}], "", "Awaiting approval", "is-current"),
+        # Humanized enums (15.D4b): raw timed_out/cancelled never shown as bare tokens.
         ("timed_out", None, "fleet failed", "Failed at", "is-failed"),
-        ("cancelled", None, "cancelled by user", "Cancelled", None),
+        ("cancelled", None, "cancelled by user", "Run cancelled", None),
         ("done", None, "", "Done", "is-done"),
     ]
     for stage, awaiting, message, text, cls in cases:

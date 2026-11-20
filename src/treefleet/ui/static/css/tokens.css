@@ -161,7 +161,9 @@
   --drawer-min: 360px;
   --drawer-max: 720px;
   --lane-min: 264px;
-  --lane-gap: 16px;
+  --lane-max: 340px;
+  --lane-gap: 8px;
+  --lane-rail: 40px;
   --control-h-dense: 32px;
   --control-h: 36px;
   --control-h-lg: 40px;

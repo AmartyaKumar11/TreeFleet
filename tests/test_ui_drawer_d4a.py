@@ -192,21 +192,26 @@ def test_empty_board_and_skeleton_delay(tmp_path: Path, monkeypatch: pytest.Monk
         with sync_playwright() as p:
             page = p.chromium.launch().new_page(viewport={"width": 1440, "height": 900})
 
+            held: list = []
+            release = {"go": False}
+
             def handle(route):
-                url = route.request.url
-                if "state" in url or "board" in url:
-                    time.sleep(0.9)
+                if "/api/board" in route.request.url and not release["go"]:
+                    held.append(route)
+                    return
                 route.continue_()
 
-            # board uses /api/state typically — delay whichever snapshot endpoint exists
-            page.route("**/api/**", handle)
+            page.route("**/api/board*", handle)
             page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
-            page.wait_for_timeout(200)
+            page.wait_for_selector(".skeleton-card", timeout=5000)
             sk = page.locator(".skeleton-card")
-            if sk.count() > 0:
-                page.screenshot(path=str(shot), full_page=True)
-                heights = sk.evaluate_all("els => els.map(el => el.getBoundingClientRect().height)")
-                assert heights and min(heights) >= 100
+            page.screenshot(path=str(shot), full_page=True)
+            assert sk.count() >= 4
+            heights = sk.evaluate_all("els => els.map(el => el.getBoundingClientRect().height)")
+            assert heights and min(heights) >= 100
+            release["go"] = True
+            for route in held:
+                route.continue_()
             page.wait_for_selector(".card[data-task-id='w1']", timeout=8000)
             assert page.locator(".skeleton-card").count() == 0
             page.close()

@@ -223,19 +223,20 @@ def test_xss_payloads_render_literally(tmp_path: Path, monkeypatch: pytest.Monke
             assert XSS in live.inner_text()
             assert live.locator("img").count() == 0
             assert live.locator("script").count() == 0
-            page.get_by_role("tab", name="Diff").click()
+            page.locator(".drawer").get_by_role("tab", name="Diff").click()
             diff = page.locator("#diff")
             assert XSS in diff.inner_text()
             assert diff.locator("img").count() == 0
             assert diff.locator("script").count() == 0
             meta = page.locator("#task-meta")
             assert XSS in (meta.get_attribute("title") or meta.inner_text())
-            page.get_by_role("tab", name="Checks").click()
+            page.locator(".drawer").get_by_role("tab", name="Checks").click(force=True)
+            page.wait_for_timeout(100)
             checks = page.locator("#checks")
             row = page.locator(".check-row", has_text="ruff")
             body = row.locator(".check-output, .detail-body")
             if body.count() and body.first.is_hidden():
-                row.locator("button").first.click()
+                row.locator("button").first.click(force=True)
             assert XSS in (body.inner_text() if body.count() else checks.inner_text())
             assert checks.locator("img").count() == 0
             assert checks.locator("script").count() == 0

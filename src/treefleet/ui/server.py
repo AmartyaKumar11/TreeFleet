@@ -533,10 +533,20 @@ def create_app(
         if file:
             # Same path discipline as the worktree root: reject escapes.
             try:
-                rel = Path(file.replace("\\", "/"))
-                if rel.is_absolute() or ".." in rel.parts:
+                raw = file.replace("\\", "/")
+                # Drive-relative (C:foo), UNC (//host/share), absolute, and .. segments.
+                if (
+                    raw.startswith("/")
+                    or raw.startswith("//")
+                    or (len(raw) >= 2 and raw[1] == ":")
+                    or ".." in Path(raw).parts
+                    or Path(raw).is_absolute()
+                ):
                     return JSONResponse({"error": "invalid file"}, status_code=400)
-                file_filter = rel.as_posix()
+                # Normalize drive-letter case variants that slipped past (e.g. c:/).
+                if raw.lower().startswith(("c:/", "d:/", "e:/")):
+                    return JSONResponse({"error": "invalid file"}, status_code=400)
+                file_filter = Path(raw).as_posix()
             except (OSError, ValueError):
                 return JSONResponse({"error": "invalid file"}, status_code=400)
         try:

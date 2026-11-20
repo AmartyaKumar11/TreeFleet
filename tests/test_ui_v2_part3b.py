@@ -403,9 +403,11 @@ def test_cost_formatting_and_totals(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             assert "unpriced" in text.lower()
             assert "0.0123" in text  # four decimals
             total = page.locator("#costpane .cost-total").inner_text()
-            # 0.0123 + 0.00005; float formatting may round to 0.0123 or 0.0124
-            assert total.startswith("Total $")
+            # USD cell is amount-only; float may round 0.0123+0.00005 to 0.0123 or 0.0124
+            assert total.startswith("$")
             assert any(frag in total for frag in ("0.0123", "0.0124", "0.01235"))
+            assert page.locator("#costpane p.cost-total").count() == 0
+            assert "Total $" not in page.locator("#costpane .cost-total").inner_text()
             browser.close()
     finally:
         server.should_exit = True

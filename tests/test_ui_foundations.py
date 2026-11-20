@@ -21,7 +21,6 @@ BOARD_CSS = ROOT / "src" / "treefleet" / "ui" / "static" / "css" / "board.css"
 
 # Selectors/areas owned by later tasks (15.D4b–D6); 15.D4a prefixes were ratcheted out.
 LITERAL_ALLOWLIST_SELECTORS = (
-    ".diff-",
     ".orch-",
     ".bubble",
     ".command-palette",

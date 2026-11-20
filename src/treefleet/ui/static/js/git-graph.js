@@ -1,5 +1,7 @@
 /** Git graph under the kanban. Cap 8 rows; collapse remembered in localStorage. */
 
+import { statusToken } from "./status.js";
+
 const CAP = 8;
 const STORAGE_KEY = "treefleet.git-graph.collapsed";
 
@@ -12,12 +14,8 @@ function cssToken(name) {
 }
 
 function statusColor(task) {
-  const text = `${task.status || ""} ${task.verdict || ""} ${task.reason || ""}`.toLowerCase();
-  if (task.conflict || task.status === "failed" || text.includes("conflict")) return cssToken("--status-error");
-  if (task.lane === "needs" || task.status === "needs_review") return cssToken("--status-needs");
-  if (task.lane === "review") return cssToken("--status-warning");
-  if (task.lane === "ready" || task.status === "done" || task.verdict === "approve") return cssToken("--status-success");
-  return cssToken("--status-running");
+  if (task.conflict) return cssToken("--status-error");
+  return cssToken(statusToken(task));
 }
 
 function middleTruncate(text, max = 36) {

@@ -2,6 +2,10 @@ import { createOrchestrator } from "./orchestrator.js";
 import { costRole, createDrawer } from "./drawer.js";
 import { createGitGraph } from "./git-graph.js";
 import { createPalette } from "./palette.js";
+import { statusClass, statusKey, statusLabel, statusToken } from "./status.js";
+
+window.__tfStatusToken = statusToken;
+window.__tfStatusKey = statusKey;
 
 const token = document.querySelector('meta[name="tf-token"]').content;
 const replay = document.documentElement.dataset.replay === "true";
@@ -113,8 +117,49 @@ function lane(task) {
   return task.lane || "working";
 }
 
+function humanizeStatus(raw) {
+  const key = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  const map = {
+    timed_out: "Run timed out",
+    failed: "Run failed",
+    cancelled: "Run cancelled",
+    canceled: "Run cancelled",
+    blocked: "Run blocked",
+    needs_review: "Needs review",
+    needs_you: "Needs you",
+    running: "Running",
+    done: "Done",
+    success: "Done",
+    stopped: "Stopped",
+    error: "Run failed",
+  };
+  if (map[key]) return map[key];
+  // Stage-like tokens: "Failed at fleet" already human; leave prose alone.
+  if (/^[a-z0-9_]+$/i.test(String(raw || "").trim()) && map[String(raw || "").trim().toLowerCase()]) {
+    return map[String(raw || "").trim().toLowerCase()];
+  }
+  return String(raw || "");
+}
+
+function isTerminalStatus(task) {
+  const s = String(task.status || "").toLowerCase();
+  return (
+    s === "done" ||
+    s === "failed" ||
+    s === "timed_out" ||
+    s === "cancelled" ||
+    s === "canceled" ||
+    s === "stopped" ||
+    s === "error" ||
+    s === "blocked"
+  );
+}
+
 function isRunning(task) {
-  return lane(task) === "working" && !!task.action && task.status !== "done" && task.status !== "failed";
+  return lane(task) === "working" && !!task.action && !isTerminalStatus(task);
 }
 
 function needsCount(counts) {
@@ -206,6 +251,11 @@ function syncSheet(taskOpen) {
   }
   if (backdrop) backdrop.hidden = !(taskOpen && mobile);
   if (close) close.hidden = !taskOpen;
+  // Opening the mobile sheet must close the off-canvas nav so its footer cannot cover Close.
+  if (taskOpen && mobile) {
+    document.querySelector(".shell")?.classList.remove("sidebar-open");
+    document.getElementById("sidebar")?.classList.remove("is-sheet-open");
+  }
   if (taskOpen) requestAnimationFrame(() => syncLaneRails());
   else requestAnimationFrame(() => syncLaneRails());
 }
@@ -346,12 +396,17 @@ function setLaneCounts(tasks, awaiting) {
   });
   Object.keys(counts).forEach((id) => {
     const el = document.querySelector(`#lane-${id} .n`);
-    if (el) el.textContent = String(counts[id]);
+    if (el) {
+      el.textContent = boardReady ? String(counts[id]) : "";
+      el.hidden = !boardReady;
+    }
     const tab = document.querySelector(`.mobile-lane-tabs [data-lane="${id}"]`);
     if (tab) {
       const n = tab.querySelector(".n");
-      if (n) n.textContent = String(counts[id]);
-      else tab.textContent = `${tab.dataset.label} ${counts[id]}`;
+      if (n) {
+        n.textContent = boardReady ? String(counts[id]) : "";
+        n.hidden = !boardReady;
+      } else if (boardReady) tab.textContent = `${tab.dataset.label} ${counts[id]}`;
     }
   });
   syncDoneLane(counts.done > 0);
@@ -494,6 +549,9 @@ function updateRunStrip(data, counts) {
     const label = names[stageIndex] || info.stage || "guard";
     compact.textContent = `Stage ${stageIndex + 1} of ${names.length}: ${label}`;
   }
+  if (statusEl && /^(timed_out|failed|cancelled|canceled|blocked)$/i.test(String(info.line || ""))) {
+    statusEl.textContent = humanizeStatus(info.line);
+  }
   document.querySelectorAll("#stage-stepper li").forEach((item, i) => {
     const done = idx > i || (info.line === "Done" && !failed);
     const current = !done && i === idx;
@@ -533,15 +591,9 @@ function runStatusMeta(item, data) {
     else status = "running";
   }
   if (!status) status = "running";
-  const map = {
-    needs: { cls: "is-needs needs", label: "needs you" },
-    done: { cls: "is-success green", label: "done" },
-    success: { cls: "is-success green", label: "done" },
-    error: { cls: "is-error", label: "failed" },
-    failed: { cls: "is-error", label: "failed" },
-    running: { cls: "is-running accent", label: "running" },
-  };
-  return map[status] || map.running;
+  const fake = { status, lane: status === "needs" ? "needs" : "", needs_human: status === "needs" };
+  const key = statusKey(fake);
+  return { cls: statusClass(key), label: statusLabel(key), key, token: statusToken(key) };
 }
 
 function renderRunHistory(data) {
@@ -635,12 +687,7 @@ function formatLineCounts(counts) {
 }
 
 function cardStatusWords(task) {
-  if (lane(task) === "needs" || task.needs_human || task.status === "needs_review") return "needs you";
-  if (task.status === "failed") return "failed";
-  if (lane(task) === "ready" || task.verdict === "approve") return "ready";
-  if (lane(task) === "review") return "in review";
-  if (isRunning(task)) return "running";
-  return task.status || lane(task) || "task";
+  return statusLabel(task);
 }
 
 function paintCardShell(button, task) {
@@ -674,7 +721,10 @@ function fillCard(button, task) {
   (task.checks || []).forEach((check) => {
     const name = typeof check === "string" ? check : check.name || "check";
     const passed = typeof check === "string" ? true : check.passed !== false;
-    chips.push(`<span class="chip ${passed ? "pass" : "fail"}">${esc(name)}${passed ? " pass" : " fail"}</span>`);
+    const label = `${name}${passed ? " pass" : " fail"}`;
+    chips.push(
+      `<span class="chip ${passed ? "pass" : "fail"}" title="${esc(label)}">${esc(label)}</span>`,
+    );
   });
   if (task.pr_chip && !task.pr_number) {
     chips.push(`<span class="chip pr">${esc(task.pr_chip)}</span>`);
@@ -699,16 +749,24 @@ function fillCard(button, task) {
       )}">${esc(fullNote)}</div><button type="button" class="btn ghost show-more" data-show-more="1">Show more</button></div>`
     : "";
   const age = taskAge(task);
-  const action = running
-    ? `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
-        task.action,
-      )}</span></div>`
-    : "";
+  const key = statusKey(task);
+  let action = "";
+  if (running) {
+    action = `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
+      task.action,
+    )}</span></div>`;
+  } else if (key === "stopped" || key === "failed") {
+    const reason = String(task.reason || task.error || task.status || "").trim();
+    action = `<div class="action-line is-stopped"><span class="action-text muted">${esc(
+      reason ? `Stopped · ${reason}` : "Stopped",
+    )}</span></div>`;
+  }
   const verdictClass = ["approve", "reject", "revise", "needs_review"].includes(verdictLabel) ? verdictLabel : "";
+  const badgeClass = verdictClass || key;
   const verdict = verdictLabel
-    ? `<div class="verdict-row"><span class="chip verdict badge-status ${verdictClass}">${esc(
-        verdictLabel.replaceAll("_", " "),
-      )}</span>${noteHtml}</div>`
+    ? `<div class="verdict-row"><span class="chip verdict badge-status status-${esc(
+        badgeClass,
+      )} ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span>${noteHtml}</div>`
     : noteHtml;
   const branchFull = task.branch || task.id || "";
   const mergeCmd = task.pr_number
@@ -1135,12 +1193,12 @@ function render(data) {
     })
     .join("|");
   const laneKey = JSON.stringify({ awaiting: data.awaiting, tasks, committedKey });
+  clearSkeletons();
+  boardReady = true;
   const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
   lastCounts = counts;
   notifyHuman(needsCount(counts));
   updateRunStrip(data, counts);
-  clearSkeletons();
-  boardReady = true;
   const focusBefore = document.activeElement;
   const focusTaskId =
     focusBefore && focusBefore.classList && focusBefore.classList.contains("card")
@@ -1300,7 +1358,7 @@ function render(data) {
 
   if (data.message) {
     document.getElementById("error").hidden = false;
-    document.getElementById("error").textContent = data.message;
+    document.getElementById("error").textContent = humanizeStatus(data.message);
   }
   if (orch && view === "orchestrator") orch.renderThread(data);
 }
