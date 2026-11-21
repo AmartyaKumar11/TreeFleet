@@ -164,8 +164,8 @@ export function createDiffPane(root, options = {}) {
   function renderUnifiedLine(line) {
     // Use diff-line class for test compatibility
     const row = el('tr', `diff-line diff-row diff-${line.type}`);
-    if (line.type === 'add') row.classList.add('add');
-    if (line.type === 'del') row.classList.add('del');
+    if (line.type === 'add') row.classList.add('add', 'diff-add');
+    if (line.type === 'del') row.classList.add('del', 'diff-del');
     
     // Old line number
     const oldTd = el('td', 'diff-ln diff-ln-old ln');
@@ -264,7 +264,9 @@ export function createDiffPane(root, options = {}) {
       }
     }
     row.appendChild(leftCodeTd);
-    paintSide([leftLnTd, leftSignTd, leftCodeTd], leftIsDel ? 'diff-side-del' : 'diff-side-pad');
+    // Hatch only on empty padding cells — never on context rows that hold text.
+    if (leftIsDel) paintSide([leftLnTd, leftSignTd, leftCodeTd], 'diff-side-del');
+    else if (!leftLine) paintSide([leftLnTd, leftSignTd, leftCodeTd], 'diff-side-pad');
 
     // Right side (new/add) — tint only when it holds an addition; else neutral pad.
     const rightLnTd = el('td', 'diff-ln diff-ln-new ln');
@@ -299,9 +301,10 @@ export function createDiffPane(root, options = {}) {
       }
     }
     row.appendChild(rightCodeTd);
-    paintSide([rightLnTd, rightSignTd, rightCodeTd], rightIsAdd ? 'diff-side-add' : 'diff-side-pad');
+    if (rightIsAdd) paintSide([rightLnTd, rightSignTd, rightCodeTd], 'diff-side-add');
+    else if (!rightLine) paintSide([rightLnTd, rightSignTd, rightCodeTd], 'diff-side-pad');
 
-    const fill = el('td', 'diff-fill diff-side-pad');
+    const fill = el('td', 'diff-fill' + (!leftLine || !rightLine ? ' diff-side-pad' : ''));
     row.appendChild(fill);
 
     return row;
@@ -365,11 +368,14 @@ export function createDiffPane(root, options = {}) {
     const row = el('tr', 'diff-row diff-hunk');
     const td = el('td', 'diff-hunk-header');
     td.colSpan = viewMode === 'split' ? 7 : 5;
-    appendSafeText(td, hunk.header || '');
+    // Inner sticky label — a full-width colspan cell cannot stay in-view on its own.
+    const label = el('span', 'diff-hunk-sticky');
+    appendSafeText(label, hunk.header || '');
     if (hunk.section) {
-      td.appendChild(text(' '));
-      appendSafeText(td, hunk.section);
+      label.appendChild(text(' '));
+      appendSafeText(label, hunk.section);
     }
+    td.appendChild(label);
     row.appendChild(td);
     return row;
   }
@@ -564,7 +570,7 @@ export function createDiffPane(root, options = {}) {
     } else if (file.notLoaded) {
       body.hidden = isCollapsed;
       const notice = el('p', 'diff-notice');
-      const loadBtn = el('button', 'btn ghost', 'Load diff');
+      const loadBtn = el('button', 'btn ghost diff-load-file-btn', 'Load diff');
       loadBtn.type = 'button';
       loadBtn.addEventListener('click', () => {
         if (onFetch) onFetch({ file: file.path });
@@ -581,8 +587,13 @@ export function createDiffPane(root, options = {}) {
       body.appendChild(notice);
     } else if (showLargeCta) {
       body.hidden = false;
-      const expandBtn = el('button', 'btn ghost diff-expand-file-btn', `Expand ${lineCount} lines`);
+      const expandBtn = el('button', 'btn ghost diff-expand-file-btn');
       expandBtn.type = 'button';
+      expandBtn.setAttribute('aria-label', `Expand ${lineCount} lines`);
+      expandBtn.title = `Expand ${lineCount} lines`;
+      expandBtn.appendChild(icon('chevron-down'));
+      const expandLabel = el('span', 'diff-expand-file-label', `Expand ${lineCount} lines`);
+      expandBtn.appendChild(expandLabel);
       expandBtn.addEventListener('click', () => {
         collapsedPaths.delete(file.path);
         updateCollapsedSet(collapsedPaths);
@@ -882,7 +893,7 @@ export function createDiffPane(root, options = {}) {
   function renderError(message) {
     const banner = el('div', 'banner-error');
     banner.appendChild(text(message || 'Diff unavailable'));
-    const retryBtn = el('button', 'btn ghost', 'Retry');
+    const retryBtn = el('button', 'btn ghost diff-retry-btn', 'Retry');
     retryBtn.type = 'button';
     retryBtn.addEventListener('click', () => {
       if (onFetch) onFetch({});
@@ -895,7 +906,8 @@ export function createDiffPane(root, options = {}) {
   function renderSkeleton() {
     const skeleton = el('div', 'diff-skeleton');
     for (let i = 0; i < 3; i++) {
-      const card = el('div', 'skeleton-card');
+      // `.skeleton` provides the shimmer surface distinct from the pane background.
+      const card = el('div', 'skeleton skeleton-card');
       skeleton.appendChild(card);
     }
     return skeleton;
@@ -914,7 +926,7 @@ export function createDiffPane(root, options = {}) {
     }
     banner.appendChild(text(`Showing ${formatBytes(shown)} of ${formatBytes(total)}.`));
     banner.appendChild(text(' '));
-    const loadBtn = el('button', 'btn ghost', 'Load full diff');
+    const loadBtn = el('button', 'btn ghost diff-load-full-btn', 'Load full diff');
     loadBtn.type = 'button';
     loadBtn.addEventListener('click', () => {
       if (onFetch) onFetch({ full: 1 });
@@ -987,7 +999,8 @@ export function createDiffPane(root, options = {}) {
 
     function handleToggleWrap() {
       currentWrap = !currentWrap;
-      render(currentData, { preserve: true });
+      // Must rebuild tables — preserve reuses cards and would leave stale wrap classes.
+      render(currentData, { preserve: false });
     }
 
     function handleCollapseAll() {

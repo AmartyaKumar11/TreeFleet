@@ -230,6 +230,14 @@
 
   --dot-grid: radial-gradient(color-mix(in oklch, var(--text) 4%, transparent) 1px, transparent 1px);
 
+  /* Diff row tints — fixed oklch hues (color-mix with --surface drifts into olive/amber). */
+  --diff-del-bg: oklch(0.30 0.055 18);
+  --diff-del-gutter: oklch(0.28 0.075 18);
+  --diff-add-bg: oklch(0.30 0.05 145);
+  --diff-add-gutter: oklch(0.28 0.07 145);
+  --diff-hunk-bg: var(--surface-2);
+  --diff-pad-bg: color-mix(in oklch, var(--surface-2) 70%, var(--surface));
+
   /*
     Light theme (record only — not applied):
       background: oklch(0.9818 0.0054 95.0986);

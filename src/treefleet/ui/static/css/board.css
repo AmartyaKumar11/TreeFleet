@@ -2704,6 +2704,8 @@ th {
 
 .diff-file-card {
   background: var(--surface);
+  /* Single outer border + radius for every state (collapsed, expanded, footer, loading).
+     Row/header borders previously duplicated the outline and clipped at the rounded corners. */
   border: 1px solid var(--border);
   border-radius: var(--radius-4);
   overflow: visible;
@@ -2727,8 +2729,19 @@ th {
   height: 36px;
   padding: 0 var(--space-2);
   background: var(--surface);
-  border-bottom: 1px solid var(--border-soft);
+  border: 0;
+  border-radius: var(--radius-4) var(--radius-4) 0 0;
   font-size: var(--text-code-sm-size);
+}
+
+.diff-file-card:has(.diff-file-body[hidden]) .diff-file-header,
+.diff-file-card.is-collapsed .diff-file-header {
+  border-radius: var(--radius-4);
+}
+
+/* Clip header paint to the card radius when there is no body — avoids corner stubs. */
+.diff-file-card:has(.diff-file-body[hidden]) {
+  overflow: hidden;
 }
 
 .diff-chevron-btn {
@@ -2805,12 +2818,18 @@ th {
 
 .diff-file-body {
   padding: 0;
+  /* Separator lives on the body so collapsed cards only show the card border. */
+  border-top: 1px solid var(--border-soft);
   /* Horizontal scroll for long lines; do not clamp height — cards size to content. */
   overflow-x: auto;
   overflow-y: visible;
   max-height: none;
   contain: none;
   content-visibility: visible;
+}
+
+.diff-file-body[hidden] {
+  border-top: 0;
 }
 
 .diff-notice {
@@ -2821,18 +2840,27 @@ th {
 
 .diff-table {
   display: table;
-  width: 100%;
+  /* Grow with the longest line so cell backgrounds cover the full scroll width;
+     min-width keeps short diffs spanning the pane. Fixed layout capped long lines. */
+  width: max-content;
   min-width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
   font-family: var(--font-mono);
   font-size: var(--text-code-size);
   line-height: var(--text-code-leading);
 }
 
+.diff-table.diff-wrap {
+  width: 100%;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
 .diff-table.diff-wrap .diff-code {
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .diff-col-ln {
@@ -2946,25 +2974,23 @@ tr.diff-row .code {
   width: auto;
 }
 
-/* Unified: whole-row tint. */
+/* Unified: whole-row tint via tokens. */
 .diff-table:not(.diff-split) tr.diff-row.diff-add > td,
 .diff-table:not(.diff-split) tr.diff-row.add > td,
 .diff-table:not(.diff-split) tr.diff-line.diff-add > td,
 .diff-table:not(.diff-split) tr.diff-line.add > td {
-  background: color-mix(in oklch, var(--status-success) 10%, transparent);
+  background: var(--diff-add-bg);
 }
 
 .diff-table:not(.diff-split) tr.diff-row.diff-add .diff-ln,
 .diff-table:not(.diff-split) tr.diff-row.add .diff-ln,
 .diff-table:not(.diff-split) tr.diff-line.diff-add .diff-ln,
-.diff-table:not(.diff-split) tr.diff-line.add .diff-ln {
-  background: color-mix(in oklch, var(--status-success) 14%, var(--surface));
-}
-
+.diff-table:not(.diff-split) tr.diff-line.add .diff-ln,
 .diff-table:not(.diff-split) tr.diff-row.diff-add .diff-sign,
 .diff-table:not(.diff-split) tr.diff-row.add .diff-sign,
 .diff-table:not(.diff-split) tr.diff-line.diff-add .diff-sign,
 .diff-table:not(.diff-split) tr.diff-line.add .diff-sign {
+  background: var(--diff-add-gutter);
   color: var(--status-success);
 }
 
@@ -2972,59 +2998,57 @@ tr.diff-row .code {
 .diff-table:not(.diff-split) tr.diff-row.del > td,
 .diff-table:not(.diff-split) tr.diff-line.diff-del > td,
 .diff-table:not(.diff-split) tr.diff-line.del > td {
-  background: color-mix(in oklch, var(--status-error) 10%, transparent);
+  background: var(--diff-del-bg);
 }
 
 .diff-table:not(.diff-split) tr.diff-row.diff-del .diff-ln,
 .diff-table:not(.diff-split) tr.diff-row.del .diff-ln,
 .diff-table:not(.diff-split) tr.diff-line.diff-del .diff-ln,
-.diff-table:not(.diff-split) tr.diff-line.del .diff-ln {
-  background: color-mix(in oklch, var(--status-error) 14%, var(--surface));
-}
-
+.diff-table:not(.diff-split) tr.diff-line.del .diff-ln,
 .diff-table:not(.diff-split) tr.diff-row.diff-del .diff-sign,
 .diff-table:not(.diff-split) tr.diff-row.del .diff-sign,
 .diff-table:not(.diff-split) tr.diff-line.diff-del .diff-sign,
 .diff-table:not(.diff-split) tr.diff-line.del .diff-sign {
+  background: var(--diff-del-gutter);
   color: var(--status-error);
 }
 
-/* Split: per-side tints only — never paint the opposite half or padding.
-   Specificity must beat `tr.diff-line > td` resets and `.diff-ln { background }`. */
+/* Split: per-side tints only — hatch ONLY on padding cells, never context. */
 .diff-table.diff-split tr.diff-line > td,
 .diff-table.diff-split tr.diff-row > td {
   background-color: transparent;
+  background-image: none;
 }
 
 .diff-table.diff-split tr.diff-line > td.diff-side-del,
 .diff-table.diff-split tr.diff-row > td.diff-side-del {
-  background-color: color-mix(in oklch, var(--status-error) 10%, var(--surface));
+  background-color: var(--diff-del-bg);
 }
 
 .diff-table.diff-split tr.diff-line > td.diff-side-del.diff-ln,
 .diff-table.diff-split tr.diff-line > td.diff-side-del.diff-sign,
 .diff-table.diff-split tr.diff-row > td.diff-side-del.diff-ln,
 .diff-table.diff-split tr.diff-row > td.diff-side-del.diff-sign {
-  background-color: color-mix(in oklch, var(--status-error) 14%, var(--surface));
+  background-color: var(--diff-del-gutter);
   color: var(--status-error);
 }
 
 .diff-table.diff-split tr.diff-line > td.diff-side-add,
 .diff-table.diff-split tr.diff-row > td.diff-side-add {
-  background-color: color-mix(in oklch, var(--status-success) 10%, var(--surface));
+  background-color: var(--diff-add-bg);
 }
 
 .diff-table.diff-split tr.diff-line > td.diff-side-add.diff-ln,
 .diff-table.diff-split tr.diff-line > td.diff-side-add.diff-sign,
 .diff-table.diff-split tr.diff-row > td.diff-side-add.diff-ln,
 .diff-table.diff-split tr.diff-row > td.diff-side-add.diff-sign {
-  background-color: color-mix(in oklch, var(--status-success) 14%, var(--surface));
+  background-color: var(--diff-add-gutter);
   color: var(--status-success);
 }
 
 .diff-table.diff-split tr.diff-line > td.diff-side-pad,
 .diff-table.diff-split tr.diff-row > td.diff-side-pad {
-  background-color: color-mix(in oklch, var(--surface-2) 70%, var(--surface));
+  background-color: var(--diff-pad-bg);
   background-image: repeating-linear-gradient(
     -45deg,
     transparent,
@@ -3117,16 +3141,31 @@ tr.diff-row .code {
 }
 
 .diff-row.diff-hunk {
-  background: var(--surface-2);
+  background: var(--diff-hunk-bg);
   color: var(--muted);
   height: 28px;
 }
 
+.diff-row.diff-hunk > td {
+  background: var(--diff-hunk-bg);
+}
+
 .diff-hunk-header {
-  padding: 0 var(--space-2);
+  padding: 0;
   font-family: var(--font-mono);
   font-size: var(--text-code-sm-size);
   color: var(--muted);
+  background: var(--diff-hunk-bg);
+}
+
+.diff-hunk-sticky {
+  display: inline-block;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 var(--space-2);
+  background: var(--diff-hunk-bg);
+  white-space: pre;
 }
 
 .diff-expand-row {
@@ -3138,9 +3177,42 @@ tr.diff-row .code {
   padding: var(--space-2);
 }
 
-.diff-expand-btn,
-.diff-expand-file-btn {
+.diff-expand-btn {
   font-size: var(--text-body-sm-size);
+}
+
+.diff-expand-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-body-sm-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.diff-expand-file-btn:hover {
+  background: color-mix(in oklch, var(--text) 6%, transparent);
+  color: var(--text);
+}
+
+.diff-expand-file-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.diff-expand-file-btn .icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .diff-empty {
@@ -3160,6 +3232,25 @@ tr.diff-row .code {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.diff-skeleton .skeleton-card {
+  /* Distinct from the pane: lighter surface + visible border (not blank-on-blank). */
+  min-height: 112px;
+  height: 112px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: color-mix(in oklch, var(--text) 10%, var(--surface-2));
+}
+
+.diff-skeleton .skeleton-card:nth-child(2) {
+  height: 132px;
+  min-height: 132px;
+}
+
+.diff-skeleton .skeleton-card:nth-child(3) {
+  height: 96px;
+  min-height: 96px;
 }
 
 /* Split view adjustments */
