@@ -1760,15 +1760,38 @@ th {
     height: auto;
     min-height: var(--topbar-height);
     padding: var(--space-2) var(--space-3);
+    align-items: center;
+    column-gap: var(--space-2);
+  }
+
+  .topbar h1 {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+    order: 1;
   }
 
   .topbar-menu {
     display: inline-flex;
+    flex: none;
+    order: 0;
   }
 
+  .settings-wrap,
+  .topbar-overflow,
+  .topbar-more-btn {
+    flex: 0 0 auto;
+    order: 2;
+  }
+
+  /* Title + gear + overflow stay on one row; view toggle wraps alone. */
   .topbar .view-toggle {
     order: 5;
     flex: 1 1 100%;
+  }
+
+  .topbar .spacer {
+    display: none;
   }
 
   .composer-hint {
@@ -2222,27 +2245,7 @@ th {
   overflow-x: auto;
 }
 
-/* Legacy div-based diff lines only — never apply to <tr class="diff-line">. */
-div.diff-line {
-  display: grid;
-  grid-template-columns: 40px max-content;
-  gap: var(--space-2);
-  white-space: pre;
-}
-
-div.diff-line .code {
-  white-space: pre;
-}
-
-div.diff-line .ln {
-  color: var(--muted);
-  text-align: right;
-  user-select: none;
-}
-
-div.diff-line.add { background: color-mix(in srgb, var(--green) 16%, transparent); }
-div.diff-line.del { background: color-mix(in srgb, var(--red) 16%, transparent); }
-div.diff-line.hunk { color: var(--accent); }
+/* Legacy div.diff-line rules removed in 15.D4d — only <tr class="diff-line"> remains. */
 
 .diff-refresh-note {
   color: var(--status-warning);
@@ -2549,30 +2552,52 @@ div.diff-line.hunk { color: var(--accent); }
   padding: var(--space-1) var(--space-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border-soft);
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  overflow: visible;
   min-width: 0;
   container-type: inline-size;
   container-name: diff-summary;
 }
 
+.diff-summary-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.diff-summary-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  margin-left: auto;
+}
+
 .diff-summary-bar > .btn,
 .diff-summary-bar > .diff-view-control,
-.diff-summary-bar > .diff-summary-text,
-.diff-summary-bar > .diff-ratio-bar {
+.diff-summary-bar .diff-summary-text,
+.diff-summary-bar .diff-ratio-bar,
+.diff-summary-controls > .btn,
+.diff-summary-controls > .diff-view-control {
   flex: none;
 }
 
+/* Always icon-only — never let a text label push wrap/overlay out of the pane. */
 .diff-collapse-toggle .diff-collapse-label {
-  display: none;
-  margin-left: var(--space-1);
-  font-size: var(--text-body-sm-size);
+  display: none !important;
 }
 
-/* Pane width, not viewport — a 480px drawer on a 1440px screen stays icon-only. */
-@container diff-summary (min-width: 640px) {
-  .diff-collapse-toggle .diff-collapse-label {
-    display: inline;
+@container diff-summary (max-width: 440px) {
+  .diff-summary-stats,
+  .diff-summary-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  .diff-summary-controls {
+    justify-content: flex-end;
   }
 }
 
@@ -2921,46 +2946,92 @@ tr.diff-row .code {
   width: auto;
 }
 
-tr.diff-row.diff-add > td,
-tr.diff-row.add > td,
-tr.diff-line.diff-add > td,
-tr.diff-line.add > td {
+/* Unified: whole-row tint. */
+.diff-table:not(.diff-split) tr.diff-row.diff-add > td,
+.diff-table:not(.diff-split) tr.diff-row.add > td,
+.diff-table:not(.diff-split) tr.diff-line.diff-add > td,
+.diff-table:not(.diff-split) tr.diff-line.add > td {
   background: color-mix(in oklch, var(--status-success) 10%, transparent);
 }
 
-tr.diff-row.diff-add .diff-ln,
-tr.diff-row.add .diff-ln,
-tr.diff-line.diff-add .diff-ln,
-tr.diff-line.add .diff-ln {
+.diff-table:not(.diff-split) tr.diff-row.diff-add .diff-ln,
+.diff-table:not(.diff-split) tr.diff-row.add .diff-ln,
+.diff-table:not(.diff-split) tr.diff-line.diff-add .diff-ln,
+.diff-table:not(.diff-split) tr.diff-line.add .diff-ln {
   background: color-mix(in oklch, var(--status-success) 14%, var(--surface));
 }
 
-tr.diff-row.diff-add .diff-sign,
-tr.diff-row.add .diff-sign,
-tr.diff-line.diff-add .diff-sign,
-tr.diff-line.add .diff-sign {
+.diff-table:not(.diff-split) tr.diff-row.diff-add .diff-sign,
+.diff-table:not(.diff-split) tr.diff-row.add .diff-sign,
+.diff-table:not(.diff-split) tr.diff-line.diff-add .diff-sign,
+.diff-table:not(.diff-split) tr.diff-line.add .diff-sign {
   color: var(--status-success);
 }
 
-tr.diff-row.diff-del > td,
-tr.diff-row.del > td,
-tr.diff-line.diff-del > td,
-tr.diff-line.del > td {
+.diff-table:not(.diff-split) tr.diff-row.diff-del > td,
+.diff-table:not(.diff-split) tr.diff-row.del > td,
+.diff-table:not(.diff-split) tr.diff-line.diff-del > td,
+.diff-table:not(.diff-split) tr.diff-line.del > td {
   background: color-mix(in oklch, var(--status-error) 10%, transparent);
 }
 
-tr.diff-row.diff-del .diff-ln,
-tr.diff-row.del .diff-ln,
-tr.diff-line.diff-del .diff-ln,
-tr.diff-line.del .diff-ln {
+.diff-table:not(.diff-split) tr.diff-row.diff-del .diff-ln,
+.diff-table:not(.diff-split) tr.diff-row.del .diff-ln,
+.diff-table:not(.diff-split) tr.diff-line.diff-del .diff-ln,
+.diff-table:not(.diff-split) tr.diff-line.del .diff-ln {
   background: color-mix(in oklch, var(--status-error) 14%, var(--surface));
 }
 
-tr.diff-row.diff-del .diff-sign,
-tr.diff-row.del .diff-sign,
-tr.diff-line.diff-del .diff-sign,
-tr.diff-line.del .diff-sign {
+.diff-table:not(.diff-split) tr.diff-row.diff-del .diff-sign,
+.diff-table:not(.diff-split) tr.diff-row.del .diff-sign,
+.diff-table:not(.diff-split) tr.diff-line.diff-del .diff-sign,
+.diff-table:not(.diff-split) tr.diff-line.del .diff-sign {
   color: var(--status-error);
+}
+
+/* Split: per-side tints only — never paint the opposite half or padding.
+   Specificity must beat `tr.diff-line > td` resets and `.diff-ln { background }`. */
+.diff-table.diff-split tr.diff-line > td,
+.diff-table.diff-split tr.diff-row > td {
+  background-color: transparent;
+}
+
+.diff-table.diff-split tr.diff-line > td.diff-side-del,
+.diff-table.diff-split tr.diff-row > td.diff-side-del {
+  background-color: color-mix(in oklch, var(--status-error) 10%, var(--surface));
+}
+
+.diff-table.diff-split tr.diff-line > td.diff-side-del.diff-ln,
+.diff-table.diff-split tr.diff-line > td.diff-side-del.diff-sign,
+.diff-table.diff-split tr.diff-row > td.diff-side-del.diff-ln,
+.diff-table.diff-split tr.diff-row > td.diff-side-del.diff-sign {
+  background-color: color-mix(in oklch, var(--status-error) 14%, var(--surface));
+  color: var(--status-error);
+}
+
+.diff-table.diff-split tr.diff-line > td.diff-side-add,
+.diff-table.diff-split tr.diff-row > td.diff-side-add {
+  background-color: color-mix(in oklch, var(--status-success) 10%, var(--surface));
+}
+
+.diff-table.diff-split tr.diff-line > td.diff-side-add.diff-ln,
+.diff-table.diff-split tr.diff-line > td.diff-side-add.diff-sign,
+.diff-table.diff-split tr.diff-row > td.diff-side-add.diff-ln,
+.diff-table.diff-split tr.diff-row > td.diff-side-add.diff-sign {
+  background-color: color-mix(in oklch, var(--status-success) 14%, var(--surface));
+  color: var(--status-success);
+}
+
+.diff-table.diff-split tr.diff-line > td.diff-side-pad,
+.diff-table.diff-split tr.diff-row > td.diff-side-pad {
+  background-color: color-mix(in oklch, var(--surface-2) 70%, var(--surface));
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    color-mix(in oklch, var(--muted-2) 10%, transparent) 3px,
+    color-mix(in oklch, var(--muted-2) 10%, transparent) 4px
+  );
 }
 
 .diff-word-highlight {
@@ -2969,13 +3040,28 @@ tr.diff-line.del .diff-sign {
   padding: 0 1px;
 }
 
-.diff-add .diff-word-highlight {
+.diff-table:not(.diff-split) .diff-add .diff-word-highlight,
+.diff-table:not(.diff-split) .add .diff-word-highlight,
+.diff-table.diff-split td.diff-side-add .diff-word-highlight {
   background: color-mix(in oklch, var(--status-success) 28%, transparent);
 }
 
-.diff-del .diff-word-highlight,
-.del .diff-word-highlight {
+.diff-table:not(.diff-split) .diff-del .diff-word-highlight,
+.diff-table:not(.diff-split) .del .diff-word-highlight,
+.diff-table.diff-split td.diff-side-del .diff-word-highlight {
   background: color-mix(in oklch, var(--status-error) 28%, transparent);
+}
+
+.bidi-pill {
+  display: inline;
+  padding: 0 3px;
+  margin: 0 1px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--status-warning) 22%, transparent);
+  color: var(--status-warning);
+  font-size: var(--text-micro-size);
+  font-family: var(--font-mono);
+  white-space: pre;
 }
 
 .diff-overlay {

@@ -1,5 +1,8 @@
 // diff-parse.js - Pure ES module for parsing unified diffs
-// No DOM, no dependencies. Exports parseUnifiedDiff, wordDiff, sanitizeBidi, unescapeCQuoted.
+// No DOM (except re-export of sanitizeBidi). Exports parseUnifiedDiff, wordDiff, sanitizeBidi, unescapeCQuoted.
+
+export { sanitizeBidi, safeText, INVISIBLE_CHARS } from "./safe-text.js";
+import { sanitizeBidi } from "./safe-text.js";
 
 /**
  * Unescape C-quoted Git paths (e.g., "a/path with \"quotes\"\ttab.txt")
@@ -23,16 +26,6 @@ export function unescapeCQuoted(path) {
   }
   // Strip git a/ b/ prefixes after unquoting so C-quoted "b/foo" becomes foo.
   return out.replace(/^[ab]\//, '');
-}
-
-/**
- * Replace bidirectional control characters with visible placeholders
- */
-export function sanitizeBidi(text) {
-  return text.replace(/[\u202A-\u202E\u2066-\u2069]/g, (ch) => {
-    const code = ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
-    return `\u2039U+${code}\u203A`; // ‹U+XXXX›
-  });
 }
 
 /**
@@ -382,14 +375,19 @@ export function parseUnifiedDiff(text, filesMeta = []) {
  * @returns {Array<{text: string, changed: boolean}>} - Segments with change markers
  */
 export function wordDiff(oldText, newText) {
+  // Sanitize first so ‹U+XXXX› placeholders are atomic tokens and count as changes.
+  const left = sanitizeBidi(oldText);
+  const right = sanitizeBidi(newText);
+
   // Safety limits
-  if (oldText.length > 2000 || newText.length > 2000) {
-    return [{ text: newText, changed: false }];
+  if (left.length > 2000 || right.length > 2000) {
+    return [{ text: right, changed: false }];
   }
 
   const tokenize = (text) => {
     const tokens = [];
-    const regex = /\w+|\s+|[^\w\s]/gu;
+    // Placeholder pills first so they stay one token and highlight as a unit.
+    const regex = /\u2039U\+[0-9A-Fa-f]{4,6}\u203A|\w+|\s+|[^\w\s]/gu;
     let match;
     while ((match = regex.exec(text)) !== null) {
       tokens.push(match[0]);
@@ -397,8 +395,8 @@ export function wordDiff(oldText, newText) {
     return tokens;
   };
 
-  const oldTokens = tokenize(oldText);
-  const newTokens = tokenize(newText);
+  const oldTokens = tokenize(left);
+  const newTokens = tokenize(right);
 
   if (oldTokens.length > 500 || newTokens.length > 500) {
     return [{ text: newText, changed: false }];
@@ -450,5 +448,5 @@ export function wordDiff(oldText, newText) {
     }
   }
 
-  return result.length > 0 ? result : [{ text: newText, changed: false }];
+  return result.length > 0 ? result : [{ text: right, changed: false }];
 }

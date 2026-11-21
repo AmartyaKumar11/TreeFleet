@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import subprocess
 from pathlib import Path
 
@@ -65,12 +66,48 @@ def test_four_processes_append_without_torn_lines(tmp_path: Path) -> None:
     ctx = multiprocessing.get_context("spawn")
     with ctx.Pool(4) as pool:
         pool.map(_append_batch, [(str(target), worker) for worker in range(4)])
-    lines = target.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 8000
+    raw = target.read_bytes()
+    size = len(raw)
+    lines = raw.decode("utf-8").splitlines()
+    if len(lines) != 8000:
+        # Diagnose torn / extra / missing lines without changing writer behavior.
+        bad = None
+        offset = 0
+        for index, line in enumerate(lines):
+            try:
+                json.loads(line)
+            except json.JSONDecodeError as exc:
+                bad = (index, line, offset, exc)
+                break
+            offset += len(line.encode("utf-8")) + 1
+        detail = {
+            "line_count": len(lines),
+            "file_size": size,
+            "writer_pid": os.getpid(),
+            "offending_index": None if bad is None else bad[0],
+            "offending_raw": None if bad is None else bad[1][:200],
+            "byte_offset": None if bad is None else bad[2],
+            "json_error": None if bad is None else str(bad[3]),
+        }
+        print(f"events.jsonl flake detail: {detail}", flush=True)
+        raise AssertionError(f"expected 8000 lines, got {len(lines)}; detail={detail}")
     seen: set[tuple[int, int]] = set()
+    offset = 0
     for line in lines:
-        item = json.loads(line)
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            detail = {
+                "offending_raw": line[:200],
+                "byte_offset": offset,
+                "writer_pid": os.getpid(),
+                "file_size": size,
+                "json_error": str(exc),
+            }
+            print(f"events.jsonl flake detail: {detail}", flush=True)
+            raise AssertionError(f"torn or corrupt line at offset {offset}: {detail}") from exc
         seen.add((item["w"], item["i"]))
+        offset += len(line.encode("utf-8")) + 1
     assert seen == {(worker, index) for worker in range(4) for index in range(2000)}
 
 

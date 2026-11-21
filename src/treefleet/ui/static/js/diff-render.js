@@ -3,7 +3,8 @@
  * Parser lives in diff-parse.js; this module renders the parsed diff.
  */
 
-import { parseUnifiedDiff, wordDiff, sanitizeBidi } from './diff-parse.js';
+import { parseUnifiedDiff, wordDiff } from './diff-parse.js';
+import { appendSafeText } from './safe-text.js';
 
 const VIEW_MODE_STORAGE = 'treefleet_diff_view';
 const COLLAPSED_STORAGE = 'treefleet_diff_collapsed';
@@ -193,20 +194,20 @@ export function createDiffPane(root, options = {}) {
     }
     row.appendChild(signTd);
 
-    // Code cell — text nodes only, never template whitespace under white-space:pre.
+    // Code cell — safe text / pills only; never raw bidi controls.
     const codeTd = el('td', 'diff-code code');
     if (line.segments) {
       line.segments.forEach((seg) => {
         if (seg.changed) {
           const mark = el('mark', 'diff-word-highlight');
-          mark.appendChild(text(seg.text));
+          appendSafeText(mark, seg.text);
           codeTd.appendChild(mark);
         } else {
-          codeTd.appendChild(text(seg.text));
+          appendSafeText(codeTd, seg.text);
         }
       });
     } else {
-      codeTd.appendChild(text(sanitizeBidi(line.text)));
+      appendSafeText(codeTd, line.text);
     }
     row.appendChild(codeTd);
     // Filler so row tint spans the full card width when the table is stretched.
@@ -217,11 +218,20 @@ export function createDiffPane(root, options = {}) {
 
   /** Render a single split row (may be add-only, del-only, or both) */
   function renderSplitRow(leftLine, rightLine) {
-    const row = el('tr', 'diff-line diff-row');
-    if (leftLine && leftLine.type === 'del') row.classList.add('del');
-    if (rightLine && rightLine.type === 'add') row.classList.add('add');
+    const row = el('tr', 'diff-line diff-row diff-split-row');
+    const leftIsDel = !!(leftLine && leftLine.type === 'del');
+    const rightIsAdd = !!(rightLine && rightLine.type === 'add');
+    if (leftIsDel) row.classList.add('del', 'diff-del');
+    if (rightIsAdd) row.classList.add('add', 'diff-add');
 
-    // Left side (old/del)
+    function paintSide(cells, kind) {
+      cells.forEach((td) => {
+        td.classList.remove('diff-side-del', 'diff-side-add', 'diff-side-pad');
+        td.classList.add(kind);
+      });
+    }
+
+    // Left side (old/del) — tint only when it holds a deletion; else neutral pad.
     const leftLnTd = el('td', 'diff-ln diff-ln-old ln');
     if (leftLine && leftLine.oldNo != null) {
       leftLnTd.appendChild(text(leftLine.oldNo));
@@ -229,10 +239,9 @@ export function createDiffPane(root, options = {}) {
     row.appendChild(leftLnTd);
 
     const leftSignTd = el('td', 'diff-sign');
-    if (leftLine && leftLine.type === 'del') {
+    if (leftIsDel) {
       leftSignTd.appendChild(text('-'));
       leftSignTd.appendChild(el('span', 'visually-hidden', 'removed'));
-      row.classList.add('diff-del');
     } else {
       leftSignTd.appendChild(text('\u00a0'));
     }
@@ -241,22 +250,23 @@ export function createDiffPane(root, options = {}) {
     const leftCodeTd = el('td', 'diff-code diff-code-old code');
     if (leftLine) {
       if (leftLine.segments) {
-        leftLine.segments.forEach(seg => {
+        leftLine.segments.forEach((seg) => {
           if (seg.changed) {
             const mark = el('mark', 'diff-word-highlight');
-            mark.appendChild(text(seg.text));
+            appendSafeText(mark, seg.text);
             leftCodeTd.appendChild(mark);
           } else {
-            leftCodeTd.appendChild(text(seg.text));
+            appendSafeText(leftCodeTd, seg.text);
           }
         });
       } else {
-        leftCodeTd.appendChild(text(sanitizeBidi(leftLine.text)));
+        appendSafeText(leftCodeTd, leftLine.text);
       }
     }
     row.appendChild(leftCodeTd);
+    paintSide([leftLnTd, leftSignTd, leftCodeTd], leftIsDel ? 'diff-side-del' : 'diff-side-pad');
 
-    // Right side (new/add)
+    // Right side (new/add) — tint only when it holds an addition; else neutral pad.
     const rightLnTd = el('td', 'diff-ln diff-ln-new ln');
     if (rightLine && rightLine.newNo != null) {
       rightLnTd.appendChild(text(rightLine.newNo));
@@ -264,10 +274,9 @@ export function createDiffPane(root, options = {}) {
     row.appendChild(rightLnTd);
 
     const rightSignTd = el('td', 'diff-sign');
-    if (rightLine && rightLine.type === 'add') {
+    if (rightIsAdd) {
       rightSignTd.appendChild(text('+'));
       rightSignTd.appendChild(el('span', 'visually-hidden', 'added'));
-      row.classList.add('diff-add');
     } else {
       rightSignTd.appendChild(text('\u00a0'));
     }
@@ -279,18 +288,21 @@ export function createDiffPane(root, options = {}) {
         rightLine.segments.forEach((seg) => {
           if (seg.changed) {
             const mark = el('mark', 'diff-word-highlight');
-            mark.appendChild(text(seg.text));
+            appendSafeText(mark, seg.text);
             rightCodeTd.appendChild(mark);
           } else {
-            rightCodeTd.appendChild(text(seg.text));
+            appendSafeText(rightCodeTd, seg.text);
           }
         });
       } else {
-        rightCodeTd.appendChild(text(sanitizeBidi(rightLine.text)));
+        appendSafeText(rightCodeTd, rightLine.text);
       }
     }
     row.appendChild(rightCodeTd);
-    row.appendChild(el('td', 'diff-fill'));
+    paintSide([rightLnTd, rightSignTd, rightCodeTd], rightIsAdd ? 'diff-side-add' : 'diff-side-pad');
+
+    const fill = el('td', 'diff-fill diff-side-pad');
+    row.appendChild(fill);
 
     return row;
   }
@@ -353,10 +365,10 @@ export function createDiffPane(root, options = {}) {
     const row = el('tr', 'diff-row diff-hunk');
     const td = el('td', 'diff-hunk-header');
     td.colSpan = viewMode === 'split' ? 7 : 5;
-    td.appendChild(text(hunk.header));
+    appendSafeText(td, hunk.header || '');
     if (hunk.section) {
       td.appendChild(text(' '));
-      td.appendChild(text(hunk.section));
+      appendSafeText(td, hunk.section);
     }
     row.appendChild(td);
     return row;
@@ -478,7 +490,7 @@ export function createDiffPane(root, options = {}) {
       if (file.oldPath) {
         statusBadge.appendChild(text(' '));
         const oldSpan = el('span', 'diff-old-path');
-        oldSpan.appendChild(text(sanitizeBidi(file.oldPath)));
+        appendSafeText(oldSpan, file.oldPath);
         statusBadge.appendChild(oldSpan);
         statusBadge.appendChild(text(' → '));
       }
@@ -498,11 +510,11 @@ export function createDiffPane(root, options = {}) {
     const pathParts = (file.path || '').split('/');
     if (pathParts.length > 1) {
       const dir = el('span', 'diff-path-dir');
-      dir.appendChild(text(sanitizeBidi(pathParts.slice(0, -1).join('/') + '/')));
+      appendSafeText(dir, pathParts.slice(0, -1).join('/') + '/');
       pathWrap.appendChild(dir);
     }
     const filename = el('span', 'diff-path-file');
-    filename.appendChild(text(sanitizeBidi(pathParts[pathParts.length - 1] || file.path || '')));
+    appendSafeText(filename, pathParts[pathParts.length - 1] || file.path || '');
     pathWrap.appendChild(filename);
     header.appendChild(pathWrap);
 
@@ -633,6 +645,7 @@ export function createDiffPane(root, options = {}) {
     const totalAdd = (data.files || []).reduce((sum, f) => sum + (f.additions || 0), 0);
     const totalDel = (data.files || []).reduce((sum, f) => sum + (f.deletions || 0), 0);
 
+    const stats = el('div', 'diff-summary-stats');
     const summary = el('span', 'diff-summary-text');
     summary.appendChild(text(`${filesCount} file${filesCount !== 1 ? 's' : ''} changed `));
     const addSpan = el('span', 'diff-summary-add');
@@ -642,12 +655,11 @@ export function createDiffPane(root, options = {}) {
     const delSpan = el('span', 'diff-summary-del');
     delSpan.appendChild(text(`-${totalDel}`));
     summary.appendChild(delSpan);
-    bar.appendChild(summary);
+    stats.appendChild(summary);
 
     const total = totalAdd + totalDel;
     if (total > 0) {
       const ratioBar = el('div', 'diff-ratio-bar');
-      // Five 8px squares. Equal counts → 2+3 (closest half on an odd length).
       let addBlocks;
       if (totalAdd === totalDel) {
         addBlocks = 2;
@@ -662,11 +674,11 @@ export function createDiffPane(root, options = {}) {
         block.classList.add(i < addBlocks ? 'diff-ratio-add' : 'diff-ratio-del');
         ratioBar.appendChild(block);
       }
-      bar.appendChild(ratioBar);
+      stats.appendChild(ratioBar);
     }
+    bar.appendChild(stats);
 
-    bar.appendChild(el('span', 'diff-spacer'));
-
+    const controls = el('div', 'diff-summary-controls');
     const viewControl = el('div', 'diff-view-control segmented');
     viewControl.setAttribute('role', 'group');
     viewControl.setAttribute('aria-label', 'View mode');
@@ -690,7 +702,7 @@ export function createDiffPane(root, options = {}) {
     }
     splitBtn.addEventListener('click', () => onToggleView('split'));
     viewControl.appendChild(splitBtn);
-    bar.appendChild(viewControl);
+    controls.appendChild(viewControl);
 
     const wrapBtn = el('button', 'btn icon-btn ghost diff-wrap-btn');
     wrapBtn.type = 'button';
@@ -700,9 +712,8 @@ export function createDiffPane(root, options = {}) {
     wrapBtn.classList.toggle('is-on', wrap);
     wrapBtn.appendChild(icon('wrap-text'));
     wrapBtn.addEventListener('click', onToggleWrap);
-    bar.appendChild(wrapBtn);
+    controls.appendChild(wrapBtn);
 
-    // One toggle: Collapse all / Expand all
     const collapseToggle = el(
       'button',
       `btn icon-btn ghost diff-collapse-toggle ${allCollapsed ? 'diff-expand-all-btn' : 'diff-collapse-all-btn'}`
@@ -712,13 +723,11 @@ export function createDiffPane(root, options = {}) {
     collapseToggle.title = collapseLabel;
     collapseToggle.setAttribute('aria-label', collapseLabel);
     collapseToggle.appendChild(icon('chevrons-up-down'));
-    const collapseText = el('span', 'diff-collapse-label', collapseLabel);
-    collapseToggle.appendChild(collapseText);
     collapseToggle.addEventListener('click', () => {
       if (allCollapsed) onExpandAll();
       else onCollapseAll();
     });
-    bar.appendChild(collapseToggle);
+    controls.appendChild(collapseToggle);
 
     const expandBtn = el('button', 'btn icon-btn ghost diff-expand-overlay-btn');
     expandBtn.type = 'button';
@@ -726,8 +735,9 @@ export function createDiffPane(root, options = {}) {
     expandBtn.setAttribute('aria-label', 'Open diff in a larger view');
     expandBtn.appendChild(icon('maximize-2'));
     expandBtn.addEventListener('click', () => onExpand(expandBtn));
-    bar.appendChild(expandBtn);
+    controls.appendChild(expandBtn);
 
+    bar.appendChild(controls);
     return bar;
   }
 

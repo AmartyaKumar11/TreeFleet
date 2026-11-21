@@ -1,7 +1,8 @@
-/** Task drawer panes. Untrusted text goes through textContent / createTextNode only. */
+/** Task drawer panes. Untrusted text goes through safe-text / createTextNode only. */
 
 import { statusKey, statusWords as sharedStatusWords } from "./status.js";
 import { createDiffPane } from "./diff-render.js";
+import { appendSafeText, setSafeText, sanitizeBidi } from "./safe-text.js";
 
 const LIVE_CAP = 80;
 const DIFF_CAP = 2000;
@@ -129,7 +130,7 @@ export function createDrawer({ auth, worktreeFor }) {
       mark.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-${icon}"></use></svg>`;
       row.appendChild(mark);
     }
-    row.appendChild(document.createTextNode(String(raw)));
+    appendSafeText(row, String(raw));
     log.appendChild(row);
   }
 
@@ -529,7 +530,7 @@ export function createDrawer({ auth, worktreeFor }) {
     chev.innerHTML = `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-down"></use></svg>`;
     btn.appendChild(chev);
     const body = el("pre", "detail-body check-output type-code-sm");
-    body.textContent = detail || "";
+    setSafeText(body, detail || "");
     if (!detail) {
       chev.hidden = true;
       btn.disabled = true;
@@ -655,7 +656,7 @@ export function createDrawer({ auth, worktreeFor }) {
       root.appendChild(el("p", "violation-title", "Detail"));
       const block = el("pre", "check-output");
       block.hidden = false;
-      block.textContent = detail.join("\n");
+      setSafeText(block, detail.join("\n"));
       root.appendChild(block);
     }
   }
@@ -753,14 +754,14 @@ export function createDrawer({ auth, worktreeFor }) {
     const badge = document.getElementById("task-status-badge");
     const copy = document.getElementById("branch-copy");
     if (title) {
-      title.textContent = task.title || task.id || "Task";
-      title.title = task.title || "";
+      setSafeText(title, task.title || task.id || "Task");
+      title.title = sanitizeBidi(task.title || "");
     }
     const branch = task.branch || "";
     if (meta) {
-      meta.textContent = middleTruncate(branch);
-      meta.title = branch;
-      meta.setAttribute("data-branch", branch);
+      setSafeText(meta, middleTruncate(branch));
+      meta.title = sanitizeBidi(branch);
+      meta.setAttribute("data-branch", sanitizeBidi(branch));
     }
     if (copy) copy.hidden = !branch;
     if (badge) {

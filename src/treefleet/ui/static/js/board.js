@@ -3,6 +3,7 @@ import { costRole, createDrawer } from "./drawer.js";
 import { createGitGraph } from "./git-graph.js";
 import { createPalette } from "./palette.js";
 import { statusClass, statusKey, statusLabel, statusToken } from "./status.js";
+import { setSafeText, sanitizeBidi } from "./safe-text.js";
 
 window.__tfStatusToken = statusToken;
 window.__tfStatusKey = statusKey;
@@ -1165,10 +1166,13 @@ function render(data) {
     document.getElementById("run").disabled = true;
   }
   const project = (data.repo || "TreeFleet").split(/[\\/]/).pop();
-  document.getElementById("path").textContent = data.repo || "";
-  document.getElementById("title").textContent = project;
-  document.getElementById("side-project").textContent = project;
-  document.getElementById("ref").textContent = `${data.branch || ""}${data.head ? ` @ ${data.head}` : ""}`;
+  setSafeText(document.getElementById("path"), data.repo || "");
+  setSafeText(document.getElementById("title"), project);
+  setSafeText(document.getElementById("side-project"), project);
+  setSafeText(
+    document.getElementById("ref"),
+    `${sanitizeBidi(data.branch || "")}${data.head ? ` @ ${data.head}` : ""}`
+  );
   document.getElementById("clean").textContent = data.clean ? "Main checkout clean" : "Main checkout dirty";
   document.getElementById("stage").textContent = `Stage: ${(optimistic && optimistic.stage) || data.stage || "guard"}`;
   if (data.started_at) started = data.started_at;
