@@ -209,6 +209,22 @@ fi
 chown treefleet:treefleet /etc/treefleet/env
 chmod 0600 /etc/treefleet/env
 
+echo "==> migrate runs/ out of the target repo (older units used repo as cwd)"
+if [[ -d /var/lib/treefleet/repo/runs ]]; then
+  mkdir -p /var/lib/treefleet/runs
+  # Move contents; do not delete the target checkout itself.
+  shopt -s dotglob nullglob
+  for item in /var/lib/treefleet/repo/runs/*; do
+    base="$(basename "$item")"
+    if [[ -e "/var/lib/treefleet/runs/${base}" ]]; then
+      continue
+    fi
+    mv "$item" /var/lib/treefleet/runs/
+  done
+  shopt -u dotglob nullglob
+  rmdir /var/lib/treefleet/repo/runs 2>/dev/null || true
+fi
+
 echo "==> final ownership"
 chown -R treefleet:treefleet /opt/treefleet /var/lib/treefleet /home/treefleet
 chown treefleet:treefleet /etc/treefleet/treefleet.toml /etc/treefleet/env

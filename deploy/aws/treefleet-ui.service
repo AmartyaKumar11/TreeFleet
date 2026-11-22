@@ -7,7 +7,9 @@ Wants=network-online.target
 Type=simple
 User=treefleet
 Group=treefleet
-WorkingDirectory=/var/lib/treefleet/repo
+# Keep cwd outside the target git repo so UI run artifacts land in
+# /var/lib/treefleet/runs instead of dirtying /var/lib/treefleet/repo (prepare_repo).
+WorkingDirectory=/var/lib/treefleet
 EnvironmentFile=-/etc/treefleet/idle.env
 EnvironmentFile=-/etc/treefleet/env
 Environment=TREEFLEET_CONFIG=/etc/treefleet/treefleet.toml
