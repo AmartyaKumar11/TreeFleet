@@ -44,7 +44,7 @@ treefleet = "treefleet.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-treefleet = ["ui/*.html", "sample/templates/**/*"]
+treefleet = ["ui/*.html", "ui/static/**/*", "sample/templates/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -57,6 +57,7 @@ markers = [
   "phase9: evaluation harness", "phase10: deployment", "phase11: demo and evidence",
   "live: calls real model or network APIs, excluded from the default gate",
   "ui: Playwright browser tests; need `playwright install chromium`",
+  "packaging: builds a wheel; slow, exclude from fast runs",
 ]
 
 [tool.ruff]

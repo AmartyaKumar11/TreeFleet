@@ -1,0 +1,10 @@
+[Unit]
+Description=TreeFleet idle / max-uptime watchdog (one shot)
+After=treefleet-ui.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/treefleet/idle.env
+ExecStart=/usr/local/lib/treefleet/idle-watch.sh
+Nice=10

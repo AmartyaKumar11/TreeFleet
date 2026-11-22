@@ -1,0 +1,72 @@
+"""15.D8: sandbox escape hatch and cursor-agent / agent PATH resolution."""
+
+from __future__ import annotations
+
+import os
+import stat
+import sys
+from pathlib import Path
+
+import pytest
+
+from treefleet.cursor_run import command_for, resolve_cursor_cli
+
+
+def test_sandbox_windows_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("TREEFLEET_CURSOR_SANDBOX", raising=False)
+    shim = tmp_path / "cursor-agent.py"
+    shim.write_text("print('ok')\n", encoding="utf-8")
+    argv = command_for(shim, tmp_path / "wt", None, "do it")
+    assert "--sandbox" in argv
+    assert argv[argv.index("--sandbox") + 1] == "disabled"
+
+
+def test_sandbox_linux_default_omits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("TREEFLEET_CURSOR_SANDBOX", raising=False)
+    shim = tmp_path / "cursor-agent.py"
+    shim.write_text("print('ok')\n", encoding="utf-8")
+    argv = command_for(shim, tmp_path / "wt", None, "do it")
+    assert "--sandbox" not in argv
+
+
+def test_sandbox_linux_env_disables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("TREEFLEET_CURSOR_SANDBOX", "disabled")
+    shim = tmp_path / "cursor-agent.py"
+    shim.write_text("print('ok')\n", encoding="utf-8")
+    argv = command_for(shim, tmp_path / "wt", None, "do it")
+    assert "--sandbox" in argv
+    assert argv[argv.index("--sandbox") + 1] == "disabled"
+
+
+def test_resolve_falls_back_to_agent_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    agent = bindir / ("agent.cmd" if os.name == "nt" else "agent")
+    agent.write_text("@echo off\n" if os.name == "nt" else "#!/bin/sh\necho agent\n", encoding="utf-8")
+    if os.name != "nt":
+        agent.chmod(agent.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(bindir))
+    # Ensure cursor-agent is not found
+    resolved = resolve_cursor_cli("cursor-agent")
+    assert resolved.resolve() == agent.resolve()
+
+
+def test_resolve_prefers_cursor_agent_when_present(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    ca_name = "cursor-agent.cmd" if os.name == "nt" else "cursor-agent"
+    ag_name = "agent.cmd" if os.name == "nt" else "agent"
+    ca = bindir / ca_name
+    ag = bindir / ag_name
+    body = "@echo off\n" if os.name == "nt" else "#!/bin/sh\necho x\n"
+    ca.write_text(body, encoding="utf-8")
+    ag.write_text(body, encoding="utf-8")
+    if os.name != "nt":
+        ca.chmod(ca.stat().st_mode | stat.S_IXUSR)
+        ag.chmod(ag.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(bindir))
+    resolved = resolve_cursor_cli("cursor-agent")
+    assert resolved.resolve() == ca.resolve()

@@ -103,6 +103,30 @@ def redact_blob(text: str, limit: int = 2000) -> str:
     return _SECRET.sub("[redacted]", text)[:limit]
 
 
+def _sandbox_disabled() -> bool:
+    """Windows always disables sandbox; TREEFLEET_CURSOR_SANDBOX=disabled forces it on any OS."""
+    if sys.platform == "win32":
+        return True
+    return os.environ.get("TREEFLEET_CURSOR_SANDBOX", "").strip().lower() == "disabled"
+
+
+def resolve_cursor_cli(cli: Path | str) -> Path:
+    """Resolve the Cursor CLI. Prefer the given name; fall back to `agent` when only that is on PATH."""
+    raw = Path(cli)
+    if raw.is_file():
+        return raw
+    found = shutil.which(str(cli))
+    if found:
+        return Path(found)
+    name = raw.name.lower()
+    if name in {"cursor-agent", "cursor-agent.cmd", "cursor-agent.ps1", "cursor-agent.exe"}:
+        for alt in ("agent", "agent.cmd", "agent.exe"):
+            hit = shutil.which(alt)
+            if hit:
+                return Path(hit)
+    return raw
+
+
 def command_for(cli: Path, worktree: Path, model: str | None, instruction: str) -> list[str]:
     prefix = _executable(cli)
     args = [
@@ -115,7 +139,7 @@ def command_for(cli: Path, worktree: Path, model: str | None, instruction: str) 
         str(worktree),
         "--trust",
     ]
-    if sys.platform == "win32":
+    if _sandbox_disabled():
         args.extend(["--sandbox", "disabled"])
     if model:
         args.extend(["--model", model])
@@ -125,9 +149,9 @@ def command_for(cli: Path, worktree: Path, model: str | None, instruction: str) 
 
 def launch_command(cli: Path) -> list[str]:
     """Executable prefix. A bare `cursor-agent` on Windows is a cmd, which CreateProcess cannot start."""
-    target = cli
-    if cli.suffix.lower() != ".py" and not cli.is_file():
-        found = shutil.which(str(cli))
+    target = resolve_cursor_cli(cli)
+    if target.suffix.lower() != ".py" and not target.is_file():
+        found = shutil.which(str(target))
         if found:
             target = Path(found)
     if target.suffix.lower() == ".py":

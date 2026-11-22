@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  TreeFleet single EC2 host (Ubuntu 24.04). UI on 127.0.0.1:8765 only;
+  access via SSM Session Manager port-forward. Zero inbound security-group rules.
+
+# Look up defaults (run on the operator laptop, not in this template):
+#   aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query "Vpcs[0].VpcId" --output text
+#   aws ec2 describe-subnets --filters Name=vpc-id,Values=<VpcId> Name=default-for-az,Values=true \
+#     --query "Subnets[0].SubnetId" --output text
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that already has SSM/HTTPS egress (default VPC is fine).
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet in VpcId (any AZ; private or public with outbound).
+  InstanceType:
+    Type: String
+    Default: t3.large
+    Description: EC2 instance type (parameterized; never hard-coded elsewhere).
+  VolumeSizeGiB:
+    Type: Number
+    Default: 40
+    MinValue: 30
+    MaxValue: 200
+    Description: Encrypted gp3 root volume size in GiB.
+  TreeFleetRepoUrl:
+    Type: String
+    Description: Git URL for the TreeFleet source (this project).
+  TreeFleetRepoRef:
+    Type: String
+    Default: main
+    Description: Branch or tag to checkout for TreeFleet.
+  TargetRepoUrl:
+    Type: String
+    Default: https://github.com/AmartyaKumar11/pr-sentinel-demo
+    Description: Working clone the UI operates on.
+  ParameterPrefix:
+    Type: String
+    Default: /treefleet
+    Description: SSM Parameter Store prefix for SecureString secrets (no trailing slash required).
+  IdleMinutes:
+    Type: Number
+    Default: 45
+    MinValue: 10
+    MaxValue: 240
+    Description: Minutes of inactivity before the idle watchdog powers off (stop).
+  MaxUptimeHours:
+    Type: Number
+    Default: 12
+    MinValue: 1
+    MaxValue: 168
+    Description: Hard uptime cap (hours) when no SSM/UI connection is established.
+  BudgetEmail:
+    Type: String
+    Description: Email for the AWS Budgets subscriber.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 15
+    MinValue: 1
+    Description: Monthly AWS Budgets threshold in USD for this account filter.
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-instance"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: TreeFleetSsmRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadParametersUnderPrefix
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}*"
+              - Sid: DecryptViaSsm
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: TreeFleet - no inbound; HTTPS/HTTP egress only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS (apt, git, Cursor, DeepSeek, GitHub, SSM)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP (apt redirects / package mirrors)
+      Tags:
+        - Key: project
+          Value: treefleet
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
+      InstanceInitiatedShutdownBehavior: stop
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 2
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref VolumeSizeGiB
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/treefleet-userdata.log) 2>&1
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y git curl ca-certificates
+          install -d -m 0755 /opt/treefleet /var/lib/treefleet
+          git clone --depth 1 --branch "${TreeFleetRepoRef}" "${TreeFleetRepoUrl}" /opt/treefleet
+          export TREEFLEET_REPO_URL="${TreeFleetRepoUrl}"
+          export TREEFLEET_REPO_REF="${TreeFleetRepoRef}"
+          export TARGET_REPO_URL="${TargetRepoUrl}"
+          export PARAMETER_PREFIX="${ParameterPrefix}"
+          export IDLE_MINUTES="${IdleMinutes}"
+          export MAX_UPTIME_HOURS="${MaxUptimeHours}"
+          export AWS_DEFAULT_REGION="${AWS::Region}"
+          bash /opt/treefleet/deploy/aws/bootstrap.sh
+      Tags:
+        - Key: project
+          Value: treefleet
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance id for up/down/tunnel scripts
+    Value: !Ref Instance
+    Export:
+      Name: !Sub "${AWS::StackName}-InstanceId"

@@ -1,0 +1,29 @@
+[Unit]
+Description=TreeFleet UI (127.0.0.1:8765)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=treefleet
+Group=treefleet
+WorkingDirectory=/var/lib/treefleet/repo
+EnvironmentFile=-/etc/treefleet/idle.env
+EnvironmentFile=-/etc/treefleet/env
+Environment=TREEFLEET_CONFIG=/etc/treefleet/treefleet.toml
+Environment=HOME=/home/treefleet
+# "+" runs the renderer as root so it can write /etc/treefleet/env (0600 treefleet).
+ExecStartPre=+/usr/local/lib/treefleet/render-env.sh
+ExecStart=/opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=30
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/treefleet /etc/treefleet /opt/treefleet /home/treefleet
+
+[Install]
+WantedBy=multi-user.target
