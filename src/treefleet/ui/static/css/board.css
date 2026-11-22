@@ -421,7 +421,6 @@ button {
   position: relative;
 }
 
-.settings-popover,
 .topbar-more-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
@@ -448,46 +447,6 @@ button {
 
 .topbar-more-menu button:hover {
   background: var(--surface);
-}
-
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  background: none;
-  border: 0;
-  color: var(--muted);
-  text-align: left;
-}
-
-.switch .track {
-  width: 30px;
-  height: var(--space-4);
-  border-radius: var(--radius-3);
-  background: var(--surface);
-  position: relative;
-  flex: none;
-  border: 1px solid var(--border);
-}
-
-.switch .knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 12px;
-  height: 12px;
-  border-radius: var(--radius-pill);
-  background: var(--text);
-  transition: transform var(--motion-2) var(--ease-standard);
-}
-
-.switch[aria-checked="true"] .track {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.switch[aria-checked="true"] .knob {
-  transform: translateX(14px);
 }
 
 .board-body {
@@ -2047,7 +2006,6 @@ th {
 .tab:focus-visible,
 .btn:focus-visible,
 .card:focus-visible:not(.is-selected),
-.palette-item:focus-visible,
 .icon-btn:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -2313,62 +2271,6 @@ th {
 .git-graph.is-collapsed .graph-more,
 .git-graph.is-collapsed .graph-empty {
   display: none;
-}
-
-.command-palette {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: start center;
-  padding-top: 12vh;
-}
-
-.command-palette[hidden] {
-  display: none !important;
-}
-
-.command-backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--overlay);
-}
-
-.command-panel {
-  position: relative;
-  width: min(520px, calc(100vw - 32px));
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow-panel);
-}
-
-.command-panel input {
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  padding: 14px 16px;
-  color: var(--text);
-  outline: none;
-  font: inherit;
-}
-
-.palette-item {
-  padding: 10px 16px;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.palette-item.is-active,
-.palette-item:hover {
-  background: var(--surface-2);
-}
-
-.palette-empty {
-  padding: 14px 16px;
-  color: var(--muted);
 }
 
 .drawer-head {
@@ -3282,7 +3184,7 @@ tr.diff-row .code {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .drawer,
   .drawer.is-visible {
     left: 0;
@@ -3300,6 +3202,16 @@ tr.diff-row .code {
   .drawer.is-visible.is-open {
     transform: translateY(0);
   }
+
+  .topbar .icon-btn,
+  .mobile-lane-tabs button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* bottom sheet already applied at 768; keep composer pin from earlier 640 block */
 
   .topbar-overflow {
     order: 0;

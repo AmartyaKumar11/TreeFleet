@@ -1,0 +1,108 @@
+.notif-wrap {
+  position: relative;
+}
+
+.notif-popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 35;
+  width: min(360px, calc(100vw - var(--space-6)));
+  max-height: min(420px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.notif-popover[hidden] {
+  display: none !important;
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.notif-head h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-title-sm-size);
+  font-weight: var(--text-title-sm-weight);
+}
+
+.notif-mark-all {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-caption-size);
+  cursor: pointer;
+  min-height: var(--space-8);
+  padding: 0 var(--space-2);
+}
+
+.notif-list {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.notif-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-row.is-needs {
+  border-left-color: var(--status-needs);
+}
+
+.notif-row.is-read {
+  opacity: 0.65;
+}
+
+.notif-row:hover,
+.notif-row:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.notif-title {
+  font-size: var(--text-body-sm-size);
+  font-weight: 600;
+}
+
+.notif-detail {
+  color: var(--muted);
+}
+
+.notif-list .pane-empty,
+.notif-list .transcript-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .notif-row,
+  .notif-mark-all {
+    min-height: 40px;
+  }
+}

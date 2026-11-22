@@ -2,6 +2,7 @@
 
 import { statusToken } from "./status.js";
 import { setSafeText, sanitizeBidi } from "./safe-text.js";
+import { paintError, paintSkeleton } from "./pane-state.js";
 
 const CAP = 8;
 const STORAGE_KEY = "treefleet.git-graph.collapsed";
@@ -231,5 +232,22 @@ export function createGitGraph({ onSelect }) {
     }
   }
 
-  return { draw };
+  function showLoading() {
+    const host = document.getElementById("git-graph");
+    if (!host) return;
+    clear(host);
+    paintSkeleton(host, 3);
+  }
+
+  function showError(message, onRetry) {
+    const host = document.getElementById("git-graph");
+    if (!host) return;
+    clear(host);
+    paintError(host, {
+      message: message || "Could not load git graph",
+      onRetry: onRetry || (() => draw(last || {})),
+    });
+  }
+
+  return { draw, showLoading, showError };
 }

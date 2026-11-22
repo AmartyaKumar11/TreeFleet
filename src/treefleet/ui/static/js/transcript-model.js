@@ -195,6 +195,12 @@ export function buildTranscriptEntries(items, plan, board = {}) {
   }
   if (approval) entries.push(approval);
 
+  // While approval is pending, the card owns the step list; plan entry keeps rationale only.
+  if (approval && approval.status === "pending") {
+    const planEntry = entries.find((e) => e.kind === "plan");
+    if (planEntry) planEntry.hideTasks = true;
+  }
+
   // Pair tools and join assistant lines in one forward pass
   const openTools = new Map(); // key -> start item
   let assistantBuf = null;

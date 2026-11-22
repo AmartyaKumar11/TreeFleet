@@ -11,6 +11,10 @@
 <link rel="stylesheet" href="/static/css/controls.css">
 <link rel="stylesheet" href="/static/css/board.css">
 <link rel="stylesheet" href="/static/css/transcript.css">
+<link rel="stylesheet" href="/static/css/palette.css">
+<link rel="stylesheet" href="/static/css/toast.css">
+<link rel="stylesheet" href="/static/css/notifications.css">
+<link rel="stylesheet" href="/static/css/settings.css">
 </head>
 <body>
 <div id="replay" class="replay" {{REPLAY_ATTR}}>REPLAY</div>
@@ -51,21 +55,29 @@
       </div>
       <span class="spacer"></span>
       <span class="timer mono type-code-sm" id="elapsed" aria-label="Elapsed">0:00</span>
-      <button class="icon-btn" id="bell" type="button" aria-label="Notifications" title="Notifications">
-        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-bell"></use></svg>
-        <span class="badge" id="attention-badge" hidden>1</span>
-      </button>
+      <div class="notif-wrap">
+        <button class="icon-btn" id="bell" type="button" aria-label="Notifications" title="Notifications" aria-haspopup="dialog" aria-controls="notif-popover" aria-expanded="false">
+          <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-bell"></use></svg>
+          <span class="badge" id="attention-badge" hidden>1</span>
+        </button>
+        <div class="notif-popover" id="notif-popover" hidden role="dialog" aria-label="Notifications">
+          <div class="notif-head">
+            <h2>Notifications</h2>
+            <button type="button" class="notif-mark-all" id="notif-mark-all">Mark all read</button>
+          </div>
+          <div class="notif-list" id="notif-list"></div>
+        </div>
+      </div>
       <span class="pill attention badge-status" id="attention" hidden>Needs you</span>
       <div class="settings-wrap">
-        <button class="icon-btn" id="run-settings" type="button" aria-label="Run settings" aria-expanded="false" aria-controls="settings-popover" title="Run settings">
+        <button class="icon-btn" id="run-settings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings-panel" title="Settings">
           <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg>
         </button>
-        <div class="settings-popover" id="settings-popover" hidden>
-          <button class="switch" id="auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval">
-            <span class="track"><span class="knob"></span></span>
-            <span>Auto-run without plan approval</span>
-          </button>
-        </div>
+        <!-- Legacy auto switch kept for existing tests; mirrored in settings panel -->
+        <button class="switch" id="auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval" hidden>
+          <span class="track"><span class="knob"></span></span>
+          <span>Auto-run without plan approval</span>
+        </button>
       </div>
       <div class="topbar-overflow">
         <button class="icon-btn topbar-more-btn" id="topbar-more" type="button" aria-label="More actions" title="More" aria-expanded="false" aria-controls="topbar-more-menu">
@@ -131,6 +143,11 @@
           <div class="board-empty" id="board-empty" hidden>
             <h2 class="type-title-lg">No tasks yet</h2>
             <p class="type-body-sm muted">Describe what to build above and press Ctrl Enter.</p>
+            <button type="button" class="btn primary" id="board-empty-focus">Write a goal</button>
+          </div>
+          <div id="board-error" class="transcript-banner is-error" hidden data-state="error">
+            <span id="board-error-msg">Could not load board</span>
+            <button type="button" class="btn secondary" id="board-error-retry">Retry</button>
           </div>
           <div class="mobile-lane-tabs segmented" role="tablist" aria-label="Lanes">
             <button type="button" role="tab" data-lane="working" data-label="Working" aria-selected="true">Working <span class="n">0</span></button>
@@ -268,10 +285,91 @@
 <div id="command-palette" class="command-palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="command-backdrop" id="command-backdrop"></div>
   <div class="command-panel">
-    <input id="command-input" class="field" type="search" placeholder="Type a command" aria-label="Command" autocomplete="off" aria-controls="command-list">
+    <div class="command-input-row">
+      <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-search"></use></svg>
+      <input id="command-input" class="field" type="search" placeholder="Type a command" aria-label="Command" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="command-list">
+    </div>
     <div id="command-list" role="listbox" aria-label="Commands"></div>
+    <div id="palette-live" class="palette-live" aria-live="polite"></div>
   </div>
 </div>
+<aside id="settings-panel" class="settings-panel" hidden role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="settings-panel-head">
+    <h2>Settings</h2>
+    <button type="button" class="icon-btn" id="settings-close" aria-label="Close settings">
+      <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-x"></use></svg>
+    </button>
+  </div>
+  <div class="settings-body">
+    <section class="settings-section">
+      <h3>Preferences</h3>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Default transcript mode</span>
+          <span class="hint">Used when opening the orchestrator</span>
+        </div>
+        <div class="settings-mode-group" role="group" aria-label="Transcript mode">
+          <button type="button" role="switch" data-settings-mode="summary" aria-checked="false">Summary</button>
+          <button type="button" role="switch" data-settings-mode="normal" aria-checked="true">Normal</button>
+          <button type="button" role="switch" data-settings-mode="verbose" aria-checked="false">Verbose</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Reduce motion</span>
+          <span class="hint">Override prefers-reduced-motion</span>
+        </div>
+        <button class="switch" id="settings-motion" role="switch" aria-checked="false" type="button" aria-label="Reduce motion">
+          <span class="track"><span class="knob"></span></span>
+        </button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Auto-run without plan approval</span>
+          <span class="hint">Skip the approval card for new runs</span>
+        </div>
+        <button class="switch" id="settings-auto" role="switch" aria-checked="false" type="button" aria-label="Auto-run without plan approval">
+          <span class="track"><span class="knob"></span></span>
+        </button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Theme</span>
+          <span class="hint">Light mode</span>
+        </div>
+        <button class="switch" id="settings-theme-light" role="switch" aria-checked="false" type="button" aria-label="Light theme" disabled title="Coming soon">
+          <span class="track"><span class="knob"></span></span>
+          <span>Coming soon</span>
+        </button>
+      </div>
+    </section>
+    <section class="settings-section">
+      <h3>Workspace</h3>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Repository</span>
+          <span class="hint settings-readonly" id="settings-repo">—</span>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Branch</span>
+          <span class="hint settings-readonly" id="settings-branch">—</span>
+        </div>
+      </div>
+    </section>
+    <section class="settings-section settings-danger">
+      <h3>Danger zone</h3>
+      <div class="settings-row">
+        <div class="settings-row-copy">
+          <span class="label">Clear local preferences</span>
+          <span class="hint">Transcript mode, motion, notification read state</span>
+        </div>
+        <button type="button" class="btn ghost" id="settings-clear-local">Clear</button>
+      </div>
+    </section>
+  </div>
+</aside>
 <script type="module" src="/static/js/board.js"></script>
 </body>
 </html>

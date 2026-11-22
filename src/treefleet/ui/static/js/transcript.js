@@ -79,10 +79,10 @@ function setSafeAttr(node, name, value) {
 }
 
 /**
- * @param {{ auth: Function, post: Function, onPlanApproved?: Function, selectTask?: Function }} opts
+ * @param {{ auth: Function, post: Function, onPlanApproved?: Function, onPlanRejected?: Function, onToast?: Function, selectTask?: Function }} opts
  */
 export function createTranscript(opts) {
-  const { auth, post, onPlanApproved } = opts;
+  const { auth, post, onPlanApproved, onPlanRejected, onToast } = opts;
   let mode = readMode();
   let board = {};
   let rawItems = [];
@@ -254,32 +254,37 @@ export function createTranscript(opts) {
       const serif = el("div", "transcript-serif");
       setSafeText(serif, entry.rationale || "Plan");
       body.appendChild(serif);
-      const ol = document.createElement("ol");
-      (entry.tasks || []).forEach((task) => {
-        const li = document.createElement("li");
-        setSafeText(li, `${task.title || task.id || "task"} · ${(task.allowed_paths || []).join(", ")}`);
-        if (task.instructions) {
-          const exp = document.createElement("button");
-          exp.type = "button";
-          exp.className = "transcript-expand";
-          exp.setAttribute("aria-expanded", String(expanded.has(`${entry.id}:${task.id}`)));
-          exp.textContent = "Instructions";
-          const panel = el("div", "transcript-tool-body");
-          panel.hidden = !expanded.has(`${entry.id}:${task.id}`);
-          setSafeText(panel, task.instructions);
-          exp.addEventListener("click", () => {
-            const key = `${entry.id}:${task.id}`;
-            if (expanded.has(key)) expanded.delete(key);
-            else expanded.add(key);
-            exp.setAttribute("aria-expanded", String(expanded.has(key)));
-            panel.hidden = !expanded.has(key);
-          });
-          li.appendChild(exp);
-          li.appendChild(panel);
-        }
-        ol.appendChild(li);
-      });
-      body.appendChild(ol);
+      // Pending approval card carries the steps; settled plan entry shows them once.
+      if (!entry.hideTasks) {
+        const ol = document.createElement("ol");
+        (entry.tasks || []).forEach((task) => {
+          const li = document.createElement("li");
+          const label = el("span", "plan-step-label");
+          setSafeText(label, `${task.title || task.id || "task"} · ${(task.allowed_paths || []).join(", ")}`);
+          li.appendChild(label);
+          if (task.instructions) {
+            const exp = document.createElement("button");
+            exp.type = "button";
+            exp.className = "transcript-expand";
+            exp.setAttribute("aria-expanded", String(expanded.has(`${entry.id}:${task.id}`)));
+            exp.textContent = "Instructions";
+            const panel = el("div", "transcript-tool-body");
+            panel.hidden = !expanded.has(`${entry.id}:${task.id}`);
+            setSafeText(panel, task.instructions);
+            exp.addEventListener("click", () => {
+              const key = `${entry.id}:${task.id}`;
+              if (expanded.has(key)) expanded.delete(key);
+              else expanded.add(key);
+              exp.setAttribute("aria-expanded", String(expanded.has(key)));
+              panel.hidden = !expanded.has(key);
+            });
+            li.appendChild(exp);
+            li.appendChild(panel);
+          }
+          ol.appendChild(li);
+        });
+        body.appendChild(ol);
+      }
     } else if (entry.kind === "plan_approval") {
       body.appendChild(renderApprovalCard(entry));
     } else if (entry.kind === "tool_group") {
@@ -411,15 +416,18 @@ export function createTranscript(opts) {
     );
     card.appendChild(head);
 
-    const steps = entry.awaiting || (plan && plan.tasks) || board.awaiting || [];
-    if (steps.length) {
-      const ol = document.createElement("ol");
-      steps.forEach((task) => {
-        const li = document.createElement("li");
-        setSafeText(li, `${task.title || task.id || "task"} · ${(task.allowed_paths || []).join(", ")}`);
-        ol.appendChild(li);
-      });
-      card.appendChild(ol);
+    // Steps live on the card only while pending; settled cards keep status + routing.
+    if (entry.status === "pending") {
+      const steps = entry.awaiting || (plan && plan.tasks) || board.awaiting || [];
+      if (steps.length) {
+        const ol = document.createElement("ol");
+        steps.forEach((task) => {
+          const li = document.createElement("li");
+          setSafeText(li, `${task.title || task.id || "task"} · ${(task.allowed_paths || []).join(", ")}`);
+          ol.appendChild(li);
+        });
+        card.appendChild(ol);
+      }
     }
 
     if (board.worker_model) {
@@ -491,8 +499,12 @@ export function createTranscript(opts) {
     paint();
     if (onPlanApproved) onPlanApproved();
     post(`/api/runs/${board.run_id}/approve`)
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+      })
       .catch(() => {
         errorMsg = "Approve failed";
+        if (onToast) onToast({ kind: "error", title: "Approve failed" });
       })
       .finally(() => {
         actionBusy = false;
@@ -506,8 +518,13 @@ export function createTranscript(opts) {
     actionBusy = true;
     paint();
     post(`/api/runs/${board.run_id}/cancel`)
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        if (onPlanRejected) onPlanRejected();
+      })
       .catch(() => {
         errorMsg = "Reject failed";
+        if (onToast) onToast({ kind: "error", title: "Reject failed" });
       })
       .finally(() => {
         actionBusy = false;
@@ -888,6 +905,7 @@ export function createTranscript(opts) {
       },
       paint,
       entriesForMode,
+      setMode,
     },
   };
 }

@@ -2,6 +2,9 @@ import { createOrchestrator } from "./orchestrator.js";
 import { costRole, createDrawer } from "./drawer.js";
 import { createGitGraph } from "./git-graph.js";
 import { createPalette } from "./palette.js";
+import { createNotifications } from "./notifications.js";
+import { createSettings } from "./settings.js";
+import { toast } from "./toast.js";
 import { statusClass, statusKey, statusLabel, statusToken } from "./status.js";
 import { setSafeText, sanitizeBidi, escText, escAttr } from "./safe-text.js";
 
@@ -28,6 +31,8 @@ let orch = null;
 let drawer = null;
 let graph = null;
 let palette = null;
+let notifs = null;
+let settings = null;
 let optimistic = null;
 let laneSig = "";
 let lastCounts = { working: 0, needs: 0, review: 0, ready: 0 };
@@ -873,7 +878,12 @@ function handleCardClick(event) {
   if (merge) {
     event.stopPropagation();
     const cmd = merge.getAttribute("data-merge");
-    if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+    if (cmd && navigator.clipboard) {
+      navigator.clipboard.writeText(cmd).then(
+        () => toast.show({ kind: "success", title: "Copied merge command" }),
+        () => toast.show({ kind: "error", title: "Copy failed" }),
+      );
+    }
     merge.classList.add("copied");
     merge.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="merge-label">Copied</span>`;
     setTimeout(() => {
@@ -1258,6 +1268,8 @@ function render(data) {
   const counts = setLaneCounts(tasks, !!(optimistic && optimistic.awaiting === null ? null : data.awaiting));
   lastCounts = counts;
   notifyHuman(needsCount(counts));
+  notifs?.syncBadge();
+  settings?.sync();
   updateRunStrip(data, counts);
   const focusBefore = document.activeElement;
   const focusTaskId =
@@ -1444,15 +1456,53 @@ function tick() {
   }
 }
 
+let boardFetchHealthy = true;
+let worktreesFetchHealthy = true;
+
+function showBoardError(message) {
+  const el = document.getElementById("board-error");
+  const msg = document.getElementById("board-error-msg");
+  if (msg) setSafeText(msg, message || "Could not load board");
+  if (el) el.hidden = false;
+}
+
+function hideBoardError() {
+  const el = document.getElementById("board-error");
+  if (el) el.hidden = true;
+}
+
+document.getElementById("board-empty-focus")?.addEventListener("click", () => {
+  document.getElementById("goal")?.focus();
+});
+document.getElementById("board-error-retry")?.addEventListener("click", () => {
+  hideBoardError();
+  refresh();
+});
+
 function refresh() {
   const query = selectedRun ? `?run=${encodeURIComponent(selectedRun)}` : "";
   fetch(`/api/board${query}`, { headers: auth() })
-    .then((res) => res.json())
-    .then(render)
-    .catch(() => {});
-  fetch("/api/worktrees", { headers: auth() })
-    .then((res) => res.json())
+    .then((res) => {
+      if (!res.ok) throw new Error(`board ${res.status}`);
+      return res.json();
+    })
     .then((data) => {
+      boardFetchHealthy = true;
+      hideBoardError();
+      render(data);
+    })
+    .catch(() => {
+      if (boardFetchHealthy) toast.show({ kind: "error", title: "Could not refresh board" });
+      boardFetchHealthy = false;
+      showBoardError("Could not refresh board");
+    });
+  fetch("/api/worktrees", { headers: auth() })
+    .then((res) => {
+      if (!res.ok) throw new Error(`worktrees ${res.status}`);
+      return res.json();
+    })
+    .then((data) => {
+      worktreesFetchHealthy = true;
       if (!state.worktrees) state.worktrees = [];
       state.worktrees = data.worktrees || [];
       const body = document.querySelector("#worktrees tbody");
@@ -1468,7 +1518,10 @@ function refresh() {
       setEmpty("worktrees", "empty-worktrees", state.worktrees.length);
       if (graph && (state.tasks || state.head)) graph.draw(state);
     })
-    .catch(() => {});
+    .catch(() => {
+      if (worktreesFetchHealthy) toast.show({ kind: "error", title: "Could not load worktrees" });
+      worktreesFetchHealthy = false;
+    });
 }
 
 function setView(next) {
@@ -1482,24 +1535,12 @@ function setView(next) {
   if (next === "orchestrator" && orch) orch.renderThread(state);
 }
 
-document.getElementById("auto").addEventListener("click", () => {
+document.getElementById("auto")?.addEventListener("click", () => {
   const button = document.getElementById("auto");
-  button.setAttribute("aria-checked", String(button.getAttribute("aria-checked") !== "true"));
-});
-
-document.getElementById("run-settings").addEventListener("click", () => {
-  const pop = document.getElementById("settings-popover");
-  const open = pop.hidden;
-  pop.hidden = !open;
-  document.getElementById("run-settings").setAttribute("aria-expanded", String(open));
-});
-
-document.addEventListener("click", (event) => {
-  const wrap = document.querySelector(".settings-wrap");
-  if (wrap && !wrap.contains(event.target)) {
-    document.getElementById("settings-popover").hidden = true;
-    document.getElementById("run-settings").setAttribute("aria-expanded", "false");
-  }
+  if (!button) return;
+  const next = button.getAttribute("aria-checked") !== "true";
+  button.setAttribute("aria-checked", String(next));
+  document.getElementById("settings-auto")?.setAttribute("aria-checked", String(next));
 });
 
 document.querySelectorAll(".details-tab").forEach((tab) => {
@@ -1664,19 +1705,98 @@ function mergeCommand() {
   return branch ? `git merge ${branch}` : "";
 }
 
-palette = createPalette({
-  onNewRun: () => {
-    setView("kanban");
-    document.getElementById("goal").focus();
+settings = createSettings({
+  getBoard: () => state,
+  onModeChange: (mode) => {
+    if (orch && orch._test && orch._test.setMode) orch._test.setMode(mode);
+    else if (orch && typeof orch.getMode === "function") {
+      document.querySelector(`.transcript-mode [data-mode="${mode}"]`)?.click();
+    }
   },
-  onJumpTask: (task) => select(task, true),
-  onSwitchView: () => setView(view === "kanban" ? "orchestrator" : "kanban"),
-  onToggleAuto: () => document.getElementById("auto").click(),
-  onCopyMerge: () => {
-    const cmd = mergeCommand();
-    if (cmd && navigator.clipboard) navigator.clipboard.writeText(cmd);
+});
+settings.bind();
+
+document.getElementById("settings-clear-local")?.addEventListener("click", () => {
+  try {
+    localStorage.removeItem("treefleet_transcript_mode");
+    localStorage.removeItem("treefleet_reduce_motion");
+    localStorage.removeItem("treefleet_notif_read");
+    localStorage.removeItem("treefleet_palette_recent");
+  } catch {
+    /* ignore */
+  }
+  toast.show({ kind: "success", title: "Local preferences cleared" });
+  settings.sync();
+  notifs?.syncBadge();
+});
+
+notifs = createNotifications({
+  getBoard: () => state,
+  onOpenTask: (task) => select(task, true),
+  onOpenRun: () => setView("orchestrator"),
+});
+notifs.bind();
+
+palette = createPalette({
+  getRuns: () => {
+    const runId = state.run_id;
+    if (!runId) return [];
+    return [{ id: runId, goal: state.goal || runId }];
   },
   getTasks: () => state.tasks || [],
+  onOpenRun: () => setView("orchestrator"),
+  onJumpTask: (task) => select(task, true),
+  onApprovePlan: () => {
+    if (!state.run_id) {
+      toast.show({ kind: "warning", title: "No plan to approve" });
+      return;
+    }
+    post(`/api/runs/${state.run_id}/approve`)
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        toast.show({ kind: "success", title: "Plan approved" });
+        refresh();
+      })
+      .catch(() => toast.show({ kind: "error", title: "Approve failed" }));
+  },
+  onSetTranscriptMode: (mode) => {
+    try {
+      localStorage.setItem("treefleet_transcript_mode", mode);
+    } catch {
+      /* ignore */
+    }
+    document.querySelector(`.transcript-mode [data-mode="${mode}"]`)?.click();
+    settings?.sync();
+    toast.show({ kind: "info", title: `Transcript mode: ${mode}` });
+  },
+  onOpenSettings: () => settings?.open(),
+  onOpenNotifications: () => notifs?.open(),
+  onJumpLane: (lane) => {
+    setView("kanban");
+    mobileLane = lane;
+    applyMobileLane();
+    document.querySelector(`.mobile-lane-tabs [data-lane="${lane}"]`)?.click();
+  },
+  onNewRun: () => {
+    setView("kanban");
+    document.getElementById("goal")?.focus();
+  },
+  onSwitchView: (next) => {
+    if (next === "kanban" || next === "orchestrator") setView(next);
+    else setView(view === "kanban" ? "orchestrator" : "kanban");
+  },
+  onToggleAuto: () => document.getElementById("auto")?.click(),
+  onCopyMerge: () => {
+    const cmd = mergeCommand();
+    if (cmd && navigator.clipboard) {
+      navigator.clipboard.writeText(cmd).then(
+        () => toast.show({ kind: "success", title: "Copied merge command" }),
+        () => toast.show({ kind: "error", title: "Copy failed" }),
+      );
+    } else {
+      toast.show({ kind: "warning", title: "Nothing to copy" });
+    }
+  },
 });
 palette.bind();
 
@@ -1687,6 +1807,7 @@ orch = createOrchestrator({
   auth,
   onPlanApproved: () => {
     optimistic = { stage: "fleet", awaiting: null, starting: true };
+    toast.show({ kind: "success", title: "Plan approved" });
     if (state) {
       state.awaiting = null;
       state.stage = "fleet";
@@ -1694,8 +1815,17 @@ orch = createOrchestrator({
       if (view === "orchestrator") orch.renderThread(state);
     }
   },
+  onPlanRejected: () => {
+    toast.show({ kind: "warning", title: "Plan rejected — run stopped" });
+  },
+  onToast: (opts) => toast.show(opts),
 });
 orch.bind();
+
+window.__tfToast = toast;
+window.__tfNotifs = notifs;
+window.__tfSettings = settings;
+window.__tfPalette = palette;
 
 document.getElementById("drawer-close").addEventListener("click", () => showDrawerEmpty());
 document.getElementById("drawer-grab").addEventListener("click", () => showDrawerEmpty());

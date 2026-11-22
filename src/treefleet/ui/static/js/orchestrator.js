@@ -2,12 +2,14 @@
 
 import { createTranscript } from "./transcript.js";
 
-export function createOrchestrator({ auth, post, selectTask, onPlanApproved, clock }) {
+export function createOrchestrator({ auth, post, selectTask, onPlanApproved, onPlanRejected, onToast, clock }) {
   const transcript = createTranscript({
     auth,
     post,
     selectTask,
     onPlanApproved,
+    onPlanRejected,
+    onToast,
   });
 
   return {
@@ -21,5 +23,6 @@ export function createOrchestrator({ auth, post, selectTask, onPlanApproved, clo
     getTickMs: transcript.getTickMs,
     getDomCount: transcript.getDomCount,
     _test: transcript._test,
+    setMode: transcript._test.setMode,
   };
 }

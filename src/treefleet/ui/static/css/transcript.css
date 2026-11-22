@@ -142,6 +142,10 @@
   white-space: nowrap;
 }
 
+.transcript-entry ol > li .plan-step-label {
+  margin-inline-end: var(--space-2);
+}
+
 .transcript-expand {
   appearance: none;
   border: 0;
@@ -151,6 +155,7 @@
   padding: 0;
   display: inline-flex;
   align-items: center;
+  margin-inline-start: var(--space-2);
 }
 
 .transcript-expand[aria-expanded="true"] .chev {
@@ -282,6 +287,20 @@
   font-size: var(--text-caption-size);
   cursor: pointer;
   box-shadow: var(--shadow-md);
+}
+
+.pane-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-4);
+  text-align: center;
+}
+
+.pane-empty .btn {
+  margin-top: var(--space-2);
 }
 
 .transcript-empty {

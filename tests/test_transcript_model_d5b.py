@@ -83,6 +83,16 @@ def test_assistant_join_space_unless_tight() -> None:
         )
     )
     assert tight == "send_email`"
+    # Real mid-identifier boundary from audit slice: no space inside send_email
+    mid = str(
+        _eval_model(
+            "return mod.ASSISTANT_JOIN.join(['tests for `send','_email` and `']);",
+            items=[],
+        )
+    )
+    assert mid == "tests for `send_email` and `"
+    assert "send _email" not in mid
+    assert "send_email" in mid
 
 
 def test_synthetic_tool_pairing_interleaved_and_levels() -> None:

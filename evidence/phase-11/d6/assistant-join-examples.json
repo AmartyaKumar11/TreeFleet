@@ -1,0 +1,39 @@
+[
+  {
+    "in": [
+      "Creating",
+      "pytest"
+    ],
+    "out": "Creating pytest"
+  },
+  {
+    "in": [
+      "tests for `send",
+      "_email` and `"
+    ],
+    "out": "tests for `send_email` and `"
+  },
+  {
+    "in": [
+      "_email` and `",
+      "send_sms`"
+    ],
+    "out": "_email` and ` send_sms`"
+  },
+  {
+    "in": [
+      "Checking",
+      "the",
+      "allowed"
+    ],
+    "out": "Checking the allowed"
+  },
+  {
+    "in": [
+      "test path",
+      "and the",
+      "project's"
+    ],
+    "out": "test path and the project's"
+  }
+]

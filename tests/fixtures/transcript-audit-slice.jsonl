@@ -10,7 +10,18 @@
 {"seq": 18, "source": "orchestrator", "type": "worker.spawned", "task_id": "add-notifications-unit-tests", "payload": {"upstream": [], "pid": 22808}}
 {"seq": 0, "source": "worker", "type": "worker.step", "task_id": "add-notifications-unit-tests", "payload": {"step": "start", "duration_s": 10.812, "timed_out": false, "name": "start", "output_tail": ""}}
 {"seq": 0, "source": "worker", "type": "tool.arg_error", "task_id": "add-admin-unit-tests", "payload": {"tool": "read_file", "message": "read_file requires path (str)", "arguments": {}}}
-{"seq": 0, "source": "worker", "type": "output_line", "task_id": "add-notifications-unit-tests", "payload": {"line": "Creating"}}
+{"seq":0,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"Creating"}}
+{"seq":1,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"pytest"}}
+{"seq":2,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"tests for `send"}}
+{"seq":3,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"_email` and `"}}
+{"seq":4,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"send_sms`"}}
+{"seq":5,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"per your API."}}
+{"seq":6,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"Checking"}}
+{"seq":7,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"the"}}
+{"seq":8,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"allowed"}}
+{"seq":9,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"test path"}}
+{"seq":10,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"and the"}}
+{"seq":11,"source":"worker","type":"output_line","task_id":"add-notifications-unit-tests","payload":{"line":"project's"}}
 {"seq": 15, "source": "worker", "type": "cursor.tool_start", "task_id": "add-notifications-unit-tests", "payload": {"tool": "read", "path": "tests/test_notifications.py", "ok": null}}
 {"seq": 16, "source": "worker", "type": "cursor.tool_finish", "task_id": "add-notifications-unit-tests", "payload": {"tool": "read", "path": "tests/test_notifications.py", "ok": false}}
 {"seq": 0, "source": "worker", "type": "worker.task_callback", "task_id": "add-notifications-unit-tests", "payload": {"duration_s": 64.578}}

@@ -19,20 +19,15 @@ pytestmark = pytest.mark.phase8
 ROOT = Path(__file__).resolve().parents[1]
 BOARD_CSS = ROOT / "src" / "treefleet" / "ui" / "static" / "css" / "board.css"
 
-# Selectors/areas owned by later tasks (15.D4b–D6); 15.D4a prefixes were ratcheted out.
-# Transcript chrome moved to transcript.css (15.D5b). Remaining board.css allowlist:
-# palette/settings (out of scope), stage/mobile chrome, focus outlines, orch footer/composer.
+# Selectors/areas owned by later tasks; 15.D4a prefixes were ratcheted out.
+# Transcript → transcript.css (D5b). Palette/settings/knob/track → palette.css + settings.css (D6).
+# Remaining board.css allowlist: stage/mobile chrome, focus outlines, orch footer/composer.
 LITERAL_ALLOWLIST_SELECTORS = (
     ".orch-footer",
     ".orch-composer",
-    ".command-palette",
-    ".palette-",
-    ".settings-",
     ".stage-",
     ".mobile-",
     ".view-toggle",
-    ".knob",
-    ".track",
     ":focus",
     "outline",
 )

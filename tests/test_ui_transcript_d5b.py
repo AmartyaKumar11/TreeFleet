@@ -56,6 +56,16 @@ def _shot(locator, name: str) -> None:
     locator.wait_for(state="visible", timeout=8000)
     box = locator.bounding_box()
     assert box and box["width"] > 0 and box["height"] > 0
+    hit_ok = locator.evaluate(
+        """(el) => {
+          const r = el.getBoundingClientRect();
+          const x = Math.min(Math.max(r.left + Math.min(8, r.width / 2), 0), window.innerWidth - 1);
+          const y = Math.min(Math.max(r.top + Math.min(8, r.height / 2), 0), window.innerHeight - 1);
+          const hit = document.elementFromPoint(x, y);
+          return !!(hit && (el === hit || el.contains(hit)));
+        }"""
+    )
+    assert hit_ok, f"hit-test failed for {name}"
     locator.screenshot(path=str(EVIDENCE / name))
 
 
@@ -576,19 +586,10 @@ def test_transcript_modes_plan_approval_windowing_safe_text(tmp_path: Path, monk
             # Visible placeholders in card title / run history / transcript
             page.locator('[data-view="orchestrator"]').click()
             page.wait_for_timeout(300)
-            assert page.locator(".bidi-pill, .transcript-serif").count() >= 1
-            has_placeholder = page.evaluate(
-                r"""() => {
-                  const body = document.body.innerText;
-                  return body.includes('U+202E') || body.includes('‹U+202E›') || !!document.querySelector('.bidi-pill');
-                }"""
-            )
-            assert has_placeholder
+            assert page.locator(".bidi-pill").count() >= 1
             msg = page.locator(".transcript-entry .transcript-serif").first
-            if msg.count():
-                _shot(msg, "06-bidi-placeholder.png")
-            else:
-                _shot(page.locator("#orch-thread"), "06-bidi-placeholder.png")
+            assert msg.count() >= 1
+            _shot(msg, "06-bidi-placeholder.png")
 
             # Skeleton luminance
             page.evaluate(
