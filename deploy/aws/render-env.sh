@@ -32,6 +32,9 @@ fi
   echo 'PATH=/home/treefleet/.local/bin:/usr/local/bin:/usr/bin:/bin'
 } >"$TMP"
 
+have_deepseek=0
+have_cursor=0
+
 if command -v aws >/dev/null 2>&1; then
   # Names only in the path listing; values fetched one-by-one without printing.
   mapfile -t NAMES < <(aws ssm get-parameters-by-path \
@@ -47,14 +50,24 @@ if command -v aws >/dev/null 2>&1; then
       DEEPSEEK_API_KEY|TYPESAFE_API_KEY|CURSOR_API_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL|GH_TOKEN|GITHUB_TOKEN|TREEFLEET_CURSOR_SANDBOX)
         val="$(aws ssm get-parameter --name "$name" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)"
         if [[ -n "$val" && "$val" != "None" ]]; then
-          # Escape for systemd EnvironmentFile: wrap in single quotes if needed
           printf "%s=%s\n" "$key" "$val" >>"$TMP"
+          if [[ "$key" == "DEEPSEEK_API_KEY" ]]; then have_deepseek=1; fi
+          if [[ "$key" == "CURSOR_API_KEY" ]]; then have_cursor=1; fi
         fi
         ;;
       *)
         ;;
     esac
   done
+fi
+
+# Hosting proof without put-secrets: load_settings() requires DEEPSEEK_API_KEY.
+# Placeholder is not a real credential; stub fleet when Cursor key is also absent.
+if (( have_deepseek == 0 )); then
+  echo "DEEPSEEK_API_KEY=treefleet-hosting-placeholder" >>"$TMP"
+fi
+if (( have_cursor == 0 )); then
+  echo "TREEFLEET_STUB_FLEET=1" >>"$TMP"
 fi
 
 install -o treefleet -g treefleet -m 0600 "$TMP" "$OUT"

@@ -146,6 +146,8 @@ unset GH_TOKEN clone_url
 chown -R treefleet:treefleet /var/lib/treefleet/repo
 
 echo "==> uv + Python venvs as treefleet (always --clear, always reinstall)"
+# Intentional single quotes: expand HOME/PATH inside the treefleet user shell.
+# shellcheck disable=SC2016
 as_treefleet bash -lc '
   set -euo pipefail
   export HOME=/home/treefleet
@@ -167,6 +169,7 @@ as_treefleet bash -lc '
 
 echo "==> cursor-agent as treefleet (never root)"
 # Supply-chain note: installer URL is https://cursor.com/install — pin/review before production.
+# shellcheck disable=SC2016
 as_treefleet bash -lc '
   set -euo pipefail
   export HOME=/home/treefleet
@@ -236,10 +239,13 @@ chown treefleet:treefleet /etc/treefleet/treefleet.toml /etc/treefleet/env
 
 systemctl daemon-reload
 systemctl enable treefleet-ui.service treefleet-idle.timer
+# Render env before first start so missing SSM secrets get hosting placeholders.
+PARAMETER_PREFIX="${PREFIX}" AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-}" \
+  /usr/local/lib/treefleet/render-env.sh
 systemctl restart treefleet-ui.service || systemctl start treefleet-ui.service
 systemctl start treefleet-idle.timer
 # Give the unit a moment to leave "activating"
-sleep 2
+sleep 3
 systemctl is-active treefleet-ui.service
 systemctl is-active treefleet-idle.timer
 
