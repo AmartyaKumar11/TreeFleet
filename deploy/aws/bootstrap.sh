@@ -184,11 +184,12 @@ echo "==> install helper scripts and systemd units"
 install -d -m 0755 /usr/local/lib/treefleet
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/render-env.sh /usr/local/lib/treefleet/render-env.sh
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/render-config.sh /usr/local/lib/treefleet/render-config.sh
+install -o root -g root -m 0755 /opt/treefleet/deploy/aws/setup-host.sh /usr/local/lib/treefleet/setup-host.sh
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/idle-watch.sh /usr/local/lib/treefleet/idle-watch.sh
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/idle_decide.py /usr/local/lib/treefleet/idle_decide.py
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/smoke.sh /usr/local/bin/treefleet-smoke
 
-echo "==> /etc/treefleet/treefleet.toml (absolute venv + worktree paths)"
+echo "==> /etc/treefleet/treefleet.toml (absolute venv + worktree paths + [pr])"
 /usr/local/lib/treefleet/render-config.sh
 
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/treefleet-ui.service /etc/systemd/system/treefleet-ui.service
@@ -234,6 +235,8 @@ systemctl enable treefleet-ui.service treefleet-idle.timer
 # Render env before first start so missing SSM secrets get hosting placeholders.
 PARAMETER_PREFIX="${PREFIX}" AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-}" \
   /usr/local/lib/treefleet/render-env.sh
+echo "==> git identity + gh credential helper (treefleet user)"
+/usr/local/lib/treefleet/setup-host.sh
 systemctl restart treefleet-ui.service || systemctl start treefleet-ui.service
 systemctl start treefleet-idle.timer
 # Give the unit a moment to leave "activating"

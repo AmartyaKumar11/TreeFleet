@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Pull SSM SecureString parameters under PARAMETER_PREFIX into /etc/treefleet/env (0600).
 # Never logs parameter values.
+#
+# Live vs stub: when DEEPSEEK_API_KEY and CURSOR_API_KEY are both present from SSM,
+# export them as-is and do not set TREEFLEET_STUB_FLEET. Placeholders / stub mode
+# apply only when those required keys are absent. Never overwrite a real value.
 set -euo pipefail
 
 PREFIX="${PARAMETER_PREFIX:-/treefleet}"
@@ -34,6 +38,7 @@ fi
 
 have_deepseek=0
 have_cursor=0
+have_sandbox=0
 
 if command -v aws >/dev/null 2>&1; then
   # Names only in the path listing; values fetched one-by-one without printing.
@@ -51,8 +56,11 @@ if command -v aws >/dev/null 2>&1; then
         val="$(aws ssm get-parameter --name "$name" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)"
         if [[ -n "$val" && "$val" != "None" ]]; then
           printf "%s=%s\n" "$key" "$val" >>"$TMP"
-          if [[ "$key" == "DEEPSEEK_API_KEY" ]]; then have_deepseek=1; fi
-          if [[ "$key" == "CURSOR_API_KEY" ]]; then have_cursor=1; fi
+          case "$key" in
+            DEEPSEEK_API_KEY) have_deepseek=1 ;;
+            CURSOR_API_KEY) have_cursor=1 ;;
+            TREEFLEET_CURSOR_SANDBOX) have_sandbox=1 ;;
+          esac
         fi
         ;;
       *)
@@ -61,13 +69,17 @@ if command -v aws >/dev/null 2>&1; then
   done
 fi
 
-# Hosting proof without put-secrets: load_settings() requires DEEPSEEK_API_KEY.
-# Placeholder is not a real credential; stub fleet when Cursor key is also absent.
+# Hosting-only fallbacks when put-secrets was not run. Never override real SSM values.
 if (( have_deepseek == 0 )); then
   echo "DEEPSEEK_API_KEY=treefleet-hosting-placeholder" >>"$TMP"
 fi
 if (( have_cursor == 0 )); then
   echo "TREEFLEET_STUB_FLEET=1" >>"$TMP"
+fi
+# Hosted Ubuntu: Cursor sandbox often fails without a full container boundary.
+# Honor an explicit SSM value; otherwise default disabled on this AMI layout.
+if (( have_sandbox == 0 )); then
+  echo "TREEFLEET_CURSOR_SANDBOX=disabled" >>"$TMP"
 fi
 
 install -o treefleet -g treefleet -m 0600 "$TMP" "$OUT"
