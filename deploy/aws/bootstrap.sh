@@ -12,12 +12,16 @@ set -euo pipefail
 LOG=/var/log/treefleet-bootstrap.log
 exec > >(tee -a "$LOG") 2>&1
 
+# Root often owns tooling while the trees are chowned to treefleet — allow git before any probe.
+git config --global --add safe.directory /opt/treefleet 2>/dev/null || true
+git config --global --add safe.directory /var/lib/treefleet/repo 2>/dev/null || true
+
 # Re-runs (SSM) may omit user-data exports; recover from existing checkouts when present.
 if [[ -z "${TREEFLEET_REPO_URL:-}" && -d /opt/treefleet/.git ]]; then
-  TREEFLEET_REPO_URL="$(git -C /opt/treefleet remote get-url origin)"
+  TREEFLEET_REPO_URL="$(git -C /opt/treefleet remote get-url origin 2>/dev/null || true)"
 fi
 if [[ -z "${TARGET_REPO_URL:-}" && -d /var/lib/treefleet/repo/.git ]]; then
-  TARGET_REPO_URL="$(git -C /var/lib/treefleet/repo remote get-url origin)"
+  TARGET_REPO_URL="$(git -C /var/lib/treefleet/repo remote get-url origin 2>/dev/null || true)"
 fi
 if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
   _tok="$(curl -fsS -m 2 -X PUT "http://169.254.169.254/latest/api/token" \
@@ -87,9 +91,6 @@ install -d -o treefleet -g treefleet -m 0755 \
   /etc/treefleet
 
 echo "==> TreeFleet source at /opt/treefleet"
-# Root may operate on a tree owned by treefleet after a prior run (safe.directory).
-git config --global --add safe.directory /opt/treefleet 2>/dev/null || true
-git config --global --add safe.directory /var/lib/treefleet/repo 2>/dev/null || true
 if [[ ! -d /opt/treefleet/.git ]]; then
   git clone --depth 1 --branch "$TREEFLEET_REPO_REF" "$TREEFLEET_REPO_URL" /opt/treefleet
 else
