@@ -87,6 +87,9 @@ install -d -o treefleet -g treefleet -m 0755 \
   /etc/treefleet
 
 echo "==> TreeFleet source at /opt/treefleet"
+# Root may operate on a tree owned by treefleet after a prior run (safe.directory).
+git config --global --add safe.directory /opt/treefleet 2>/dev/null || true
+git config --global --add safe.directory /var/lib/treefleet/repo 2>/dev/null || true
 if [[ ! -d /opt/treefleet/.git ]]; then
   git clone --depth 1 --branch "$TREEFLEET_REPO_REF" "$TREEFLEET_REPO_URL" /opt/treefleet
 else
