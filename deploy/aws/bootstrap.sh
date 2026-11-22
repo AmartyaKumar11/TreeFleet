@@ -180,40 +180,16 @@ as_treefleet bash -lc '
   command -v cursor-agent >/dev/null 2>&1 || command -v agent >/dev/null 2>&1
 '
 
-echo "==> /etc/treefleet/treefleet.toml"
-if [[ -f /opt/treefleet/treefleet.toml ]]; then
-  cp /opt/treefleet/treefleet.toml /etc/treefleet/treefleet.toml
-elif [[ -f /opt/treefleet/treefleet.toml.example ]]; then
-  cp /opt/treefleet/treefleet.toml.example /etc/treefleet/treefleet.toml
-else
-  printf '[paths]\nworktree_other = "/var/lib/treefleet/wt"\n' > /etc/treefleet/treefleet.toml
-fi
-python3 - <<'PY'
-from pathlib import Path
-path = Path("/etc/treefleet/treefleet.toml")
-text = path.read_text(encoding="utf-8") if path.is_file() else ""
-if "worktree_other" in text:
-    import re
-    text = re.sub(
-        r'(?m)^(worktree_other\s*=\s*).*$',
-        r'\1"/var/lib/treefleet/wt"',
-        text,
-    )
-else:
-    if "[paths]" not in text:
-        text += "\n[paths]\n"
-    text += 'worktree_other = "/var/lib/treefleet/wt"\n'
-path.write_text(text, encoding="utf-8")
-PY
-chown treefleet:treefleet /etc/treefleet/treefleet.toml
-chmod 0644 /etc/treefleet/treefleet.toml
-
 echo "==> install helper scripts and systemd units"
 install -d -m 0755 /usr/local/lib/treefleet
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/render-env.sh /usr/local/lib/treefleet/render-env.sh
+install -o root -g root -m 0755 /opt/treefleet/deploy/aws/render-config.sh /usr/local/lib/treefleet/render-config.sh
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/idle-watch.sh /usr/local/lib/treefleet/idle-watch.sh
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/idle_decide.py /usr/local/lib/treefleet/idle_decide.py
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/smoke.sh /usr/local/bin/treefleet-smoke
+
+echo "==> /etc/treefleet/treefleet.toml (absolute venv + worktree paths)"
+/usr/local/lib/treefleet/render-config.sh
 
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/treefleet-ui.service /etc/systemd/system/treefleet-ui.service
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/treefleet-idle.service /etc/systemd/system/treefleet-idle.service
