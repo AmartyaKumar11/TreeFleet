@@ -5,6 +5,12 @@ export const INVISIBLE_CHARS =
 
 const PILL_RE = /\u2039U\+[0-9A-Fa-f]{4,6}\u203A/g;
 
+function escapeHtml(text) {
+  return String(text == null ? "" : text).replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
+  );
+}
+
 /** Replace listed invisible / bidi controls with a visible ‹U+XXXX› placeholder. */
 export function sanitizeBidi(text) {
   return String(text == null ? "" : text).replace(INVISIBLE_CHARS, (ch) => {
@@ -15,6 +21,30 @@ export function sanitizeBidi(text) {
 
 export function safeText(text) {
   return sanitizeBidi(text);
+}
+
+/**
+ * HTML text context: escape, then wrap each listed code-point placeholder in a bidi-pill span.
+ * For use with innerHTML sinks only.
+ */
+export function escText(value) {
+  const escaped = escapeHtml(sanitizeBidi(value));
+  return escaped.replace(PILL_RE, (placeholder) => {
+    const code = placeholder.replace(/^\u2039|\u203A$/g, "");
+    return `<span class="bidi-pill" aria-label="Unicode ${code}" title="${code}">${placeholder}</span>`;
+  });
+}
+
+/**
+ * Attribute context: escape, then keep plain ‹U+XXXX› placeholders (never markup).
+ */
+export function escAttr(value) {
+  return escapeHtml(sanitizeBidi(value));
+}
+
+/** @deprecated Prefer escText (HTML body) or escAttr (attributes). */
+export function esc(value) {
+  return escText(value);
 }
 
 function makePill(placeholder) {

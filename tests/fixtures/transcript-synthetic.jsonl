@@ -1,0 +1,18 @@
+{"run_id": "syn1", "seq": 0, "source": "orchestrator", "type": "awaiting_approval", "task_id": null, "ts": "2026-01-01T00:00:00.000Z", "payload": {}}
+{"run_id": "syn1", "seq": 1, "source": "http", "type": "approval.granted", "task_id": null, "ts": "2026-01-01T00:00:01.000Z", "payload": {"source": "ui"}}
+{"run_id": "syn1", "seq": 0, "source": "worker", "type": "cursor.tool_start", "task_id": "t1", "ts": "2026-01-01T00:00:02.100Z", "payload": {"tool": "read", "path": "a.py", "detail": "offset=0"}}
+{"run_id": "syn1", "seq": 1, "source": "worker", "type": "cursor.tool_finish", "task_id": "t1", "ts": "2026-01-01T00:00:02.250Z", "payload": {"tool": "read", "path": "a.py", "ok": true}}
+{"run_id": "syn1", "seq": 2, "source": "worker", "type": "cursor.tool_start", "task_id": "t1", "ts": "2026-01-01T00:00:03.000Z", "payload": {"tool": "edit", "path": "a.py"}}
+{"run_id": "syn1", "seq": 3, "source": "worker", "type": "cursor.tool_finish", "task_id": "t1", "ts": "2026-01-01T00:00:03.400Z", "payload": {"tool": "edit", "path": "a.py", "ok": true}}
+{"run_id": "syn1", "seq": 0, "source": "worker", "type": "cursor.tool_start", "task_id": "t2", "ts": "2026-01-01T00:00:04.000Z", "payload": {"tool": "read", "path": "b.py"}}
+{"run_id": "syn1", "seq": 1, "source": "worker", "type": "cursor.tool_finish", "task_id": "t2", "ts": "2026-01-01T00:00:04.200Z", "payload": {"tool": "read", "path": "b.py", "ok": true}}
+{"run_id": "syn1", "seq": 4, "source": "worker", "type": "output_line", "task_id": "t1", "ts": "2026-01-01T00:00:05.000Z", "payload": {"line": "Hello"}}
+{"run_id": "syn1", "seq": 5, "source": "worker", "type": "output_line", "task_id": "t1", "ts": "2026-01-01T00:00:05.010Z", "payload": {"line": "world"}}
+{"run_id": "syn1", "seq": 6, "source": "worker", "type": "output_line", "task_id": "t1", "ts": "2026-01-01T00:00:05.020Z", "payload": {"line": "."}}
+{"run_id": "syn1", "seq": 0, "source": "worker", "type": "cursor.tool_start", "task_id": "t1", "ts": "2026-01-01T00:00:06.000Z", "payload": {"tool": "shell", "path": "", "detail": "pytest"}}
+{"run_id": "syn1", "seq": 7, "source": "worker", "type": "worker.exited", "task_id": "t1", "ts": "2026-01-01T00:00:07.000Z", "payload": {"status": "success", "files": ["a.py"]}}
+{"run_id": "syn1", "seq": 8, "source": "orchestrator", "type": "review_verdict", "task_id": "t1", "ts": "2026-01-01T00:00:08.000Z", "payload": {"verdict": "approve", "reason": "looks good", "suggestions": ["nit: rename"]}}
+{"run_id": "syn1", "seq": 9, "source": "orchestrator", "type": "totally.unknown.type", "task_id": "t1", "ts": "2026-01-01T00:00:09.000Z", "payload": {"x": 1}}
+{"run_id": "syn1", "seq": 10, "source": "orchestrator", "type": "guard.decision", "task_id": null, "ts": "2026-01-01T00:00:00.500Z", "payload": {"allowed": true, "stage": "input", "reasons": []}}
+{"run_id": "syn1", "seq": 11, "source": "orchestrator", "type": "guard.decision", "task_id": null, "ts": "2026-01-01T00:00:00.600Z", "payload": {"allowed": false, "stage": "input", "reasons": ["blocked"]}}
+{"run_id": "syn1", "seq": 12, "source": "worker", "type": "malformed", "task_id": "t1", "ts": "2026-01-01T00:00:10.000Z", "payload": null}

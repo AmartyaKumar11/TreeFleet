@@ -16,7 +16,7 @@ from typing import Any
 from treefleet.contracts import RunEvent
 from treefleet.guards.text import redact_payload
 
-LOCK_DEADLINE_S = 10.0
+LOCK_DEADLINE_S = 30.0
 WRITE_ATTEMPTS = 6
 WRITE_BACKOFF_START_S = 0.005
 WRITE_BACKOFF_CAP_S = 0.080
@@ -381,7 +381,11 @@ class EventSink:
                 self._seq[event.run_id] = seq + 2
             self._history.setdefault(event.run_id, []).extend(pending)
             path = self._root / event.run_id / "events.jsonl"
-            append_lines(path, [item.model_dump_json() for item in pending])
+            try:
+                append_lines(path, [item.model_dump_json() for item in pending])
+            except LockTimeoutError as exc:
+                # Keep the in-memory event; log so a stuck lock does not crash the process.
+                print(f"treefleet: events lock timeout writing {path}: {exc}", file=sys.stderr, flush=True)
             stored = pending[0]
             queues = list(self._queues.get(event.run_id, []))
         return stored, queues

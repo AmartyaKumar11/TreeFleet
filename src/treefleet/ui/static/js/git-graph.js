@@ -1,6 +1,7 @@
 /** Git graph under the kanban. Cap 8 rows; collapse remembered in localStorage. */
 
 import { statusToken } from "./status.js";
+import { setSafeText, sanitizeBidi } from "./safe-text.js";
 
 const CAP = 8;
 const STORAGE_KEY = "treefleet.git-graph.collapsed";
@@ -107,8 +108,8 @@ export function createGitGraph({ onSelect }) {
     dot.style.background = color;
     const label = document.createElement("span");
     label.className = "graph-label";
-    label.textContent = middleTruncate(full);
-    label.title = full;
+    setSafeText(label, middleTruncate(full));
+    label.title = sanitizeBidi(full);
     Object.entries(attrs || {}).forEach(([key, value]) => {
       // Attributes live on the row only so locators like [data-graph-integrated] stay unique.
       line.setAttribute(key, value);

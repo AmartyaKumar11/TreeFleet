@@ -1917,126 +1917,10 @@ th {
 .orch-thread {
   height: 100%;
   overflow: auto;
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.bubble-row {
-  display: flex;
-  width: 100%;
-}
-
-.bubble-row.right {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: min(520px, 86%);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-
-.bubble.goal {
-  background: var(--bubble-goal-bg);
-  border-color: var(--bubble-goal-border);
-}
-
-.bubble-meta {
-  color: var(--muted);
-  font-size: var(--text-code-sm-size);
-  margin-bottom: 4px;
-}
-
-.sys-line {
-  color: var(--muted);
-  font-size: var(--text-body-sm-size);
-  padding: 4px 0;
-  max-width: 720px;
-}
-
-.sys-line.blocked {
-  color: var(--red);
-}
-
-.reason-inline {
-  display: block;
-  margin-top: 4px;
-  color: var(--red);
-}
-
-.explored {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  background: var(--surface-2);
-  max-width: 520px;
-}
-
-.explored ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  color: var(--muted);
-}
-
-.orch-card,
-.plan-card,
-.summary-card {
-  max-width: 640px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  background: var(--surface);
-}
-
-.worker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.worker-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) max-content;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  text-align: left;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  color: inherit;
-}
-
-.worker-row .chip {
-  width: max-content;
-  justify-self: start;
-}
-
-.worker-title {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip.running {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent);
-  border-color: var(--accent-border);
-}
-
-.choice-note {
-  margin-top: 8px;
-  color: var(--green);
-  font-size: var(--text-code-sm-size);
+  gap: var(--space-3);
 }
 
 .orch-footer {
@@ -2851,6 +2735,26 @@ th {
   line-height: var(--text-code-leading);
 }
 
+/* Split: both halves must stay in the viewport at scrollLeft 0; long lines scroll
+   inside each code cell (or wrap when .diff-wrap). Unified keeps max-content above. */
+.diff-table.diff-split {
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.diff-table.diff-split .diff-col-code {
+  width: calc(50% - 60px);
+}
+
+.diff-table.diff-split:not(.diff-wrap) .diff-code {
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 0;
+}
+
 .diff-table.diff-wrap {
   width: 100%;
   min-width: 100%;
@@ -2861,6 +2765,11 @@ th {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.diff-table.diff-wrap tr.diff-line > td,
+.diff-table.diff-wrap tr.diff-row > td {
+  vertical-align: top;
 }
 
 .diff-col-ln {

@@ -556,9 +556,10 @@ def test_verdict_chip_and_thread_card_style(tmp_path: Path, monkeypatch: pytest.
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             page.get_by_role("tab", name="Orchestrator").click()
-            plan = page.locator(".plan-card, .orch-card").first
+            plan = page.locator(".transcript-plan-card").first
+            plan.wait_for()
             style = plan.evaluate(
                 """el => {
                   const s = getComputedStyle(el);

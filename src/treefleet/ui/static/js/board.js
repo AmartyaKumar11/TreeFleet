@@ -3,7 +3,7 @@ import { costRole, createDrawer } from "./drawer.js";
 import { createGitGraph } from "./git-graph.js";
 import { createPalette } from "./palette.js";
 import { statusClass, statusKey, statusLabel, statusToken } from "./status.js";
-import { setSafeText, sanitizeBidi } from "./safe-text.js";
+import { setSafeText, sanitizeBidi, escText, escAttr } from "./safe-text.js";
 
 window.__tfStatusToken = statusToken;
 window.__tfStatusKey = statusKey;
@@ -17,6 +17,8 @@ let selected = null;
 let pinned = false;
 let state = {};
 let streamFor = "";
+let liveOffsets = new Set();
+let liveFingerprints = new Set();
 let lastNeedsHuman = false;
 let baseTitle = "TreeFleet";
 let view = "kanban";
@@ -34,10 +36,33 @@ const laneRailExpanded = new Set();
 const mobileLaneByRun = new Map();
 let cardFocusId = null;
 
+/** @deprecated Use escText / escAttr. Kept as escText alias for call-site migration. */
 function esc(value) {
-  return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
-  );
+  return escText(value);
+}
+
+function eventFingerprint(event) {
+  const payload = (event && event.payload) || {};
+  return [
+    event && event.type,
+    event && event.task_id,
+    event && event.seq,
+    event && event.ts,
+    payload.line,
+    payload.tool,
+    payload.path,
+    payload.ok,
+  ].join("|");
+}
+
+function seedLiveFromBoard(events) {
+  liveOffsets = new Set();
+  liveFingerprints = new Set();
+  for (const event of events || []) {
+    if (!event) continue;
+    if (event.offset != null) liveOffsets.add(Number(event.offset));
+    liveFingerprints.add(eventFingerprint(event));
+  }
 }
 
 function auth(extra) {
@@ -180,7 +205,7 @@ function notifyHuman(count) {
       legacy.hidden = false;
       legacy.textContent = `Needs you ${count}`;
     }
-    document.title = `(${count}) ${baseTitle}`;
+    document.title = sanitizeBidi(`(${count}) ${baseTitle}`);
     if (!lastNeedsHuman && typeof Notification !== "undefined") {
       try {
         if (Notification.permission === "granted") {
@@ -195,7 +220,7 @@ function notifyHuman(count) {
   } else {
     if (badge) badge.hidden = true;
     if (legacy) legacy.hidden = true;
-    document.title = baseTitle;
+    document.title = sanitizeBidi(baseTitle);
   }
   lastNeedsHuman = needs;
 }
@@ -332,8 +357,8 @@ function formatUsd(value, label) {
 
 function moneyCell(row) {
   const text = formatUsd(row.usd, row.label);
-  if (text === "unpriced" || text === "usage not reported") return `<span class='pill'>${esc(text)}</span>`;
-  return esc(text);
+  if (text === "unpriced" || text === "usage not reported") return `<span class='pill'>${escText(text)}</span>`;
+  return escText(text);
 }
 
 function captureFlip() {
@@ -618,7 +643,7 @@ function renderRunHistory(data) {
     btn.dataset.index = String(index);
     btn.setAttribute(
       "aria-label",
-      `${meta.label} run ${id}${goal ? `: ${goal}` : ""}`,
+      sanitizeBidi(`${meta.label} run ${id}${goal ? `: ${goal}` : ""}`),
     );
     btn.addEventListener("click", () => {
       if (id && id !== "idle") {
@@ -626,11 +651,11 @@ function renderRunHistory(data) {
         refresh();
       }
     });
-    btn.innerHTML = `<span class="dot ${meta.cls}" aria-hidden="true"></span><span class="run-id">${esc(
+    btn.innerHTML = `<span class="dot ${meta.cls}" aria-hidden="true"></span><span class="run-id">${escText(
       id,
-    )}</span><span class="run-time" data-started="${esc(item.started || "")}">${esc(
+    )}</span><span class="run-time" data-started="${escAttr(item.started || "")}">${escText(
       relativeTime(item.started),
-    )}</span><span class="run-goal">${esc(goal)}</span>`;
+    )}</span><span class="run-goal">${escText(goal)}</span>`;
     li.appendChild(btn);
     runList.appendChild(li);
   });
@@ -704,7 +729,10 @@ function paintCardShell(button, task) {
   button.dataset.taskId = task.id;
   button.setAttribute("role", "listitem");
   // Status first with an em dash so get_by_label("Isolation proof") still hits the pane only.
-  button.setAttribute("aria-label", `${cardStatusWords(task)} — ${task.title || task.id}`);
+  button.setAttribute(
+    "aria-label",
+    sanitizeBidi(`${cardStatusWords(task)} — ${task.title || task.id}`),
+  );
 }
 
 function fillCard(button, task) {
@@ -724,16 +752,16 @@ function fillCard(button, task) {
     const passed = typeof check === "string" ? true : check.passed !== false;
     const label = `${name}${passed ? " pass" : " fail"}`;
     chips.push(
-      `<span class="chip ${passed ? "pass" : "fail"}" title="${esc(label)}">${esc(label)}</span>`,
+      `<span class="chip ${passed ? "pass" : "fail"}" title="${escAttr(label)}">${escText(label)}</span>`,
     );
   });
   if (task.pr_chip && !task.pr_number) {
-    chips.push(`<span class="chip pr">${esc(task.pr_chip)}</span>`);
+    chips.push(`<span class="chip pr">${escText(task.pr_chip)}</span>`);
   }
   if (task.pr_number) {
     const merged = task.pr_status === "merged" ? " merged" : "";
     chips.push(
-      `<span class="chip pr" data-pr-url="${esc(task.pr_url || "")}">PR #${esc(task.pr_number)}${merged}</span>`,
+      `<span class="chip pr" data-pr-url="${escAttr(task.pr_url || "")}">PR #${escText(task.pr_number)}${merged}</span>`,
     );
     const failing = task.pr_checks === "failing";
     const passing = task.pr_checks === "passing";
@@ -741,33 +769,33 @@ function fillCard(button, task) {
     chips.push(`<span class="chip ${passing ? "pass" : failing ? "fail" : ""}">${label}</span>`);
   }
   if (counts.count) chips.push(formatLineCounts(counts));
-  if (task.round) chips.push(`<span class="chip round">revise ${esc(task.round)}</span>`);
+  if (task.round) chips.push(`<span class="chip round">revise ${escText(task.round)}</span>`);
   const note = reviewNote(task);
   const fullNote = note.text;
   const noteHtml = fullNote
-    ? `<div class="note-row"><div class="${note.tone === "needs" ? "reason" : "note"}" title="${esc(
+    ? `<div class="note-row"><div class="${note.tone === "needs" ? "reason" : "note"}" title="${escAttr(
         fullNote,
-      )}">${esc(fullNote)}</div><button type="button" class="btn ghost show-more" data-show-more="1">Show more</button></div>`
+      )}">${escText(fullNote)}</div><button type="button" class="btn ghost show-more" data-show-more="1">Show more</button></div>`
     : "";
   const age = taskAge(task);
   const key = statusKey(task);
   let action = "";
   if (running) {
-    action = `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${esc(
+    action = `<div class="action-line"><span class="spinner" aria-hidden="true"></span><span class="action-text">${escText(
       task.action,
     )}</span></div>`;
   } else if (key === "stopped" || key === "failed") {
     const reason = String(task.reason || task.error || task.status || "").trim();
-    action = `<div class="action-line is-stopped"><span class="action-text muted">${esc(
+    action = `<div class="action-line is-stopped"><span class="action-text muted">${escText(
       reason ? `Stopped · ${reason}` : "Stopped",
     )}</span></div>`;
   }
   const verdictClass = ["approve", "reject", "revise", "needs_review"].includes(verdictLabel) ? verdictLabel : "";
   const badgeClass = verdictClass || key;
   const verdict = verdictLabel
-    ? `<div class="verdict-row"><span class="chip verdict badge-status status-${esc(
+    ? `<div class="verdict-row"><span class="chip verdict badge-status status-${escAttr(
         badgeClass,
-      )} ${verdictClass}">${esc(verdictLabel.replaceAll("_", " "))}</span>${noteHtml}</div>`
+      )} ${verdictClass}">${escText(verdictLabel.replaceAll("_", " "))}</span>${noteHtml}</div>`
     : noteHtml;
   const branchFull = task.branch || task.id || "";
   const mergeCmd = task.pr_number
@@ -775,16 +803,16 @@ function fillCard(button, task) {
     : `git -C ${state.repo || ""} merge ${task.branch || task.id}`;
   const body = `
     <div class="model-row">
-      <span class="model chip">${modelIcon()}<span class="model-text">${esc(task.model || "model")}</span></span>
-      <span class="age timer type-code-sm"${task.age_s != null ? ' data-fixed="1"' : ""}>${esc(age)}</span>
+      <span class="model chip">${modelIcon()}<span class="model-text">${escText(task.model || "model")}</span></span>
+      <span class="age timer type-code-sm"${task.age_s != null ? ' data-fixed="1"' : ""}>${escText(age)}</span>
     </div>
-    <div class="title type-title-sm" title="${esc(task.title || "")}">${esc(task.title)}</div>
-    <span class="branch type-code-sm" title="${esc(branchFull)}" data-branch="${esc(branchFull)}">${gitGlyph()}<span class="branch-text">${esc(
+    <div class="title type-title-sm" title="${escAttr(task.title || "")}">${escText(task.title)}</div>
+    <span class="branch type-code-sm" title="${escAttr(branchFull)}" data-branch="${escAttr(branchFull)}">${gitGlyph()}<span class="branch-text">${escText(
       middleTruncate(branchFull),
     )}</span></span>
     ${action}
     ${verdict}
-    ${task.notice ? `<div class="note" title="${esc(task.notice)}">${esc(task.notice)}</div>` : ""}
+    ${task.notice ? `<div class="note" title="${escAttr(task.notice)}">${escText(task.notice)}</div>` : ""}
     ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
   `;
   const mergeExisting = button.querySelector("[data-merge]");
@@ -861,7 +889,7 @@ function planStepsHtml(awaiting) {
   return (awaiting || [])
     .map(
       (task, i) =>
-        `<li class="plan-step" role="presentation" title="${esc(task.title)}"><span class="plan-num">${i + 1}.</span> <span class="plan-step-text">${esc(
+        `<li class="plan-step" role="presentation" title="${escAttr(task.title)}"><span class="plan-num">${i + 1}.</span> <span class="plan-step-text">${escText(
           task.title,
         )}</span></li>`,
     )
@@ -987,6 +1015,11 @@ function select(task, fromUser) {
 function openEvents(runId) {
   if (!runId || streamFor === runId || !window.fetch) return;
   streamFor = runId;
+  // Decision (15.D5b): keep SSE for state.events, dedupe by byte-offset id (seq is not
+  // unique across workers). Do not merge SSE into task.lines — the 1s /api/board poll
+  // already rebuilds lines via tasks_from_snapshot; merging both paths double-counted
+  // when poll events lacked offsets.
+  seedLiveFromBoard(state.events);
   fetch(`/api/runs/${runId}/events`, { headers: auth() })
     .then((res) => {
       if (!res.body) return;
@@ -1002,11 +1035,34 @@ function openEvents(runId) {
             const parts = buf.split("\n\n");
             buf = parts.pop();
             parts.forEach((block) => {
-              const line = block.split("\n").find((item) => item.startsWith("data: "));
-              if (!line) return;
-              const event = JSON.parse(line.slice(6));
+              const idLine = block.split("\n").find((item) => item.startsWith("id: "));
+              const dataLine = block.split("\n").find((item) => item.startsWith("data: "));
+              if (!dataLine) return;
+              let event;
+              try {
+                event = JSON.parse(dataLine.slice(6));
+              } catch {
+                return;
+              }
+              const offset =
+                idLine && /^\d+$/.test(idLine.slice(4).trim())
+                  ? Number(idLine.slice(4).trim())
+                  : event.offset != null
+                    ? Number(event.offset)
+                    : null;
+              if (offset != null && !Number.isNaN(offset)) event.offset = offset;
               state.events = state.events || [];
-              if (!state.events.some((item) => item.seq === event.seq)) state.events.push(event);
+              const fp = eventFingerprint(event);
+              const knownByOffset = event.offset != null && liveOffsets.has(event.offset);
+              const knownByFp = liveFingerprints.has(fp);
+              if (knownByOffset || knownByFp) {
+                if (event.offset != null) liveOffsets.add(event.offset);
+                liveFingerprints.add(fp);
+                return;
+              }
+              if (event.offset != null) liveOffsets.add(event.offset);
+              liveFingerprints.add(fp);
+              state.events.push(event);
               render(state);
             });
             pump();
@@ -1294,14 +1350,20 @@ function render(data) {
   const worktrees = data.worktrees || [];
   worktrees.forEach((row) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class='mono'>${esc(row.path)}</td><td class='mono'>${esc(
+    tr.innerHTML = `<td class='mono'>${escText(row.path)}</td><td class='mono'>${escText(
       row.branch,
-    )}</td><td>${esc(changedLabel(row))}</td>`;
+    )}</td><td>${escText(changedLabel(row))}</td>`;
     body.appendChild(tr);
   });
   document.getElementById("count-worktrees").textContent = String(worktrees.length);
   setEmpty("worktrees", "empty-worktrees", worktrees.length);
   if (graph) graph.draw(data);
+  if (data.run_id && data.run_id !== streamFor) {
+    liveOffsets = new Set();
+    liveFingerprints = new Set();
+    streamFor = "";
+  }
+  seedLiveFromBoard(data.events);
   if (data.run_id) openEvents(data.run_id);
 
   const guards = document.getElementById("guards");
@@ -1330,7 +1392,7 @@ function render(data) {
   proofs.forEach((item) => {
     const tr = document.createElement("tr");
     const mark = (value) => (value ? "yes" : "NO");
-    tr.innerHTML = `<td>${esc(item.task_id || "")}</td><td>${mark(item.process_cwd_matches)}</td><td>${mark(
+    tr.innerHTML = `<td>${escText(item.task_id || "")}</td><td>${mark(item.process_cwd_matches)}</td><td>${mark(
       item.toplevel_matches,
     )}</td><td>${mark(item.registered_in_worktree_list)}</td><td>${mark(item.canary_absent)}</td><td>${mark(
       item.changes_within_allowed_paths,
@@ -1354,7 +1416,7 @@ function render(data) {
   const costs = (data.report && data.report.metrics && data.report.metrics.costs) || [];
   costs.forEach((row) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${esc(costRole(row))}</td><td>${esc(row.model)}</td><td>${moneyCell(row)}</td>`;
+    tr.innerHTML = `<td>${escText(costRole(row))}</td><td>${escText(row.model)}</td><td>${moneyCell(row)}</td>`;
     costBody.appendChild(tr);
   });
   document.getElementById("count-metrics").textContent = String(costs.length);
@@ -1397,9 +1459,9 @@ function refresh() {
       body.innerHTML = "";
       state.worktrees.forEach((row) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td class='mono'>${esc(row.path)}</td><td class='mono'>${esc(
+        tr.innerHTML = `<td class='mono'>${escText(row.path)}</td><td class='mono'>${escText(
           row.branch,
-        )}</td><td>${esc(changedLabel(row))}</td>`;
+        )}</td><td>${escText(changedLabel(row))}</td>`;
         body.appendChild(tr);
       });
       document.getElementById("count-worktrees").textContent = String(state.worktrees.length);
@@ -1619,7 +1681,6 @@ palette = createPalette({
 palette.bind();
 
 orch = createOrchestrator({
-  esc,
   clock,
   post,
   selectTask: select,

@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/controls.css">
 <link rel="stylesheet" href="/static/css/board.css">
+<link rel="stylesheet" href="/static/css/transcript.css">
 </head>
 <body>
 <div id="replay" class="replay" {{REPLAY_ATTR}}>REPLAY</div>
@@ -159,7 +160,7 @@
 
         <section class="view orch-view" id="view-orchestrator" aria-label="Orchestrator" hidden>
           <div class="orch-scroll">
-            <div class="orch-thread" id="orch-thread" role="log" aria-label="Orchestrator thread" aria-live="polite"></div>
+            <div class="orch-thread transcript" id="orch-thread" aria-label="Orchestrator transcript" aria-live="polite"></div>
           </div>
           <div class="orch-footer">
             <button class="jump-latest" id="jump-latest" type="button" hidden>Jump to latest</button>

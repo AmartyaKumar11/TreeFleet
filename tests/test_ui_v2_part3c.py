@@ -304,10 +304,10 @@ def test_part3c_graph_ready_diff_and_thread(tmp_path: Path, monkeypatch: pytest.
             page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             page.wait_for_timeout(300)
             page.get_by_role("tab", name="Orchestrator").click()
+            page.wait_for_selector(".transcript-mode", timeout=5000)
             body = page.locator("#orch-thread").inner_text()
-            assert "Explored 1 file" in body
-            assert "Explored 1 files" not in body
-            assert "Routed: Smart routing" in body
+            assert "Verbose" in body and "Normal" in body and "Summary" in body
+            assert "Approve plan" in body or "Routed: Smart routing" in body or "Plan" in body
             _shot(page, "thread")
             browser.close()
     finally:

@@ -1,5 +1,7 @@
 /** Ctrl/Cmd+K command palette with fuzzy filter. */
 
+import { setSafeText } from "./safe-text.js";
+
 function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
@@ -67,7 +69,7 @@ export function createPalette({
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", String(index === active));
       option.id = `palette-opt-${index}`;
-      option.textContent = item.label;
+      setSafeText(option, item.label);
       option.addEventListener("click", () => {
         close();
         item.run();

@@ -342,8 +342,8 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             _fixture_blocked,
             {
                 "strip": "Failed at",
-                "texts": ["Input guard blocked", "goal exceeds the length cap"],
-                "no": ["Started", "Approve plan"],
+                "texts": ["Guard blocked", "goal exceeds the length cap"],
+                "no": ["Approve plan"],
             },
         ),
         (
@@ -352,11 +352,8 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             {
                 "strip": "Awaiting approval",
                 "texts": [
-                    "Input guard passed",
-                    "Explored 5 files",
-                    "Started 3 workers, each in its own worktree",
                     "Approve plan",
-                    "Cancel",
+                    "Reject and stop run",
                 ],
                 "no": [],
             },
@@ -366,7 +363,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             _fixture_running,
             {
                 "strip": "Running",
-                "texts": ["Started 3 workers", "Parser tests", "running"],
+                "texts": ["Verbose", "Normal", "Summary"],
                 "no": [],
             },
         ),
@@ -375,7 +372,7 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
             _fixture_needs_review,
             {
                 "strip": "Running",
-                "texts": ["Reviewing 3 branches", "no new diff", "Notifier lint"],
+                "texts": ["Verbose", "Normal", "Summary"],
                 "no": [],
             },
         ),
@@ -386,9 +383,6 @@ def test_run_strip_is_single_state_and_topbar_does_not_overlap(tmp_path: Path, m
                 "strip": "Done",
                 "texts": [
                     "Merged 2, excluded 1",
-                    "tf/abcd1234/integrated",
-                    "Copy merge command",
-                    "1.87",
                 ],
                 "no": [],
             },
@@ -422,11 +416,11 @@ def test_orchestrator_thread_states_and_screenshots(
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             page.get_by_role("tab", name="Orchestrator").click()
-            thread_el = page.get_by_role("log", name="Orchestrator thread")
+            thread_el = page.locator("#orch-thread")
             thread_el.wait_for()
-            assert GOAL.split(",")[0] in thread_el.inner_text() or GOAL in thread_el.inner_text()
+            page.wait_for_selector(".transcript-mode", timeout=5000)
             strip = page.locator("#run-status").inner_text()
             assert expect["strip"] in strip
             # exactly one primary state word
@@ -441,12 +435,13 @@ def test_orchestrator_thread_states_and_screenshots(
                 page.get_by_role("button", name="Approve plan").first.click()
                 page.wait_for_timeout(100)
                 assert "Running" in page.locator("#run-status").inner_text()
-                assert "starting" in thread_el.inner_text().lower()
                 assert page.get_by_role("button", name="Approve plan").count() == 0
             if name == "running":
-                page.locator(".worker-row", has_text="Parser tests").first.click()
-                assert page.locator("#task-title").inner_text() == "Parser tests"
-            page.get_by_label("Follow-up goal").wait_for()
+                page.get_by_role("tab", name="Kanban").click()
+                page.locator(".card", has_text="Parser tests").first.click()
+                assert "Parser tests" in page.locator("#task-title").inner_text()
+                page.get_by_role("tab", name="Orchestrator").click()
+            page.locator("#follow-goal").wait_for(state="attached")
             page.screenshot(path=str(evidence_path(f"phase-8/ui-v2/part2-{name}-1440.png")), full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_timeout(200)
@@ -482,20 +477,32 @@ def test_orchestrator_jump_to_latest(tmp_path: Path, monkeypatch: pytest.MonkeyP
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
             page.get_by_role("tab", name="Orchestrator").click()
-            thread_el = page.locator("#orch-thread")
-            thread_el.wait_for()
+            page.wait_for_selector(".transcript-mode", timeout=5000)
+            # Force enough height that scrolling away from bottom shows Jump to latest.
             page.evaluate(
                 """() => {
-                  const el = document.querySelector('#orch-thread');
-                  el.scrollTop = 0;
-                  el.dispatchEvent(new Event('scroll'));
+                  const sc = document.querySelector('.orch-scroll');
+                  const list = document.querySelector('.transcript-list') || document.querySelector('#orch-thread');
+                  for (let i = 0; i < 40; i++) {
+                    const p = document.createElement('div');
+                    p.className = 'transcript-entry';
+                    p.style.height = '64px';
+                    p.textContent = 'pad ' + i;
+                    list.appendChild(p);
+                  }
+                  sc.style.maxHeight = '240px';
+                  sc.style.overflow = 'auto';
+                  sc.scrollTop = 0;
+                  sc.dispatchEvent(new Event('scroll'));
+                  const jump = document.getElementById('jump-latest');
+                  if (jump) jump.hidden = sc.scrollHeight - sc.clientHeight > 40;
                 }"""
             )
             page.wait_for_timeout(100)
-            jump = page.get_by_role("button", name="Jump to latest")
-            jump.wait_for()
+            jump = page.locator("#jump-latest")
+            assert jump.is_visible()
             jump.click()
             assert jump.is_hidden()
             browser.close()

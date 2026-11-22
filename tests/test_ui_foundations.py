@@ -20,21 +20,16 @@ ROOT = Path(__file__).resolve().parents[1]
 BOARD_CSS = ROOT / "src" / "treefleet" / "ui" / "static" / "css" / "board.css"
 
 # Selectors/areas owned by later tasks (15.D4b–D6); 15.D4a prefixes were ratcheted out.
+# Transcript chrome moved to transcript.css (15.D5b). Remaining board.css allowlist:
+# palette/settings (out of scope), stage/mobile chrome, focus outlines, orch footer/composer.
 LITERAL_ALLOWLIST_SELECTORS = (
-    ".orch-",
-    ".bubble",
+    ".orch-footer",
+    ".orch-composer",
     ".command-palette",
     ".palette-",
     ".settings-",
-    ".worker-",
-    ".verdict-",
     ".stage-",
     ".mobile-",
-    ".sys-",
-    ".choice-",
-    ".review-",
-    ".reverted",
-    ".reason",
     ".view-toggle",
     ".knob",
     ".track",

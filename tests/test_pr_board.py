@@ -110,6 +110,8 @@ def test_pr_board_at_both_widths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             page.set_viewport_size({"width": 390, "height": 844})
             page.screenshot(path=str(evidence_path("phase-11/board-390.png")))
             page.get_by_role("tab", name="Orchestrator").click()
+            page.wait_for_selector(".transcript-mode", timeout=5000)
+            page.wait_for_timeout(400)
             thread_text = page.locator("#orch-thread").inner_text()
             assert "pr.opened" in thread_text
             assert "pr.comment_ignored stranger" in thread_text

@@ -4,29 +4,34 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import uvicorn
 
 from treefleet.contracts import RunEvent
-from treefleet.events import append_lines
+from treefleet.events import LockTimeoutError, append_lines
 from treefleet.worker.a2a_server import bearer_app, build_app
 
 
 def _ready(events: Path, run_id: str, task_id: str) -> None:
-    append_lines(
-        events,
-        [
-            RunEvent(
-                run_id=run_id,
-                seq=0,
-                source="worker",
-                type="worker.ready",
-                task_id=task_id,
-                payload={"pid": os.getpid(), "cwd": os.getcwd(), "task_id": task_id},
-            ).model_dump_json()
-        ],
-    )
+    try:
+        append_lines(
+            events,
+            [
+                RunEvent(
+                    run_id=run_id,
+                    seq=0,
+                    source="worker",
+                    type="worker.ready",
+                    task_id=task_id,
+                    payload={"pid": os.getpid(), "cwd": os.getcwd(), "task_id": task_id},
+                ).model_dump_json()
+            ],
+        )
+    except LockTimeoutError as exc:
+        # Continue starting the worker; the orchestrator may still resolve pid another way.
+        print(f"treefleet: worker.ready lock timeout for {task_id}: {exc}", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> None:
