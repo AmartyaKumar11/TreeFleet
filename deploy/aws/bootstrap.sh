@@ -30,9 +30,10 @@ if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
 fi
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-}"
 
-: "${TREEFLEET_REPO_URL:?TREEFLEET_REPO_URL required}"
+# Last-resort defaults match the CloudFormation template (public repos).
+: "${TREEFLEET_REPO_URL:=https://github.com/AmartyaKumar11/TreeFleet.git}"
 : "${TREEFLEET_REPO_REF:=main}"
-: "${TARGET_REPO_URL:?TARGET_REPO_URL required}"
+: "${TARGET_REPO_URL:=https://github.com/AmartyaKumar11/pr-sentinel-demo}"
 : "${PARAMETER_PREFIX:=/treefleet}"
 : "${IDLE_MINUTES:=45}"
 : "${MAX_UPTIME_HOURS:=12}"
