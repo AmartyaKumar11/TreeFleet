@@ -1737,13 +1737,19 @@ th {
   }
 
   .settings-wrap,
+  .notif-wrap,
   .topbar-overflow,
   .topbar-more-btn {
     flex: 0 0 auto;
     order: 2;
   }
 
-  /* Title + gear + overflow stay on one row; view toggle wraps alone. */
+  /* Timer yields space so the title can ellipsis beside actions. */
+  .topbar .timer {
+    display: none;
+  }
+
+  /* Title + bell + gear + overflow stay on one row; view toggle wraps alone. */
   .topbar .view-toggle {
     order: 5;
     flex: 1 1 100%;

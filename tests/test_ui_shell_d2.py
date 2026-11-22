@@ -139,15 +139,17 @@ def test_shell_sidebar_composer_strip_and_inputs(tmp_path: Path, monkeypatch: py
             assert "icon-sparkles" in model_icon
             assert "icon-copy" not in model_icon
 
-            styles = page.locator("#command-input").evaluate(
-                """el => {
-                  const s = getComputedStyle(el);
-                  return { h: s.height, r: s.borderRadius, b: s.borderColor };
-                }"""
-            )
-            assert styles["h"] == "36px"
-            assert styles["r"] == "6px"
-            assert styles["b"] not in {"", "rgba(0, 0, 0, 0)", "transparent"}
+            # Spec §8.12: palette input row is 48 px; input fills the row (height: 100%).
+            page.keyboard.press("Control+K")
+            page.locator("#command-palette:not([hidden])").wait_for()
+            row_h = page.locator(".command-input-row").evaluate("el => getComputedStyle(el).height")
+            assert row_h == "48px"
+            box = page.locator("#command-input").bounding_box()
+            assert box and abs(box["height"] - 48) <= 2
+            panel_border = page.locator(".command-panel").evaluate("el => getComputedStyle(el).borderTopColor")
+            assert panel_border not in {"", "rgba(0, 0, 0, 0)", "transparent"}
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => document.getElementById('command-palette')?.hidden === true")
 
             goal_box = page.locator("#goal")
             goal_box.fill("one\ntwo\nthree")

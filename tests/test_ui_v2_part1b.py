@@ -307,10 +307,15 @@ def test_polish_layout_and_screenshots(tmp_path: Path, monkeypatch: pytest.Monke
             assert composer.locator("#goal").count() == 1
             assert composer.locator("#model").count() == 1
             assert composer.locator("#run").count() == 1
+            # Legacy #auto stays in the DOM for wiring; D6 surfaces the control in settings (§8.12).
             assert page.locator("#auto").count() == 1
             assert not page.locator("#auto").is_visible()
-            page.get_by_role("button", name="Run settings").click()
-            page.locator("#auto").wait_for(state="visible")
+            page.locator("#run-settings").click()
+            page.locator("#settings-panel").wait_for(state="visible")
+            auto_sw = page.locator("#settings-auto")
+            auto_sw.wait_for(state="visible")
+            assert auto_sw.get_attribute("role") == "switch"
+            assert auto_sw.get_attribute("aria-label") == "Auto-run without plan approval"
 
             strip = page.locator("#run-strip")
             strip.wait_for()

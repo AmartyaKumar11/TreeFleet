@@ -344,15 +344,21 @@ def test_git_graph_and_command_palette(tmp_path: Path, monkeypatch: pytest.Monke
             page.keyboard.press("Control+K")
             palette = page.locator("#command-palette")
             assert palette.is_visible()
+            # Spec §8.12 / D6 palette: grouped Actions / Tasks / Navigation (no "Jump to task" row).
             assert page.get_by_text("New run").count() >= 1
-            assert page.get_by_text("Jump to task").count() >= 1
-            assert page.get_by_text("Switch view").count() >= 1
             assert page.get_by_text("Toggle auto-run").count() >= 1
             assert page.get_by_text("Copy merge command").count() >= 1
+            assert page.get_by_text("Actions", exact=True).count() >= 1
+            assert page.get_by_text("Tasks", exact=True).count() >= 1
+            assert page.locator("#command-list .palette-item", has_text="Parser tests").count() >= 1
+            page.locator("#command-palette input").fill("kanban")
+            page.wait_for_timeout(50)
+            assert page.locator("#command-list .palette-item", has_text="Kanban view").count() >= 1
             page.locator("#command-palette input").fill("jump")
             page.wait_for_timeout(50)
             visible = page.locator("#command-palette [role='option']:visible")
             assert visible.count() >= 1
+            assert page.locator("#command-list .palette-item", has_text="Jump to").count() >= 1
             page.keyboard.press("ArrowDown")
             page.keyboard.press("Enter")
             page.wait_for_timeout(100)
