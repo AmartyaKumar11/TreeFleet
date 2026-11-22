@@ -52,8 +52,8 @@ decision="$(
   HAS_UI="$has_ui" HAS_AGENT="$has_agent" EVENTS="$events_recent" GRACE="$boot_grace" \
   python3 - <<'PY'
 import os
-from pathlib import Path
 import sys
+sys.path.insert(0, "/usr/local/lib/treefleet")
 sys.path.insert(0, "/opt/treefleet/deploy/aws")
 from idle_decide import IdleInputs, decide  # noqa: E402
 

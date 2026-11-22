@@ -1,20 +1,42 @@
 #!/usr/bin/env bash
 # Idempotent first-boot / re-bootstrap for TreeFleet on Ubuntu 24.04.
 # Never echoes secret values. Logs to /var/log/treefleet-bootstrap.log.
+#
+# Cloud-init user-data often runs as root with HOME unset; set defaults BEFORE set -u.
+export HOME="${HOME:-/root}"
+export PATH="/root/.local/bin:/home/treefleet/.local/bin:/usr/local/bin:/snap/bin:/usr/bin:/bin${PATH:+:$PATH}"
+export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
+
 set -euo pipefail
 
 LOG=/var/log/treefleet-bootstrap.log
 exec > >(tee -a "$LOG") 2>&1
 
-: "${TREEFLEET_REPO_URL:?}"
+# Re-runs (SSM) may omit user-data exports; recover from existing checkouts when present.
+if [[ -z "${TREEFLEET_REPO_URL:-}" && -d /opt/treefleet/.git ]]; then
+  TREEFLEET_REPO_URL="$(git -C /opt/treefleet remote get-url origin)"
+fi
+if [[ -z "${TARGET_REPO_URL:-}" && -d /var/lib/treefleet/repo/.git ]]; then
+  TARGET_REPO_URL="$(git -C /var/lib/treefleet/repo remote get-url origin)"
+fi
+if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
+  _tok="$(curl -fsS -m 2 -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || true)"
+  if [[ -n "${_tok}" ]]; then
+    AWS_DEFAULT_REGION="$(curl -fsS -m 2 -H "X-aws-ec2-metadata-token: ${_tok}" \
+      http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)"
+  fi
+  unset _tok
+fi
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-}"
+
+: "${TREEFLEET_REPO_URL:?TREEFLEET_REPO_URL required}"
 : "${TREEFLEET_REPO_REF:=main}"
-: "${TARGET_REPO_URL:?}"
+: "${TARGET_REPO_URL:?TARGET_REPO_URL required}"
 : "${PARAMETER_PREFIX:=/treefleet}"
 : "${IDLE_MINUTES:=45}"
 : "${MAX_UPTIME_HOURS:=12}"
-: "${AWS_DEFAULT_REGION:=}"
 
-export DEBIAN_FRONTEND=noninteractive
 PREFIX="${PARAMETER_PREFIX%/}"
 
 echo "==> apt packages"
@@ -39,15 +61,18 @@ echo "==> AWS CLI v2 (snap)"
 if ! command -v aws >/dev/null 2>&1; then
   snap install aws-cli --classic
 fi
+# snap installs land on /snap/bin; keep PATH explicit for later aws calls
+export PATH="/snap/bin:${PATH}"
 
 echo "==> uv"
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
   # shellcheck disable=SC1091
-  source "$HOME/.local/bin/env" 2>/dev/null || true
-  export PATH="$HOME/.local/bin:/root/.local/bin:$PATH"
+  if [[ -f "${HOME}/.local/bin/env" ]]; then
+    # shellcheck disable=SC1091
+    source "${HOME}/.local/bin/env"
+  fi
 fi
-# Ensure uv is on PATH for later steps
 export PATH="${HOME}/.local/bin:/root/.local/bin:${PATH}"
 
 echo "==> user and directories"
@@ -64,15 +89,17 @@ echo "==> TreeFleet source at /opt/treefleet"
 if [[ ! -d /opt/treefleet/.git ]]; then
   git clone --depth 1 --branch "$TREEFLEET_REPO_REF" "$TREEFLEET_REPO_URL" /opt/treefleet
 else
-  git -C /opt/treefleet fetch --depth 1 origin "$TREEFLEET_REPO_REF"
-  git -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "FETCH_HEAD"
+  git -C /opt/treefleet fetch --depth 1 origin "$TREEFLEET_REPO_REF" || \
+    git -C /opt/treefleet fetch --depth 1 origin
+  git -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "FETCH_HEAD" 2>/dev/null || \
+    git -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "origin/${TREEFLEET_REPO_REF}"
 fi
 chown -R treefleet:treefleet /opt/treefleet
 
 echo "==> target repo at /var/lib/treefleet/repo"
 # Optional GH_TOKEN from SSM (never logged). Anonymous clone if absent.
 GH_TOKEN=""
-if command -v aws >/dev/null 2>&1 && [[ -n "$AWS_DEFAULT_REGION" ]]; then
+if command -v aws >/dev/null 2>&1 && [[ -n "${AWS_DEFAULT_REGION}" ]]; then
   GH_TOKEN="$(aws ssm get-parameter --name "${PREFIX}/GH_TOKEN" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)"
   if [[ "$GH_TOKEN" == "None" ]]; then GH_TOKEN=""; fi
 fi
@@ -102,13 +129,16 @@ chown -R treefleet:treefleet /var/lib/treefleet/repo
 
 echo "==> Python venvs (matches AGENTS.md / onboarding)"
 cd /opt/treefleet
+# Install uv for treefleet if missing (root's uv is not on that user's PATH).
 sudo -u treefleet -H bash -lc '
   set -euo pipefail
-  export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+  export HOME="${HOME:-/home/treefleet}"
+  export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
   if ! command -v uv >/dev/null 2>&1; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
     # shellcheck disable=SC1091
-    source "$HOME/.local/bin/env" 2>/dev/null || export PATH="$HOME/.local/bin:$PATH"
+    if [[ -f "$HOME/.local/bin/env" ]]; then source "$HOME/.local/bin/env"; fi
+    export PATH="$HOME/.local/bin:$PATH"
   fi
   cd /opt/treefleet
   uv venv .venv-orch
@@ -121,7 +151,8 @@ echo "==> cursor-agent as treefleet (never root)"
 # Supply-chain note: installer URL is https://cursor.com/install — pin/review before production.
 sudo -u treefleet -H bash -lc '
   set -euo pipefail
-  export PATH="$HOME/.local/bin:$PATH"
+  export HOME="${HOME:-/home/treefleet}"
+  export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
   if ! command -v cursor-agent >/dev/null 2>&1 && ! command -v agent >/dev/null 2>&1; then
     curl -fsS https://cursor.com/install | bash
   fi
@@ -132,8 +163,10 @@ echo "==> /etc/treefleet/treefleet.toml"
 # Start from repo example; force durable worktree root.
 if [[ -f /opt/treefleet/treefleet.toml ]]; then
   cp /opt/treefleet/treefleet.toml /etc/treefleet/treefleet.toml
+elif [[ -f /opt/treefleet/treefleet.toml.example ]]; then
+  cp /opt/treefleet/treefleet.toml.example /etc/treefleet/treefleet.toml
 else
-  cp /opt/treefleet/treefleet.toml.example /etc/treefleet/treefleet.toml 2>/dev/null || true
+  printf '[paths]\nworktree_other = "/var/lib/treefleet/wt"\n' > /etc/treefleet/treefleet.toml
 fi
 python3 - <<'PY'
 from pathlib import Path
@@ -159,6 +192,7 @@ echo "==> install helper scripts and systemd units"
 install -d -m 0755 /usr/local/lib/treefleet
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/render-env.sh /usr/local/lib/treefleet/render-env.sh
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/idle-watch.sh /usr/local/lib/treefleet/idle-watch.sh
+install -o root -g root -m 0755 /opt/treefleet/deploy/aws/idle_decide.py /usr/local/lib/treefleet/idle_decide.py
 install -o root -g root -m 0755 /opt/treefleet/deploy/aws/smoke.sh /usr/local/bin/treefleet-smoke
 
 install -o root -g root -m 0644 /opt/treefleet/deploy/aws/treefleet-ui.service /etc/systemd/system/treefleet-ui.service
