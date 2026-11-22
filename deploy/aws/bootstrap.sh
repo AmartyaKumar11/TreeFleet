@@ -12,16 +12,15 @@ set -euo pipefail
 LOG=/var/log/treefleet-bootstrap.log
 exec > >(tee -a "$LOG") 2>&1
 
-# Root often owns tooling while the trees are chowned to treefleet — allow git before any probe.
-git config --global --add safe.directory /opt/treefleet 2>/dev/null || true
-git config --global --add safe.directory /var/lib/treefleet/repo 2>/dev/null || true
+# Root may operate on treefleet-owned trees. Prefer -c safe.directory (no HOME/global config needed).
+git_tf() { git -c safe.directory=/opt/treefleet -c safe.directory=/var/lib/treefleet/repo "$@"; }
 
 # Re-runs (SSM) may omit user-data exports; recover from existing checkouts when present.
 if [[ -z "${TREEFLEET_REPO_URL:-}" && -d /opt/treefleet/.git ]]; then
-  TREEFLEET_REPO_URL="$(git -C /opt/treefleet remote get-url origin 2>/dev/null || true)"
+  TREEFLEET_REPO_URL="$(git_tf -C /opt/treefleet remote get-url origin 2>/dev/null || true)"
 fi
 if [[ -z "${TARGET_REPO_URL:-}" && -d /var/lib/treefleet/repo/.git ]]; then
-  TARGET_REPO_URL="$(git -C /var/lib/treefleet/repo remote get-url origin 2>/dev/null || true)"
+  TARGET_REPO_URL="$(git_tf -C /var/lib/treefleet/repo remote get-url origin 2>/dev/null || true)"
 fi
 if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
   _tok="$(curl -fsS -m 2 -X PUT "http://169.254.169.254/latest/api/token" \
@@ -92,12 +91,12 @@ install -d -o treefleet -g treefleet -m 0755 \
 
 echo "==> TreeFleet source at /opt/treefleet"
 if [[ ! -d /opt/treefleet/.git ]]; then
-  git clone --depth 1 --branch "$TREEFLEET_REPO_REF" "$TREEFLEET_REPO_URL" /opt/treefleet
+  git_tf clone --depth 1 --branch "$TREEFLEET_REPO_REF" "$TREEFLEET_REPO_URL" /opt/treefleet
 else
-  git -C /opt/treefleet fetch --depth 1 origin "$TREEFLEET_REPO_REF" || \
-    git -C /opt/treefleet fetch --depth 1 origin
-  git -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "FETCH_HEAD" 2>/dev/null || \
-    git -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "origin/${TREEFLEET_REPO_REF}"
+  git_tf -C /opt/treefleet fetch --depth 1 origin "$TREEFLEET_REPO_REF" || \
+    git_tf -C /opt/treefleet fetch --depth 1 origin
+  git_tf -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "FETCH_HEAD" 2>/dev/null || \
+    git_tf -C /opt/treefleet checkout -B "$TREEFLEET_REPO_REF" "origin/${TREEFLEET_REPO_REF}"
 fi
 chown -R treefleet:treefleet /opt/treefleet
 
