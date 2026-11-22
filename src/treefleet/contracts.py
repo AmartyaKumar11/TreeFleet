@@ -303,11 +303,17 @@ class OutputLine(_Model):
 
 
 class CursorToolEvent(_Model):
-    """One Cursor tool start or finish. Path only. Never the file body."""
+    """One Cursor tool start or finish. Path only. Never the file body.
+
+    `detail` is an optional redacted one-line summary of allowlisted args on
+    `cursor.tool_start` (shell command, grep pattern, or path plus line range).
+    Old log lines without `detail` still validate.
+    """
 
     tool: Annotated[str, StringConstraints(min_length=1, max_length=40)]
     path: Annotated[str, StringConstraints(max_length=300)] = ""
     ok: bool | None = None
+    detail: Annotated[str, StringConstraints(max_length=300)] = ""
 
 
 class StepTiming(_Model):

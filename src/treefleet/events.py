@@ -5,14 +5,30 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from treefleet.contracts import RunEvent
 from treefleet.guards.text import redact_payload
+
+LOCK_DEADLINE_S = 10.0
+WRITE_ATTEMPTS = 6
+WRITE_BACKOFF_START_S = 0.005
+WRITE_BACKOFF_CAP_S = 0.080
+OFFSET_READ_MAX_BYTES = 1_000_000
+
+
+class LockTimeoutError(TimeoutError):
+    """Raised when the events.jsonl cross-process lock is not acquired in time."""
+
+
+class BadCursorError(ValueError):
+    """Client offset is not on a JSONL line boundary."""
 
 
 def skip_message(count: int) -> str:
@@ -67,21 +83,135 @@ def read_events(path: Path) -> tuple[list[dict[str, Any]], int]:
     return read_event_lines(path.read_text(encoding="utf-8").splitlines())
 
 
-def _lock(fd: int) -> None:
+@dataclass(frozen=True)
+class OffsetPage:
+    """One page of events read by byte offset. Cost does not grow with file length."""
+
+    items: list[dict[str, Any]]
+    next_offset: int
+    eof: bool
+    skipped: int
+    reset: bool
+    size: int
+
+
+def _is_line_boundary(handle: Any, offset: int) -> bool:
+    if offset == 0:
+        return True
+    if offset < 0:
+        return False
+    handle.seek(offset - 1)
+    return handle.read(1) == b"\n"
+
+
+def read_events_offset(
+    path: Path,
+    offset: int,
+    limit: int,
+    *,
+    max_bytes: int = OFFSET_READ_MAX_BYTES,
+    require_boundary: bool = True,
+) -> OffsetPage:
+    """Read at most `limit` complete JSONL lines starting at byte `offset`.
+
+    A final line without a trailing newline is in-progress and not consumed.
+    Invalid JSON lines are skipped and counted. Cost is bounded by max_bytes.
+    """
+    if limit < 0:
+        raise ValueError("limit must be >= 0")
+    if offset < 0:
+        raise BadCursorError("offset must be >= 0")
+    if not path.is_file():
+        return OffsetPage(items=[], next_offset=0, eof=True, skipped=0, reset=False, size=0)
+
+    size = path.stat().st_size
+    reset = False
+    start = offset
+    if start > size:
+        reset = True
+        start = 0
+
+    with path.open("rb") as handle:
+        if require_boundary and not _is_line_boundary(handle, start):
+            raise BadCursorError(f"offset {start} is not on a line boundary")
+        handle.seek(start)
+        budget = max(1, max_bytes)
+        chunk = handle.read(budget)
+        # If we filled the budget mid-file, keep only complete lines.
+        if len(chunk) == budget and handle.tell() < size:
+            cut = chunk.rfind(b"\n")
+            if cut < 0:
+                return OffsetPage(items=[], next_offset=start, eof=False, skipped=0, reset=reset, size=size)
+            chunk = chunk[: cut + 1]
+
+    items: list[dict[str, Any]] = []
+    skipped = 0
+    pos = start
+    consumed = 0
+    while consumed < len(chunk) and len(items) < limit:
+        nl = chunk.find(b"\n", consumed)
+        if nl < 0:
+            break
+        raw = chunk[consumed:nl]
+        line_start = pos
+        line_bytes = nl - consumed + 1
+        consumed = nl + 1
+        pos += line_bytes
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            continue
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            skipped += 1
+            continue
+        if not isinstance(parsed, dict):
+            skipped += 1
+            continue
+        row = dict(parsed)
+        row["offset"] = line_start
+        items.append(row)
+
+    next_offset = pos
+    # Incomplete trailing bytes (no final newline) stay unconsumed → next_offset < size.
+    eof = next_offset >= size
+    return OffsetPage(
+        items=items,
+        next_offset=next_offset,
+        eof=eof,
+        skipped=skipped,
+        reset=reset,
+        size=size,
+    )
+
+
+def _lock(fd: int, *, deadline_s: float = LOCK_DEADLINE_S) -> None:
+    """Acquire the lock with a hard deadline. Uses non-blocking primitives so the wait is ours."""
+    deadline = time.monotonic() + max(0.0, deadline_s)
     if sys.platform == "win32":
         import msvcrt
 
-        os.lseek(fd, 0, os.SEEK_SET)
+        # LK_LOCK can block up to ~10s inside the call; LK_NBLCK returns immediately.
         while True:
+            os.lseek(fd, 0, os.SEEK_SET)
             try:
-                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                 return
             except OSError:
+                if time.monotonic() >= deadline:
+                    raise LockTimeoutError(f"events lock not acquired within {deadline_s:.3f}s") from None
                 time.sleep(0.001)
     else:
         import fcntl
 
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise LockTimeoutError(f"events lock not acquired within {deadline_s:.3f}s") from None
+                time.sleep(0.001)
 
 
 def _unlock(fd: int) -> None:
@@ -96,7 +226,29 @@ def _unlock(fd: int) -> None:
         fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def append_lines(path: Path, lines: list[str]) -> None:
+def _write_backoff(attempt: int) -> float:
+    base = min(WRITE_BACKOFF_CAP_S, WRITE_BACKOFF_START_S * (2 ** max(0, attempt - 1)))
+    return base + random.uniform(0.0, base * 0.25)
+
+
+def _open_append(path: Path) -> int:
+    return os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+
+
+def _open_lock(path: Path) -> int:
+    return os.open(str(path), os.O_RDWR | os.O_CREAT)
+
+
+def _write_all(fd: int, blob: bytes) -> None:
+    view = memoryview(blob)
+    while view:
+        wrote = os.write(fd, view)
+        if wrote <= 0:
+            raise OSError("event append wrote nothing")
+        view = view[wrote:]
+
+
+def append_lines(path: Path, lines: list[str], *, lock_deadline_s: float = LOCK_DEADLINE_S) -> None:
     """One O_APPEND write per line, under a cross-process lock.
 
     Workers are separate processes, so the in-process thread lock cannot stop two of them
@@ -108,25 +260,45 @@ def append_lines(path: Path, lines: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     blobs = [(line if line.endswith("\n") else line + "\n").encode("utf-8") for line in lines]
     lock_path = path.with_name(path.name + ".lock")
-    event_fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-    lock_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT)
-    try:
-        if os.lseek(lock_fd, 0, os.SEEK_END) == 0:
-            os.write(lock_fd, b"\0")
-        _lock(lock_fd)
+    last_error: BaseException | None = None
+    for attempt in range(1, WRITE_ATTEMPTS + 1):
+        event_fd: int | None = None
+        lock_fd: int | None = None
         try:
-            for blob in blobs:
-                view = memoryview(blob)
-                while view:
-                    wrote = os.write(event_fd, view)
-                    if wrote <= 0:
-                        raise OSError("event append wrote nothing")
-                    view = view[wrote:]
+            try:
+                event_fd = _open_append(path)
+                lock_fd = _open_lock(lock_path)
+            except OSError as exc:
+                last_error = exc
+                if attempt >= WRITE_ATTEMPTS:
+                    break
+                time.sleep(_write_backoff(attempt))
+                continue
+            try:
+                if os.lseek(lock_fd, 0, os.SEEK_END) == 0:
+                    os.write(lock_fd, b"\0")
+                _lock(lock_fd, deadline_s=lock_deadline_s)
+                try:
+                    for blob in blobs:
+                        _write_all(event_fd, blob)
+                finally:
+                    _unlock(lock_fd)
+            except LockTimeoutError:
+                raise
+            except OSError as exc:
+                last_error = exc
+                if attempt >= WRITE_ATTEMPTS:
+                    break
+                time.sleep(_write_backoff(attempt))
+                continue
+            return
         finally:
-            _unlock(lock_fd)
-    finally:
-        os.close(event_fd)
-        os.close(lock_fd)
+            if event_fd is not None:
+                os.close(event_fd)
+            if lock_fd is not None:
+                os.close(lock_fd)
+    assert last_error is not None
+    raise OSError(f"event append failed after {WRITE_ATTEMPTS} attempts for {path}") from last_error
 
 
 class EventSink:

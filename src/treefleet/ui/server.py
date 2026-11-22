@@ -11,16 +11,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from treefleet.config import Settings, load_settings
-from treefleet.contracts import Plan, RunRequest
+from treefleet.contracts import Plan, RunEvent, RunRequest
+from treefleet.events import BadCursorError, EventSink, read_events, read_events_offset, skip_message
 from treefleet.git.worktrees import run_git
 from treefleet.guards.input import deterministic_reasons, screen_goal
 from treefleet.guards.text import redact_payload
 from treefleet.ui.lanes import run_needs_human, status_line, tasks_from_snapshot
+from treefleet.ui.transcript import build_transcript, parse_after, parse_limit, valid_run_id
 
 _PAGE = Path(__file__).with_name("board.html")
 _STATIC = Path(__file__).with_name("static")
@@ -392,8 +394,6 @@ def create_app(
                 board.dead = run_state(load_run(record_path)) == "dead"
             except (OSError, ValueError):
                 board.dead = False
-        from treefleet.events import read_events, skip_message
-
         recorded, skipped = read_events(replay)
         if skipped:
             print(skip_message(skipped), flush=True)
@@ -562,8 +562,43 @@ def create_app(
         body, _count = redact_payload(payload)
         return JSONResponse(body)
 
+    @app.get("/api/transcript")
+    def transcript(run: str = "", after: str = "0", limit: str = "", plan: str = "0") -> JSONResponse:
+        if not valid_run_id(run):
+            return JSONResponse({"error": "invalid run id"}, status_code=400)
+        run_dir = board.runs / run
+        events_path = run_dir / "events.jsonl"
+        known = run in board.approvals or run in board.finished or run_dir.is_dir()
+        if not known and not events_path.is_file():
+            return JSONResponse({"error": "unknown run"}, status_code=404)
+        try:
+            after_n = parse_after(after)
+            limit_n = parse_limit(limit if limit != "" else None)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        include_plan = plan.strip() in {"1", "true", "yes"}
+        gate = board.approvals.get(run)
+        waiting = bool(gate and gate.waiting())
+        state = "finished" if run in board.finished or (run_dir / "report.json").is_file() else "running"
+        try:
+            body = build_transcript(
+                events_path,
+                run_id=run,
+                after=after_n,
+                limit=limit_n,
+                include_plan=include_plan,
+                state=state,
+                gate_plan=gate.plan if gate and gate.plan is not None else None,
+                awaiting=waiting,
+            )
+        except BadCursorError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse(body)
+
     @app.post("/api/runs/{run_id}/approve")
     def approve(run_id: str, request: Request) -> JSONResponse:
+        if not valid_run_id(run_id):
+            return JSONResponse({"error": "invalid run id"}, status_code=400)
         gate = board.approvals.get(run_id)
         if gate is None:
             return JSONResponse({"error": "unknown run"}, status_code=404)
@@ -572,44 +607,86 @@ def create_app(
         return JSONResponse({"ok": True, "source": gate.source})
 
     @app.post("/api/runs/{run_id}/cancel")
-    def cancel(run_id: str) -> JSONResponse:
+    def cancel(run_id: str, request: Request) -> JSONResponse:
+        if not valid_run_id(run_id):
+            return JSONResponse({"error": "invalid run id"}, status_code=400)
         gate = board.approvals.get(run_id)
         if gate is None:
             return JSONResponse({"error": "unknown run"}, status_code=404)
-        gate.finish(False)
-        return JSONResponse({"ok": True})
+        client = request.headers.get("x-treefleet-client", "")
+        source = "ui" if client.strip().lower() == "ui" else "http"
+        was_waiting = gate.waiting()
+        gate.finish(False, source)
+        if was_waiting:
+            EventSink(board.runs).emit_sync(
+                RunEvent(
+                    run_id=run_id,
+                    seq=0,
+                    source="orchestrator",
+                    type="approval.denied",
+                    payload={"source": source, "approved": False},
+                )
+            )
+        return JSONResponse({"ok": True, "source": source})
 
     @app.get("/api/runs/{run_id}/events")
     def events(run_id: str, request: Request) -> StreamingResponse:
+        if not valid_run_id(run_id):
+            raise HTTPException(status_code=400, detail="invalid run id")
         last = request.headers.get("last-event-id")
-        seen = int(last) if last and last.isdigit() else -1
+        # Cursor is a byte offset of the next unread complete line. Missing header → 0.
+        start = int(last) if last and last.isdigit() else 0
 
         def generate():
             path = board.runs / run_id / "events.jsonl"
             if not board.replay and run_id not in board.approvals and not path.is_file():
                 return
-            from treefleet.events import read_events, skip_message
-
-            cursor = seen
+            cursor = start
             quiet = 0
             announced = False
             while quiet < 3:
-                if board.replay:
-                    rows, skipped = list(board.replay_events), 0
-                else:
-                    rows, skipped = read_events(board.runs / run_id / "events.jsonl")
-                if skipped and not announced:
-                    print(skip_message(skipped), flush=True)
+                if board.replay and not path.is_file():
+                    # In-memory replay without a backing file: synthesize byte offsets.
+                    blob = b""
+                    emitted = False
+                    for item in list(board.replay_events):
+                        encoded = (json.dumps(item) + "\n").encode("utf-8")
+                        end = len(blob) + len(encoded)
+                        if end <= cursor:
+                            blob += encoded
+                            continue
+                        blob += encoded
+                        payload, _count = redact_payload(item)
+                        yield f"id: {end}\ndata: {json.dumps(payload)}\n\n"
+                        cursor = end
+                        emitted = True
+                    if run_id in board.finished and not emitted:
+                        quiet += 1
+                    else:
+                        quiet = 0
+                    time.sleep(0.4)
+                    continue
+
+                try:
+                    page = read_events_offset(path, cursor, limit=200, require_boundary=True)
+                except BadCursorError:
+                    cursor = 0
+                    page = read_events_offset(path, 0, limit=200, require_boundary=True)
+                if page.reset:
+                    cursor = 0
+                if page.skipped and not announced:
+                    print(skip_message(page.skipped), flush=True)
                     announced = True
                 emitted = False
-                for item in rows:
-                    seq = int(item.get("seq") or 0)
-                    if seq <= cursor:
-                        continue
-                    cursor = seq
-                    emitted = True
-                    line, _count = redact_payload(item)
-                    yield f"id: {seq}\ndata: {json.dumps(line)}\n\n"
+                if page.items:
+                    # id = byte offset of the next unread complete line after this event.
+                    ends = [int(item.get("offset") or 0) for item in page.items[1:]] + [page.next_offset]
+                    for item, end in zip(page.items, ends, strict=True):
+                        raw = {key: value for key, value in item.items() if key != "offset"}
+                        line, _count = redact_payload(raw)
+                        yield f"id: {end}\ndata: {json.dumps(line)}\n\n"
+                        emitted = True
+                cursor = page.next_offset
                 if run_id in board.finished and not emitted:
                     quiet += 1
                 else:

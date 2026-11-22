@@ -1,0 +1,19 @@
+{
+  "run_id": "aa68e041",
+  "repo": "D:\\\\pr-sentinel-demo",
+  "stage": "done",
+  "awaiting": null,
+  "events_count_full": 566,
+  "events_board_window": 400,
+  "events_dropped_by_board": 166,
+  "sample_awaiting_while_waiting": [
+    {
+      "id": "add-notifications-unit-tests",
+      "title": "Add unit tests for notifications module",
+      "allowed_paths": [
+        "tests/test_notifications.py"
+      ]
+    }
+  ],
+  "dropped_vs_run_json_plan": "instructions and rationale not in awaiting; full plan in run.json"
+}

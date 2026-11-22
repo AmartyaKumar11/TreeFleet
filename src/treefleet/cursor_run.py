@@ -57,9 +57,46 @@ def demo_break(worktree: Path) -> None:
     )
 
 
-def redact_line(text: str) -> str:
+def redact_line(text: str, *, limit: int = 200) -> str:
     cleaned = _SECRET.sub("[redacted]", text).replace("\r", " ").replace("\n", " ").strip()
-    return cleaned[:200]
+    return cleaned[:limit]
+
+
+# Allowlisted arg keys per Cursor tool kind. Never content / result / stream bodies.
+_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
+    "shell": ("command", "cmd"),
+    "bash": ("command", "cmd"),
+    "terminal": ("command", "cmd"),
+    "grep": ("pattern", "glob", "path"),
+    "search": ("pattern", "glob", "path"),
+    "glob": ("glob", "pattern", "path"),
+    "read": ("path", "start_line", "end_line", "startLine", "endLine"),
+    "edit": ("path",),
+    "write": ("path",),
+    "delete": ("path",),
+    "list": ("path", "glob"),
+}
+
+
+def tool_detail(tool: str, args: dict[str, object]) -> str:
+    """Build a capped, redacted one-line detail from allowlisted args. Empty for unknown tools."""
+    keys = _DETAIL_KEYS.get(tool.lower())
+    if not keys or not isinstance(args, dict):
+        return ""
+    parts: list[str] = []
+    for key in keys:
+        if key not in args:
+            continue
+        value = args[key]
+        if value is None or value == "":
+            continue
+        if key in {"start_line", "end_line", "startLine", "endLine"}:
+            parts.append(f"{key}={value}")
+        else:
+            parts.append(str(value))
+    if not parts:
+        return ""
+    return redact_line(" ".join(parts), limit=300)
 
 
 def redact_blob(text: str, limit: int = 2000) -> str:
@@ -147,6 +184,7 @@ class StreamHit:
     tool: str = ""
     path: str = ""
     ok: bool | None = None
+    detail: str = ""
     usage: CursorUsage | None = None
 
 
@@ -197,7 +235,7 @@ def parse_stream_line(line: str) -> StreamHit | None:
     args = raw_args if isinstance(raw_args, dict) else {}
     path = str(args.get("path") or "")
     if payload.get("subtype") == "started":
-        return StreamHit(kind="tool_start", tool=tool, path=path)
+        return StreamHit(kind="tool_start", tool=tool, path=path, detail=tool_detail(tool, args))
     raw_result = body.get("result")
     result = raw_result if isinstance(raw_result, dict) else {}
     return StreamHit(kind="tool_finish", tool=tool, path=path, ok="success" in result)
@@ -239,7 +277,15 @@ def _emit_hit(
         return
     if hit.kind not in {"tool_start", "tool_finish"}:
         return
-    event = CursorToolEvent(tool=hit.tool[:40], path=_display_path(hit.path, worktree), ok=hit.ok)
+    display = _display_path(hit.path, worktree)
+    detail = ""
+    if hit.kind == "tool_start" and hit.detail:
+        # Re-display paths inside detail relative to the worktree when possible.
+        detail = hit.detail
+        if hit.path and display and hit.path in detail:
+            detail = detail.replace(hit.path, display)
+        detail = redact_line(detail, limit=300)
+    event = CursorToolEvent(tool=hit.tool[:40], path=display, ok=hit.ok, detail=detail)
     sink.emit_sync(
         RunEvent(
             run_id=run_id,

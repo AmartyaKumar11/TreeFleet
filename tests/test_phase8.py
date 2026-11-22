@@ -107,10 +107,16 @@ def test_stream_events_carry_the_task_and_redact(tmp_path: Path) -> None:
     assert "sk-abcdefghij" not in output[0]["payload"]["line"]
     assert "[redacted]" in output[0]["payload"]["line"]
     start = next(event for event in events if event["type"] == "cursor.tool_start")
-    assert start["task_id"] == "alpha" and start["payload"] == {"tool": "edit", "path": "README.md", "ok": None}
+    assert start["task_id"] == "alpha"
+    assert start["payload"]["tool"] == "edit"
+    assert start["payload"]["path"] == "README.md"
+    assert start["payload"]["ok"] is None
+    # 15.D5a: allowlisted detail (path only for edit). Never streamContent / bodies.
+    assert start["payload"].get("detail") == "README.md"
     finish = next(event for event in events if event["type"] == "cursor.tool_finish")
     assert finish["payload"]["ok"] is True
     assert "streamContent" not in str(finish["payload"])
+    assert finish["payload"].get("detail", "") == ""
     assert result.usage is not None and result.usage.input_tokens == 4
     assert result.output_tail == "Added hello"
 

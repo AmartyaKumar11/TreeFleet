@@ -1,0 +1,20 @@
+{"seq": 0, "source": "guard", "type": "guard.decision", "task_id": null, "payload": {"stage": "input", "allowed": true, "detector": "deterministic+jev", "reasons": [], "scores": {"abusive": 0.01, "on_topic": 0.96, "prompt_injection": 0.02}, "task_id": null, "ts": "2026-11-10T11:53:00.900538Z"}}
+{"seq": 1, "source": "orchestrator", "type": "orchestrator.agent_start", "task_id": null, "payload": {"name": "repo_scan", "duration_s": 0}}
+{"seq": 2, "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "scan", "duration_s": 0.031}}
+{"seq": 3, "source": "orchestrator", "type": "orchestrator.agent_end", "task_id": null, "payload": {"name": "repo_scan", "duration_s": 0.047}}
+{"seq": 4, "source": "orchestrator", "type": "orchestrator.agent_start", "task_id": null, "payload": {"name": "planner", "duration_s": 0}}
+{"seq": 5, "source": "orchestrator", "type": "orchestrator.model_call", "task_id": null, "payload": {"role": "planner", "phase": "before", "chars": 2314}}
+{"seq": 6, "source": "orchestrator", "type": "orchestrator.model_call", "task_id": null, "payload": {"role": "planner", "phase": "after", "duration_s": 19.312, "input_tokens": 558, "output_tokens": 959}}
+{"seq": 7, "source": "guard", "type": "guard.decision", "task_id": null, "payload": {"stage": "plan", "allowed": true, "detector": "deterministic", "reasons": [], "scores": {}, "task_id": null, "ts": "2026-11-10T11:53:22.597298Z"}}
+{"seq": 8, "source": "orchestrator", "type": "awaiting_approval", "task_id": null, "payload": {"approved": true}}
+{"seq": 9, "source": "orchestrator", "type": "approval.granted", "task_id": null, "payload": {"source": "ui", "approved": true}}
+{"seq": 10, "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "planner", "duration_s": 44.656}}
+{"seq": 11, "source": "orchestrator", "type": "orchestrator.agent_end", "task_id": null, "payload": {"name": "planner", "duration_s": 44.656}}
+{"seq": 12, "source": "orchestrator", "type": "orchestrator.agent_start", "task_id": null, "payload": {"name": "router", "duration_s": 0}}
+{"seq": 13, "source": "orchestrator", "type": "model_selected", "task_id": "add-notifications-unit-tests", "payload": {"task_id": "add-notifications-unit-tests", "model": "composer-2.5", "source": "jev", "complexity": "moderate"}}
+{"seq": 14, "source": "orchestrator", "type": "model_selected", "task_id": "add-admin-unit-tests", "payload": {"task_id": "add-admin-unit-tests", "model": "composer-2.5", "source": "jev", "complexity": "moderate"}}
+{"seq": 15, "source": "orchestrator", "type": "phase", "task_id": null, "payload": {"name": "router", "duration_s": 0.39}}
+{"seq": 16, "source": "orchestrator", "type": "orchestrator.agent_end", "task_id": null, "payload": {"name": "router", "duration_s": 0.39}}
+{"seq": 17, "source": "orchestrator", "type": "orchestrator.agent_start", "task_id": null, "payload": {"name": "fleet", "duration_s": 0}}
+{"seq": 0, "source": "worker", "type": "worker.ready", "task_id": "add-notifications-unit-tests", "payload": {"pid": 22808, "cwd": "C:\\wt\\aa68e041\\add-notifications-unit-tests", "task_id": "add-notifications-unit-tests"}}
+{"seq": 18, "source": "orchestrator", "type": "worker.spawned", "task_id": "add-notifications-unit-tests", "payload": {"upstream": [], "pid": 22808}}

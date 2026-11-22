@@ -1,0 +1,18 @@
+[
+  {
+    "events": 5000,
+    "bytes": 898837,
+    "first_page_s": 0.00871,
+    "tail_page_s": 0.000655,
+    "sse_tick_s": 0.00064,
+    "first_next": 35722
+  },
+  {
+    "events": 50000,
+    "bytes": 9031704,
+    "first_page_s": 0.010587,
+    "tail_page_s": 0.001449,
+    "sse_tick_s": 0.000944,
+    "first_next": 35722
+  }
+]

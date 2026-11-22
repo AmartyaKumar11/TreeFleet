@@ -196,24 +196,31 @@ Values are stored as `model_dump(mode="json")` and re-validated on read. Writes 
 - `review_started`, `review_verdict`, `revise_started` (payload: `round`). `[revise] max_rounds` in `treefleet.toml` is the re-dispatch cap (default 1). `round_budget_s` stops a revise and the verdict reason names the budget. A `review_verdict` for an unchanged diff also carries `cursor_message`, Cursor's final text from `WorkerResult.cursor_message`. `ReviewVerdict.suggestions` holds quality notes that do not block approval. `WorkerResult.status` includes `needs_review` for a committed in-scope diff whose review is unresolved. `RunRequest.include_needs_review` merges those branches. A needs_review upstream cancels dependents.
 - `phase` (payload: `name` of `scan`, `planner`, `router`, or `fleet`, and `duration_s`)
 - `awaiting_approval` (payload: `approved`) when `RunRequest.plan_approval` is true. The CLI prints the plan and asks `Approve plan? [y/N]` unless `--no-approval`. A decline exits without creating worktrees. The HTTP approval endpoint is Phase 8.
+- `approval.granted` (payload: `source` of `ui` or `http`, `approved: true`) when a waiting plan is approved.
+- `approval.denied` (payload: `source` of `ui` or `http`, `approved: false`) when `POST /api/runs/{id}/cancel` rejects a plan that is awaiting approval.
 - `mcp.call` (payload: server, tool, ok, error code)
 - `protocol_error`
 - `output_line` (payload is `OutputLine`: one redacted line, max 200 characters, local only)
-- `cursor.tool_start`, `cursor.tool_finish` (payload is `CursorToolEvent`: `tool`, `path`, and `ok` on finish). The file body is not stored. `task_id` is the task that launched Cursor.
+- `cursor.tool_start`, `cursor.tool_finish` (payload is `CursorToolEvent`: `tool`, `path`, `ok` on finish, and optional `detail` on start). `detail` is at most 300 characters, one line, redacted: shell command, grep/glob pattern, or path plus line range from an allowlist of argument keys. File contents, tool results, and full argument bodies are never stored. Unknown tool kinds omit `detail`. `task_id` is the task that launched Cursor.
 
-`seq` is a per-run monotonically increasing integer assigned by the sink. The SSE `id` field equals `seq`, so a reconnecting UI resumes with `Last-Event-ID`.
+`seq` is informational per emitter. An `EventSink` in one process assigns gapless `seq` values for its own emits. Separate worker processes often write `seq: 0` (including `worker.ready`, which bypasses the sink). **`seq` is never a resume cursor.**
+
+The resume cursor for live tails and `GET /api/transcript` is the **byte offset** of the next unread complete line in `events.jsonl`. The SSE `id` field is that next offset. A reconnecting client sends `Last-Event-ID` with the last seen offset. Mid-line offsets are rejected on `/api/transcript` (400) and reset to 0 on the SSE stream.
 
 ## 6. HTTP API
 
 | Method and path | Body or result |
 |---|---|
 | `POST /api/runs` | `RunRequest` returns `{ "run_id": "..." }` |
-| `GET /api/runs/{id}/events` | SSE stream of `RunEvent` |
+| `GET /api/runs/{id}/events` | SSE stream of `RunEvent`. `id` is the next byte offset; `Last-Event-ID` resumes from that offset |
+| `GET /api/transcript?run=&after=&limit=&plan=` | `treefleet.transcript.v1` page of raw events by byte offset. `limit` default 200, max 500. `plan=1` adds full plan (`goal`, `rationale`, tasks with `id`, `title`, `instructions`, `depends_on`, `checks`, `allowed_paths`) from the approval gate while waiting or `run.json` afterwards, plus `awaiting`. Payload strings capped at 4 KB; plan strings at 8 KB. Whole body redacted |
 | `GET /api/runs/{id}` | current snapshot: tasks with status, results so far |
 | `GET /api/runs/{id}/report` | `FinalReport` JSON, or `?format=md` for Markdown |
 | `GET /api/runs/{id}/proof` | live `git worktree list`, per-task proof, main checkout proof |
 | `POST /api/runs/{id}/cleanup` | removes worktrees, keeps branches |
 | `GET /api/runs/{id}/bundle` | zip of patches and the events log |
+| `POST /api/runs/{id}/approve` | approve a waiting plan |
+| `POST /api/runs/{id}/cancel` | reject a waiting plan; emits `approval.denied` |
 | `GET /api/models` | Bearer auth. Discovered Cursor model ids and labels: `{ "models": [ { "id": "...", "label": "..." } ] }`. Does not include the `router` sentinel |
 | `GET /healthz` | liveness |
 
