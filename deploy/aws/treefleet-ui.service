@@ -11,12 +11,16 @@ Group=treefleet
 # /var/lib/treefleet/runs instead of dirtying /var/lib/treefleet/repo (prepare_repo).
 WorkingDirectory=/var/lib/treefleet
 EnvironmentFile=-/etc/treefleet/idle.env
-EnvironmentFile=-/etc/treefleet/env
 Environment=TREEFLEET_CONFIG=/etc/treefleet/treefleet.toml
 Environment=HOME=/home/treefleet
+Environment=AWS_DEFAULT_REGION=ap-south-1
+Environment=AWS_REGION=ap-south-1
+Environment=PARAMETER_PREFIX=/treefleet
 # "+" runs the renderer as root so it can write /etc/treefleet/env (0600 treefleet).
+# Source that file in ExecStart: systemd reads EnvironmentFile before ExecStartPre,
+# so a pre-start re-render would otherwise leave the main process on a stale env.
 ExecStartPre=+/usr/local/lib/treefleet/render-env.sh
-ExecStart=/opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765
+ExecStart=/bin/bash -c 'set -a; source /etc/treefleet/env; set +a; exec /opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765'
 Restart=on-failure
 RestartSec=5
 KillMode=control-group
