@@ -63,6 +63,38 @@ fi
 gh --version >/dev/null && ok "gh --version" || bad "gh missing"
 git --version >/dev/null && ok "git version" || bad "git missing"
 
+# Write-auth probe: dry-run push authenticates against receive-pack (ls-remote does not on public repos).
+# Creates nothing. Requires GH_TOKEN with Contents/Pull requests write on the demo repo.
+REPO="${TREEFLEET_TARGET_REPO:-/var/lib/treefleet/repo}"
+ENV_FILE="${TREEFLEET_ENV_FILE:-/etc/treefleet/env}"
+if [[ -d "$REPO/.git" ]]; then
+  set +e
+  dry_err="$(
+    sudo -u treefleet -H bash -lc "
+      set -a
+      # shellcheck disable=SC1090
+      source '$ENV_FILE' 2>/dev/null || true
+      set +a
+      export HOME=/home/treefleet
+      cd '$REPO'
+      GIT_TERMINAL_PROMPT=0 timeout 45 git push --dry-run origin HEAD:refs/heads/tf-smoke-dryrun
+    " 2>&1
+  )"
+  dry_rc=$?
+  set -e
+  dry_low="$(printf '%s' "$dry_err" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$dry_rc" -eq 0 ]]; then
+    ok "git write-auth dry-run (GH_TOKEN can push)"
+  elif printf '%s' "$dry_low" | grep -qE '403|permission to|not accessible|denied|authentication failed|could not read username'; then
+    bad "GH_TOKEN is read-only or missing Contents/Pull requests write"
+  else
+    bad "git write-auth dry-run failed (exit ${dry_rc})"
+  fi
+  unset dry_err dry_rc dry_low
+else
+  bad "demo checkout missing at ${REPO}; skip write-auth dry-run"
+fi
+
 avail_kb="$(df -Pk /var/lib/treefleet | awk 'NR==2{print $4}')"
 if [[ "${avail_kb:-0}" -gt 1048576 ]]; then
   ok "disk free /var/lib/treefleet > 1 GiB (${avail_kb} KiB)"

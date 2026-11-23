@@ -178,9 +178,23 @@ Say clearly: AWS hosts the private UI and orchestration shell; coding may be sho
 
 Headless `--print` needs a real `HOME` (and usual `XDG_*`) so the CLI can read its local auth store, and **stdin must be `/dev/null`** (an open pipe hangs the CLI). TreeFleet’s `cursor_run` passes a minimal env that keeps `HOME`/`XDG_*`/`CURSOR_API_KEY` and always sets `stdin=DEVNULL`.
 
+### GitHub token (`GH_TOKEN`)
+
+Use a **fine-grained** personal access token scoped to the **single target demo repo** (for this stack: `AmartyaKumar11/pr-sentinel-demo`).
+
+| Permission | Access |
+|---|---|
+| **Contents** | Read and write |
+| **Pull requests** | Read and write |
+| **Metadata** | Read (automatic) |
+
+Suggested expiry: **30 days**. Rotate with `.\deploy\aws\put-secrets.ps1` (updates `/treefleet/GH_TOKEN`), then `sudo systemctl restart treefleet-ui` so `render-env.sh` reloads the value and `setup-host.sh` re-applies the credential helper.
+
+**Warning:** `git ls-remote` on a **public** repo succeeds without write rights and proves nothing about push. Prove write auth with a dry-run push (for example `git push --dry-run origin HEAD:refs/heads/tf-smoke-dryrun`); `deploy/aws/smoke.sh` runs that check and fails with `GH_TOKEN is read-only or missing Contents/Pull requests write` when the token cannot push.
+
 ### Git credential helper (`gh auth setup-git`)
 
-`git push` for `tf/<run>/…` branches uses the plain `origin` HTTPS URL (never a token-in-URL). Auth is via the **`gh` Git credential helper**, which reads `GH_TOKEN` from the process environment (sourced from `/etc/treefleet/env`, mode 0600). `deploy/aws/setup-host.sh` runs `gh auth setup-git` as user `treefleet` (idempotent). `treefleet-ui.service` runs that script in `ExecStartPre` **after** `render-env.sh` so a token added later still gets a helper. Verify as `treefleet`: `git config --global --get-regexp credential` and `git ls-remote https://github.com/<org>/<repo>`.
+`git push` for `tf/<run>/…` branches uses the plain `origin` HTTPS URL (never a token-in-URL). Auth is via the **`gh` Git credential helper**, which reads `GH_TOKEN` from the process environment (sourced from `/etc/treefleet/env`, mode 0600). `deploy/aws/setup-host.sh` runs `gh auth setup-git` as user `treefleet` (idempotent). `treefleet-ui.service` runs that script in `ExecStartPre` **after** `render-env.sh` so a token added later still gets a helper. Verify helper config with `git config --global --get-regexp credential` as `treefleet`; verify **write** with the dry-run above (not `ls-remote` alone).
 
 ### WARNING — live stack drift (do not CloudFormation-update this stack)
 
