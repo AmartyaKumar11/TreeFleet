@@ -109,16 +109,10 @@ Resources:
       VpcId: !Ref VpcId
       SecurityGroupIngress: []
       SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
+        # cursor-agent --print opens TCP/22 (seen in H6); 80/443-only hung --print.
+        - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
-          Description: HTTPS (apt, git, Cursor, DeepSeek, GitHub, SSM)
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-          Description: HTTP (apt redirects / package mirrors)
+          Description: All outbound (agent needs non-443; apt/git/Cursor/DeepSeek/GitHub/SSM)
       Tags:
         - Key: project
           Value: treefleet
