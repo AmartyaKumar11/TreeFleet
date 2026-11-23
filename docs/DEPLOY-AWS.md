@@ -148,7 +148,8 @@ Say clearly: AWS hosts the private UI and orchestration shell; coding may be sho
 | cursor-agent auth errors | Put `CURSOR_API_KEY` via `put-secrets.ps1`; restart UI |
 | Cursor sandbox fails on Ubuntu 24.04 | Set parameter `TREEFLEET_CURSOR_SANDBOX=disabled`; restart UI |
 | Clone failures | Put `GH_TOKEN` for private repos; check `TargetRepoUrl` / `TreeFleetRepoUrl` |
-| `git push` 403 / `PrSafetyError: git push failed` | Ensure `GH_TOKEN` in SSM; `sudo /usr/local/lib/treefleet/setup-host.sh`; confirm `git config --global --get-regexp credential` as `treefleet`; restart UI |
+| `git push` 403 / `PrSafetyError: git push failed` | Ensure `GH_TOKEN` in SSM; `sudo /usr/local/lib/treefleet/setup-host.sh`; confirm `git config --global --get-regexp credential` as `treefleet`; restart UI. If helper is set but push still 403 with `Resource not accessible by personal access token`, the token lacks **Contents: Write** on the target repo (fine-grained) or classic `repo` scope — re-run `put-secrets.ps1` with a writable token (operators only; agents must not `ssm put-parameter`) |
+
 | `--print` hangs with 0 bytes | Confirm SG allows all outbound (not 80/443-only); see D10 notes |
 | Static 404 after non-editable install | Ensure the built commit includes `ui/static/**/*` in package-data (15.D8) |
 | UI unreachable locally | Tunnel must be running; use `http://127.0.0.1:8765` not the public DNS |
