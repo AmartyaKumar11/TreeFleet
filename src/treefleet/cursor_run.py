@@ -182,6 +182,11 @@ def _cursor_node(cli: Path) -> list[str] | None:
 
 
 def _minimal_env() -> dict[str, str]:
+    """Env for the cursor-agent child. Keep Linux home/locale; never inherit an open stdin.
+
+    Cursor CLI changelog (2026-02): ``-p`` hangs when stdin is an open pipe.
+    HOME/XDG are required so the CLI can read its local auth/config store.
+    """
     env = {
         "PATH": os.environ.get("PATH", ""),
         "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
@@ -189,7 +194,27 @@ def _minimal_env() -> dict[str, str]:
         "TEMP": os.environ.get("TEMP", ""),
         "TMP": os.environ.get("TMP", ""),
         "PYTHONUNBUFFERED": "1",
+        # Headless: never try to open a browser from the worker.
+        "NO_OPEN_BROWSER": "1",
     }
+    # Linux/mac: preserve home + locale so cursor-agent finds config and stays UTF-8.
+    for name in (
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_STATE_HOME",
+        "TREEFLEET_CURSOR_SANDBOX",
+        "CURSOR_API_ENDPOINT",
+    ):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
     cursor_key = os.environ.get("CURSOR_API_KEY")
     if cursor_key:
         env["CURSOR_API_KEY"] = cursor_key
@@ -396,6 +421,7 @@ def run_cursor(
         command_for(cli, worktree, model, header + instruction[:400]),
         cwd=worktree,
         env=_minimal_env(),
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
