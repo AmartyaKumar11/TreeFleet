@@ -32,13 +32,25 @@ class Worktree:
     branch: str | None
 
 
-def run_git(args: list[str], cwd: Path | None = None, timeout: float = 30) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
+def git_environ() -> dict[str, str]:
+    """Env for git subprocesses. Keeps GH_TOKEN/HOME for ``gh`` HTTPS helper; never logs them."""
+    env = {k: v for k, v in os.environ.items() if v is not None}
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # gh auth git-credential reads GH_TOKEN from the calling process env.
+    for key in ("GH_TOKEN", "GITHUB_TOKEN", "HOME"):
+        val = os.environ.get(key)
+        if val:
+            env[key] = val
+    if "HOME" not in env and os.name != "nt":
+        env["HOME"] = str(Path.home())
+    return env
+
+
+def run_git(args: list[str], cwd: Path | None = None, timeout: float = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
         cwd=cwd,
-        env=env,
+        env=git_environ(),
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,

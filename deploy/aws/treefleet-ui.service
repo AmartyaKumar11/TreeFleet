@@ -20,6 +20,9 @@ Environment=PARAMETER_PREFIX=/treefleet
 # Source that file in ExecStart: systemd reads EnvironmentFile before ExecStartPre,
 # so a pre-start re-render would otherwise leave the main process on a stale env.
 ExecStartPre=+/usr/local/lib/treefleet/render-env.sh
+# Re-apply gh HTTPS credential helper after env render (token stays in 0600 env file).
+# Needed when GH_TOKEN was added after first bootstrap; ProtectHome is read-only for the main process.
+ExecStartPre=+/usr/local/lib/treefleet/setup-host.sh
 ExecStart=/bin/bash -c 'set -a; source /etc/treefleet/env; set +a; exec /opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765'
 Restart=on-failure
 RestartSec=5

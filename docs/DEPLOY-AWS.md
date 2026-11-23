@@ -148,6 +148,8 @@ Say clearly: AWS hosts the private UI and orchestration shell; coding may be sho
 | cursor-agent auth errors | Put `CURSOR_API_KEY` via `put-secrets.ps1`; restart UI |
 | Cursor sandbox fails on Ubuntu 24.04 | Set parameter `TREEFLEET_CURSOR_SANDBOX=disabled`; restart UI |
 | Clone failures | Put `GH_TOKEN` for private repos; check `TargetRepoUrl` / `TreeFleetRepoUrl` |
+| `git push` 403 / `PrSafetyError: git push failed` | Ensure `GH_TOKEN` in SSM; `sudo /usr/local/lib/treefleet/setup-host.sh`; confirm `git config --global --get-regexp credential` as `treefleet`; restart UI |
+| `--print` hangs with 0 bytes | Confirm SG allows all outbound (not 80/443-only); see D10 notes |
 | Static 404 after non-editable install | Ensure the built commit includes `ui/static/**/*` in package-data (15.D8) |
 | UI unreachable locally | Tunnel must be running; use `http://127.0.0.1:8765` not the public DNS |
 
@@ -161,6 +163,32 @@ Say clearly: AWS hosts the private UI and orchestration shell; coding may be sho
 
 **Instance role:** `AmazonSSMManagedInstanceCore` + inline `ssm:GetParameter|GetParameters|GetParametersByPath` on `arn:...:parameter${ParameterPrefix}*` and `kms:Decrypt` conditioned on `kms:ViaService=ssm.<region>.amazonaws.com`.
 
-**Security group:** **no ingress**. Egress TCP 80 and 443 only.
+**Security group:** **no ingress**. **Egress: all outbound** (`IpProtocol: -1` to `0.0.0.0/0`). Inbound stays empty.
 
 **IMDSv2:** required on the instance.
+
+## D10 operational notes (live AWS box)
+
+### Why all outbound egress
+
+`cursor-agent --print` opens **TCP/22** (observed under strace/tcpdump toward a Cursor-related host) in addition to HTTPS. A security group limited to TCP 80/443 black-holes that connect (`EINPROGRESS` until timeout) and `--print` hangs with **0 bytes** of I/O even though `cursor-agent about` / `list-models` (443-only) succeed. Keep **zero inbound** rules; allow all outbound.
+
+### HOME / stdin / XDG for cursor-agent
+
+Headless `--print` needs a real `HOME` (and usual `XDG_*`) so the CLI can read its local auth store, and **stdin must be `/dev/null`** (an open pipe hangs the CLI). TreeFleet’s `cursor_run` passes a minimal env that keeps `HOME`/`XDG_*`/`CURSOR_API_KEY` and always sets `stdin=DEVNULL`.
+
+### Git credential helper (`gh auth setup-git`)
+
+`git push` for `tf/<run>/…` branches uses the plain `origin` HTTPS URL (never a token-in-URL). Auth is via the **`gh` Git credential helper**, which reads `GH_TOKEN` from the process environment (sourced from `/etc/treefleet/env`, mode 0600). `deploy/aws/setup-host.sh` runs `gh auth setup-git` as user `treefleet` (idempotent). `treefleet-ui.service` runs that script in `ExecStartPre` **after** `render-env.sh` so a token added later still gets a helper. Verify as `treefleet`: `git config --global --get-regexp credential` and `git ls-remote https://github.com/<org>/<repo>`.
+
+### WARNING — live stack drift (do not CloudFormation-update this stack)
+
+The **live** security group was switched to all-egress **out-of-band** (EC2 authorize/revoke) after CloudFormation change sets showed **Conditional Replacement** on the instance (`ImageId` from the SSM dynamic AMI resolve) plus the SG egress edit. **Do not run `aws cloudformation deploy` / execute-change-set on this stack** until the AMI is pinned to the running image; an unpinned update can replace the instance. Template `deploy/aws/template.yaml` already encodes all-egress for a future clean redeploy with a pinned AMI.
+
+### Live vs stub
+
+`render-env.sh` exports real `DEEPSEEK_API_KEY` / `CURSOR_API_KEY` from SSM when both are present and **does not** set `TREEFLEET_STUB_FLEET`. Stub/placeholder mode applies only when those keys are missing. Restart the UI after `put-secrets.ps1` so `ExecStartPre` re-renders env.
+
+### `cursor-agent --print` exit quirk
+
+After a successful edit, `--print` sometimes **fails to exit** (outer `timeout` → **rc=124**) even though files and stdout are already written. TreeFleet treats the worktree/git result as source of truth, not the process exit code alone; wrap long calls with an explicit timeout and inspect the worktree.
