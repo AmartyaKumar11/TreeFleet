@@ -699,6 +699,7 @@ TreeFleet is **inspired by** [Agent Orchestrator](https://github.com/Orchestrato
 | [`docs/SESSIONS.md`](docs/SESSIONS.md) | Lifecycle, cleanup, kill rules |
 | [`docs/PHASES.md`](docs/PHASES.md) | Build phases and gate protocol |
 | [`docs/STATUS.md`](docs/STATUS.md) | What is done vs deferred |
+| [`docs/DEMO-DAY.md`](docs/DEMO-DAY.md) | AWS demo-day rehearsal and failure playbook |
 | [`AGENTS.md`](AGENTS.md) | Contributor hard rules |
 
 ---

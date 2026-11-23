@@ -1,5 +1,7 @@
 # Deploy TreeFleet on AWS (single EC2 + SSM)
 
+Demo-day checklist (rehearsal, timings, failure playbook): [`docs/DEMO-DAY.md`](DEMO-DAY.md).
+
 This runbook deploys **nothing by itself**. You run the commands. The UI stays on `127.0.0.1:8765` on the instance and is reached only through an SSM Session Manager port-forward. **Anyone with `ssm:StartSession` on the instance can reach the UI** — keep the AWS account locked down.
 
 Assets live under `deploy/aws/`. Design basis: `docs/aws-deploy-audit.md`.
