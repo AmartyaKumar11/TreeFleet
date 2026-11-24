@@ -115,9 +115,16 @@ async def run_pipeline(
     from treefleet.sessions import RunStore
 
     try:
-        base_sha = git_out(["rev-parse", "HEAD"], repo).strip()
+        base_sha = git_out(["rev-parse", "--verify", f"{request.base_ref}^{{commit}}"], repo).strip()
     except GitError:
-        base_sha = ""
+        try:
+            base_sha = git_out(["rev-parse", "HEAD"], repo).strip()
+        except GitError:
+            base_sha = ""
+    # Per-run PR base override (fix PR targets the caller's branch, not toml default).
+    effective = settings
+    if request.pr_base:
+        effective = settings.model_copy(update={"pr": settings.pr.model_copy(update={"base": request.pr_base})})
     store = RunStore.start(
         root / run_id / "run.json",
         run_id=run_id,
@@ -132,7 +139,7 @@ async def run_pipeline(
     store.start_heartbeat()
     bundle = RunBundle(
         request=request,
-        settings=settings,
+        settings=effective,
         repo=repo,
         run_id=run_id,
         token=secrets.token_urlsafe(24),

@@ -23,7 +23,7 @@ ExecStartPre=+/usr/local/lib/treefleet/render-env.sh
 # Re-apply gh HTTPS credential helper after env render (token stays in 0600 env file).
 # Needed when GH_TOKEN was added after first bootstrap; ProtectHome is read-only for the main process.
 ExecStartPre=+/usr/local/lib/treefleet/setup-host.sh
-ExecStart=/bin/bash -c 'set -a; source /etc/treefleet/env; set +a; exec /opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765'
+ExecStart=/bin/bash -c 'set -a; source /etc/treefleet/env; set +a; exec /opt/treefleet/.venv-orch/bin/treefleet ui --repo /var/lib/treefleet/repo --port 8765 --token-file /var/lib/treefleet/ui.token'
 Restart=on-failure
 RestartSec=5
 KillMode=control-group

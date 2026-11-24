@@ -227,8 +227,14 @@ if [[ -d /var/lib/treefleet/repo/runs ]]; then
 fi
 
 echo "==> final ownership"
+# ui.token is created by treefleet ui --token-file on first start (0600). Never truncate it.
 chown -R treefleet:treefleet /opt/treefleet /var/lib/treefleet /home/treefleet
 chown treefleet:treefleet /etc/treefleet/treefleet.toml /etc/treefleet/env
+# Preserve mode if the token file already exists from a prior boot.
+if [[ -f /var/lib/treefleet/ui.token ]]; then
+  chmod 0600 /var/lib/treefleet/ui.token
+  chown treefleet:treefleet /var/lib/treefleet/ui.token
+fi
 
 systemctl daemon-reload
 systemctl enable treefleet-ui.service treefleet-idle.timer

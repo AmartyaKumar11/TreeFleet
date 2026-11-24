@@ -176,12 +176,18 @@ def _ui(argv: list[str]) -> int:
     import uvicorn
 
     from treefleet.ui.server import create_app
+    from treefleet.ui.token_file import TokenFileError, load_or_create_token
 
     parser = argparse.ArgumentParser(prog="treefleet ui")
     parser.add_argument("--repo", default=None)
     parser.add_argument("--replay", default=None)
     parser.add_argument("--run", default=None)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--token-file",
+        default=None,
+        help="Load or create a 0600 bearer token file (stable across restarts)",
+    )
     parsed = parser.parse_args(argv)
     replay = Path(parsed.replay) if parsed.replay else None
     repo = Path(parsed.repo) if parsed.repo else None
@@ -201,7 +207,14 @@ def _ui(argv: list[str]) -> int:
         return 2
     if not (repo / ".git").exists():
         raise SystemExit("not a git repository")
-    app = create_app(repo, replay=replay)
+    token: str | None = None
+    if parsed.token_file:
+        try:
+            token = load_or_create_token(Path(parsed.token_file))
+        except TokenFileError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    app = create_app(repo, replay=replay, token=token)
     uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
     return 0
 

@@ -163,7 +163,8 @@ def test_secret_is_not_returned_and_a_bad_goal_is_blocked(tmp_path: Path, monkey
         json={"goal": "Add one sentence to the readme about pull requests.", "repo": str(tmp_path / "missing")},
     )
     assert missing.status_code == 400
-    assert missing.json()["error"] == "not a git repository"
+    err = missing.json()["error"]
+    assert err.startswith("this TreeFleet instance serves one repository:")
 
 
 def test_sse_redacts_a_line_and_diff_stays_inside_a_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

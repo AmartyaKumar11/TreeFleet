@@ -146,6 +146,7 @@ class RunRequest(_Model):
     goal: Annotated[str, StringConstraints(min_length=10, max_length=2000)]
     repo: Annotated[str, StringConstraints(min_length=1, max_length=500)]
     base_ref: Annotated[str, StringConstraints(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/\-]+$")] = "HEAD"
+    pr_base: Annotated[str, StringConstraints(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/\-]+$")] | None = None
     max_workers: int = Field(default=3, ge=1, le=6)
     checks: dict[Slug, Annotated[str, StringConstraints(min_length=1, max_length=300)]] = Field(
         default_factory=dict, max_length=8

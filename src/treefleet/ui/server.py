@@ -211,21 +211,35 @@ class Board:
         self.messages: dict[str, str] = {}
         self.goals: dict[str, str] = {}
         self.worker_models: dict[str, str] = {}
+        self.run_base_sha: dict[str, str] = {}
         self.replay = False
         self.dead = False
         self.replay_events: list[dict[str, Any]] = []
         self.base_sha = run_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip() or "HEAD"
         self._lock = threading.Lock()
 
-    def launch(self, goal: str, worker_model: str, plan_approval: bool) -> str:
+    def launch(
+        self,
+        goal: str,
+        worker_model: str,
+        plan_approval: bool,
+        *,
+        base_ref: str = "HEAD",
+        pr_base: str | None = None,
+        base_sha: str | None = None,
+    ) -> str:
         run_id = secrets.token_hex(4)
-        self.base_sha = run_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip() or self.base_sha
+        sha = base_sha or run_git(["rev-parse", "--verify", f"{base_ref}^{{commit}}"], cwd=self.repo).stdout.strip()
+        if not sha:
+            sha = run_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip() or self.base_sha
+        self.base_sha = sha
         approval = Approval()
         with self._lock:
             self.approvals[run_id] = approval
             self.started[run_id] = time.time()
             self.goals[run_id] = goal
             self.worker_models[run_id] = worker_model
+            self.run_base_sha[run_id] = sha
 
         def work() -> None:
             from treefleet.checks import detect_checks, select_checks
@@ -237,6 +251,8 @@ class Board:
             request = RunRequest(
                 goal=goal,
                 repo=str(self.repo),
+                base_ref=base_ref,
+                pr_base=pr_base,
                 worker_model=worker_model,
                 plan_approval=plan_approval,
                 checks={} if fakes is not None else selected.checks,
@@ -288,6 +304,8 @@ class Board:
             goal = str(report.get("goal") or "")
         stage = _stage(events, waiting, run_id in self.finished or report is not None)
         label = status_line(stage, tasks, pr_mode=pr_on)
+        base_for_run = self.run_base_sha.get(run_id, self.base_sha)
+        pr_urls = _pr_urls(tasks)
         body = {
             "repo": str(self.repo),
             "branch": branch,
@@ -304,8 +322,9 @@ class Board:
             "awaiting": plan if waiting else None,
             "events": events[-400:],
             "tasks": tasks,
+            "pr_urls": pr_urls,
             "needs_human": run_needs_human(events, report, awaiting=waiting, pr_enabled=pr_on),
-            "worktrees": rows_for_run(worktree_rows(self.repo, self.base_sha), run_id),
+            "worktrees": rows_for_run(worktree_rows(self.repo, base_for_run), run_id),
             "report": report,
             "message": self.messages.get(run_id, ""),
             "stages": list(_STAGES),
@@ -480,6 +499,7 @@ def create_app(
                     "stages": list(_STAGES),
                     "events": list(board.replay_events),
                     "tasks": [],
+                    "pr_urls": [],
                     "needs_human": False,
                     "worktrees": worktree_rows(repo, board.base_sha),
                     "awaiting": None,
@@ -498,18 +518,64 @@ def create_app(
         except Exception:
             return JSONResponse({"error": "bad request"}, status_code=400)
         goal = str(payload.get("goal") or "")
-        raw_repo = str(payload.get("repo") or repo)
+        if "repo" in payload and payload.get("repo") is not None and str(payload.get("repo")).strip() != "":
+            try:
+                target = Path(str(payload.get("repo"))).resolve()
+            except OSError:
+                return JSONResponse({"error": "not a git repository"}, status_code=400)
+            configured = repo.resolve()
+            if target != configured:
+                return JSONResponse(
+                    {"error": f"this TreeFleet instance serves one repository: {configured}"},
+                    status_code=400,
+                )
+            raw_repo = str(configured)
+        else:
+            raw_repo = str(repo)
+            target = repo
         if deterministic_reasons(goal) or deterministic_reasons(raw_repo):
             return JSONResponse({"error": "input blocked"}, status_code=400)
-        target = Path(raw_repo)
         if not (target / ".git").exists():
             return JSONResponse({"error": "not a git repository"}, status_code=400)
         screen = screen_goal(goal, settings, None)
         if not screen.decision.allowed:
             return JSONResponse({"error": "input blocked"}, status_code=400)
+
+        from treefleet.git.refs import RefNameError, prepare_base_ref, validate_ref_name
+
+        raw_base = payload.get("base_ref", "HEAD")
+        try:
+            base_ref = validate_ref_name(str(raw_base if raw_base is not None else "HEAD"))
+        except RefNameError as exc:
+            return JSONResponse({"error": f"invalid base_ref: {exc}"}, status_code=400)
+        # Omitted pr_base → keep settings.pr.base. Provided → override for this run only.
+        pr_base: str | None = None
+        raw_pr_base = payload.get("pr_base", None)
+        if raw_pr_base is not None and str(raw_pr_base).strip() != "":
+            try:
+                pr_base = validate_ref_name(str(raw_pr_base))
+            except RefNameError as exc:
+                return JSONResponse({"error": f"invalid pr_base: {exc}"}, status_code=400)
+
+        try:
+            effective_ref, base_sha = prepare_base_ref(repo, base_ref)
+        except RefNameError as exc:
+            return JSONResponse({"error": f"invalid base_ref: {exc}"}, status_code=400)
+        except RuntimeError as exc:
+            text = str(exc)
+            status = 502 if "could not fetch" in text else 400
+            return JSONResponse({"error": text}, status_code=status)
+
         model = str(payload.get("worker_model") or "router")
         approval = bool(payload.get("plan_approval", True))
-        run_id = board.launch(goal, model, approval)
+        run_id = board.launch(
+            goal,
+            model,
+            approval,
+            base_ref=effective_ref,
+            pr_base=pr_base,
+            base_sha=base_sha,
+        )
         return JSONResponse({"run_id": run_id})
 
     @app.get("/api/diff")
@@ -696,6 +762,18 @@ def create_app(
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     return app
+
+
+def _pr_urls(tasks: list[dict[str, Any]]) -> list[str]:
+    """Deduplicated PR URLs in task order for external callers."""
+    urls: list[str] = []
+    seen: set[str] = set()
+    for task in tasks:
+        url = str(task.get("pr_url") or "").strip()
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
 
 
 def _model_options(settings: Settings, override: list[dict[str, str]] | None) -> list[dict[str, str]]:
