@@ -50,12 +50,13 @@ class GhProvider:
         for attempt in range(3):
             try:
                 proc = self._runner(list(command))
-            except (TimeoutError, OSError) as exc:
+            # TimeoutExpired is SubprocessError, not TimeoutError (3.12 MRO).
+            except (TimeoutError, OSError, subprocess.TimeoutExpired) as exc:
                 last = _clip(str(exc))
                 if attempt < 2:
                     self._sleep(_BACKOFF_S[attempt])
                     continue
-                raise GhError(last) from exc
+                raise GhError(last or "gh timed out") from exc
             if proc.returncode == 0:
                 return proc
             last = _clip(proc.stderr or proc.stdout)

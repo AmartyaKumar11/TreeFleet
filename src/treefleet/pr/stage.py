@@ -99,7 +99,20 @@ def drive(
             checks=task.get("checks", ""),
             run_id=run_id,
         )
-        pr = provider.open_pr(branch, settings.base, task.get("title") or task_id, body)  # type: ignore[attr-defined]
+        try:
+            pr = provider.open_pr(branch, settings.base, task.get("title") or task_id, body)  # type: ignore[attr-defined]
+        except Exception as exc:
+            # Emit before re-raise so the board leaves "review" and shows a PR-stage failure.
+            hooks.note(
+                "pr.open_failed",
+                task_id,
+                {
+                    "reason": str(exc)[:300],
+                    "base": settings.base,
+                    "head": branch,
+                },
+            )
+            raise
         item = OpenPR(
             task_id=task_id,
             number=pr.number,

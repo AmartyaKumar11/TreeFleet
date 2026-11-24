@@ -2,6 +2,10 @@
 
 Spec complete. Phases 1 through 6 are in the tree.
 
+## 2026-11-24 — PR open failure no longer zombies the board
+
+`subprocess.TimeoutExpired` from `gh` is retried then raised as `GhError` (it is not a `TimeoutError`). `drive` emits `pr.open_failed` before re-raising. The pipeline catches unexpected exceptions, sets stage `failed`, and returns a `RunOutcome` so the UI marks the run finished instead of leaving `awaiting_prs` / board stage `review`.
+
 ## 2026-11-24 — External UI API for PR Sentinel
 
 `POST /api/runs` accepts optional `base_ref` and `pr_base` (validated ref names). `base_ref` is fetched from origin when not `HEAD` and becomes `RunRequest.base_ref`. `pr_base` overrides `PrSettings.base` for that run only (`RunRequest.pr_base`). A `repo` path that is not the configured checkout returns 400. Board snapshots include top-level `pr_urls`. `treefleet ui --token-file` persists the bearer at mode 0600. See `docs/API-EXTERNAL.md`.

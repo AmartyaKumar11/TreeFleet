@@ -1005,6 +1005,13 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
                 "pr_status": "open",
                 "pr_checks": "pending",
             }
+        elif kind == "pr.open_failed":
+            fields = {
+                "status": "needs_review",
+                "pr_status": "open_failed",
+                "pr_open": False,
+                "reason": str(payload.get("reason") or "pull request create failed"),
+            }
         elif kind == "pr.merged":
             fields = {"status": "done", "pr_status": "merged", "pr_open": False, "pr_checks": "passing"}
         elif kind == "pr.closed":

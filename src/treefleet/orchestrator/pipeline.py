@@ -192,6 +192,12 @@ async def run_pipeline(
         print(str(exc), flush=True)
         store.set_stage("failed")
         return RunOutcome(1, None, {}, run_id, str(exc))
+    except Exception as exc:
+        # PR open / poll failures used to escape here, leave stage at awaiting_prs, and
+        # never mark the Board run finished (zombie "running" / stage "review").
+        store.set_stage("failed")
+        detail = str(exc).replace("\n", " ").strip()[:300] or type(exc).__name__
+        return RunOutcome(1, None, {}, run_id, f"run failed: {detail}")
     finally:
         for proc in bundle.procs:
             kill_tree(proc.popen.pid)

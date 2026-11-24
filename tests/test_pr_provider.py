@@ -153,3 +153,16 @@ def test_gh_does_not_retry_a_normal_failure() -> None:
     provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
     with pytest.raises(GhError):
         provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+
+
+def test_gh_retries_timeout_expired_then_raises() -> None:
+    calls = {"n": 0}
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls["n"] += 1
+        raise subprocess.TimeoutExpired(cmd=args, timeout=60)
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
+    with pytest.raises(GhError, match="timed out|TimeoutExpired|60"):
+        provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert calls["n"] == 3

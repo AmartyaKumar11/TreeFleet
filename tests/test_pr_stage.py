@@ -259,6 +259,34 @@ def test_status_prints_one_row_and_merge_stays_off(tmp_path: Path, monkeypatch: 
     assert load_settings(tmp_path / "treefleet.toml").pr.enabled is False
 
 
+def test_drive_emits_pr_open_failed_when_create_raises() -> None:
+    class Boom(FakeProvider):
+        def open_pr(self, head: str, base: str, title: str, body: str):  # type: ignore[override]
+            raise RuntimeError("graphql timeout against base")
+
+    fake = Boom()
+    fake.login = "ada"
+    hooks, _seen = _hooks(fake, [])
+    with pytest.raises(RuntimeError, match="graphql timeout"):
+        drive(
+            [_tasks()[0]],
+            fake,
+            hooks,
+            _settings(trusted_commenters=("ada",)),
+            run_id="run",
+            remote_url="https://github.com/octo/demo.git",
+            push=lambda _task: "sha-alpha",
+            login="ada",
+            sleep=lambda _seconds: None,
+            now=lambda: 0.0,
+            deadline=0.0,
+        )
+    assert any(event[0] == "pr.open_failed" for event in hooks.events)
+    failed = next(event for event in hooks.events if event[0] == "pr.open_failed")
+    assert failed[1] == "alpha"
+    assert "graphql timeout" in str(failed[2].get("reason") or "")
+
+
 def test_open_pr_worktree_is_kept(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
