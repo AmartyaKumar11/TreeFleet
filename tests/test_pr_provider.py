@@ -56,28 +56,31 @@ def test_fake_provider_is_scriptable() -> None:
 
 def test_gh_retries_transient_errors_and_always_passes_repo() -> None:
     calls: list[list[str]] = []
+    creates = {"n": 0}
 
     def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
-        if len(calls) < 3:
-            return subprocess.CompletedProcess(args, 1, "", "HTTP 503 rate limit")
-        return subprocess.CompletedProcess(args, 0, "https://github.com/octo/demo/pull/7\n", "")
-
-    views = {"n": 0}
-
-    def view(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
         if "view" in args:
-            views["n"] += 1
-            body = '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],"headRefOid":"abc","url":"https://github.com/octo/demo/pull/7"}'
+            body = (
+                '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],'
+                '"headRefOid":"abc","url":"https://github.com/octo/demo/pull/7"}'
+            )
             return subprocess.CompletedProcess(args, 0, body, "")
-        return runner(args)
+        if "create" in args:
+            creates["n"] += 1
+            if creates["n"] < 3:
+                return subprocess.CompletedProcess(args, 1, "", "HTTP 503 rate limit")
+            return subprocess.CompletedProcess(args, 0, "https://github.com/octo/demo/pull/7\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
 
-    provider = GhProvider("octo/demo", runner=view, sleep=lambda _seconds: None)
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
     opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
     assert opened.number == 7
     assert opened.head_sha == "abc"
     assert all(args[0] == "gh" and "--repo" in args and "octo/demo" in args for args in calls)
-    assert len(calls) == 3
+    assert creates["n"] == 3
 
 
 def test_uppercase_github_conclusions_count_as_passing() -> None:
@@ -101,7 +104,7 @@ def test_uppercase_github_conclusions_count_as_passing() -> None:
 
 _ALLOWED = {
     "api": {"--paginate", "--jq"},
-    "pr": {"--repo", "--base", "--head", "--title", "--body", "--json", "--squash"},
+    "pr": {"--repo", "--base", "--head", "--title", "--body", "--json", "--squash", "--state"},
 }
 
 
@@ -147,22 +150,169 @@ def test_every_provider_method_uses_the_flags_its_subcommand_allows() -> None:
 
 
 def test_gh_does_not_retry_a_normal_failure() -> None:
+    calls: list[list[str]] = []
+
     def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(args, 1, "", "pull request already exists")
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args, 1, "", "HTTP 422 pull request already exists")
 
     provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
-    with pytest.raises(GhError):
+    with pytest.raises(GhError, match="already exists|422"):
         provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert sum(1 for args in calls if "create" in args) == 1
 
 
 def test_gh_retries_timeout_expired_then_raises() -> None:
-    calls = {"n": 0}
+    creates = {"n": 0}
+    sleeps: list[float] = []
+    retries: list[tuple[int, str]] = []
 
     def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-        calls["n"] += 1
-        raise subprocess.TimeoutExpired(cmd=args, timeout=60)
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        creates["n"] += 1
+        raise subprocess.TimeoutExpired(cmd=args, timeout=120)
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)
+    with pytest.raises(GhError, match="timed out|TimeoutExpired|120"):
+        provider.open_pr(
+            "tf/run/alpha",
+            "demo-base",
+            "Alpha",
+            "body",
+            on_retry=lambda attempt, reason: retries.append((attempt, reason)),
+        )
+    assert creates["n"] == 3
+    assert sleeps == [5.0, 20.0]
+    assert retries == [(1, "timeout"), (2, "timeout")]
+
+
+def test_open_pr_transient_then_success_one_pr() -> None:
+    creates = {"n": 0}
+    sleeps: list[float] = []
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if "view" in args:
+            body = (
+                '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],'
+                '"headRefOid":"abc","url":"https://github.com/octo/demo/pull/7"}'
+            )
+            return subprocess.CompletedProcess(args, 0, body, "")
+        if "create" in args:
+            creates["n"] += 1
+            if creates["n"] == 1:
+                return subprocess.CompletedProcess(args, 1, "", "connection reset by peer")
+            return subprocess.CompletedProcess(args, 0, "https://github.com/octo/demo/pull/7\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert opened.number == 7
+    assert creates["n"] == 2
+    assert sleeps == [5.0]
+
+
+def test_open_pr_two_transient_then_success() -> None:
+    creates = {"n": 0}
+    sleeps: list[float] = []
+    retries: list[tuple[int, str]] = []
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if "view" in args:
+            body = (
+                '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],'
+                '"headRefOid":"abc","url":"https://github.com/octo/demo/pull/9"}'
+            )
+            return subprocess.CompletedProcess(args, 0, body, "")
+        if "create" in args:
+            creates["n"] += 1
+            if creates["n"] < 3:
+                return subprocess.CompletedProcess(args, 1, "", "HTTP 503 bad gateway")
+            return subprocess.CompletedProcess(args, 0, "https://github.com/octo/demo/pull/9\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)
+    opened = provider.open_pr(
+        "tf/run/alpha",
+        "demo-base",
+        "Alpha",
+        "body",
+        on_retry=lambda attempt, reason: retries.append((attempt, reason)),
+    )
+    assert opened.number == 9
+    assert creates["n"] == 3
+    assert sleeps == [5.0, 20.0]
+    assert [r[0] for r in retries] == [1, 2]
+    assert all(r[1] == "http_5xx" for r in retries)
+
+
+def test_open_pr_three_transient_failures_raise() -> None:
+    creates = {"n": 0}
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if "create" in args:
+            creates["n"] += 1
+            return subprocess.CompletedProcess(args, 1, "", "TLS handshake timeout")
+        return subprocess.CompletedProcess(args, 0, "", "")
 
     provider = GhProvider("octo/demo", runner=runner, sleep=lambda _seconds: None)
-    with pytest.raises(GhError, match="timed out|TimeoutExpired|60"):
+    with pytest.raises(GhError, match="TLS|timeout"):
         provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
-    assert calls["n"] == 3
+    assert creates["n"] == 3
+
+
+def test_open_pr_reuses_existing_after_timed_out_create() -> None:
+    creates = {"n": 0}
+    lists = {"n": 0}
+    sleeps: list[float] = []
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if "list" in args:
+            lists["n"] += 1
+            # After the timed-out create, GitHub already has the PR.
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                '[{"number":11,"url":"https://github.com/octo/demo/pull/11"}]',
+                "",
+            )
+        if "view" in args:
+            body = (
+                '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],'
+                '"headRefOid":"deadbeef","url":"https://github.com/octo/demo/pull/11"}'
+            )
+            return subprocess.CompletedProcess(args, 0, body, "")
+        if "create" in args:
+            creates["n"] += 1
+            raise subprocess.TimeoutExpired(cmd=args, timeout=120)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert opened.number == 11
+    assert opened.url.endswith("/11")
+    assert creates["n"] == 1
+    assert lists["n"] == 1
+    # Existing PR is found before backoff sleep.
+    assert sleeps == []
+
+
+def test_open_pr_422_does_not_retry() -> None:
+    creates = {"n": 0}
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if "create" in args:
+            creates["n"] += 1
+            return subprocess.CompletedProcess(args, 1, "", "HTTP 422 no commits between base and head")
+        return subprocess.CompletedProcess(args, 0, "[]", "")
+
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _s: (_ for _ in ()).throw(AssertionError("sleep")))
+    with pytest.raises(GhError, match="422|no commits"):
+        provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert creates["n"] == 1

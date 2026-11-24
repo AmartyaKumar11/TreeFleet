@@ -20,7 +20,22 @@ class FakeProvider:
     def user(self) -> str:
         return self.login
 
-    def open_pr(self, head: str, base: str, title: str, body: str) -> PR:
+    def find_open_pr(self, head: str, base: str) -> PR | None:
+        for pr in self.opened:
+            state = self.states.get(pr.number)
+            if pr.head == head and pr.base == base and state is not None and state.state == "open":
+                return pr
+        return None
+
+    def open_pr(
+        self,
+        head: str,
+        base: str,
+        title: str,
+        body: str,
+        on_retry: object | None = None,
+    ) -> PR:
+        _ = on_retry
         number = self._next
         self._next += 1
         pr = PR(

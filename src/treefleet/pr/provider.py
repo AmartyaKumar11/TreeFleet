@@ -8,7 +8,14 @@ from treefleet.pr.models import PR, Comment, PRState
 
 
 class PullRequestProvider(Protocol):
-    def open_pr(self, head: str, base: str, title: str, body: str) -> PR: ...
+    def open_pr(
+        self,
+        head: str,
+        base: str,
+        title: str,
+        body: str,
+        on_retry: object | None = None,
+    ) -> PR: ...
 
     def get_pr(self, number: int) -> PRState: ...
 

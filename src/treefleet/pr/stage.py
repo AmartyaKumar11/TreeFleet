@@ -99,8 +99,21 @@ def drive(
             checks=task.get("checks", ""),
             run_id=run_id,
         )
+        def on_retry(attempt: int, reason_class: str) -> None:
+            hooks.note(
+                "pr.open_retry",
+                task_id,
+                {"attempt": attempt, "reason_class": reason_class},
+            )
+
         try:
-            pr = provider.open_pr(branch, settings.base, task.get("title") or task_id, body)  # type: ignore[attr-defined]
+            pr = provider.open_pr(  # type: ignore[call-arg]
+                branch,
+                settings.base,
+                task.get("title") or task_id,
+                body,
+                on_retry=on_retry,
+            )
         except Exception as exc:
             # Emit before re-raise so the board leaves "review" and shows a PR-stage failure.
             hooks.note(

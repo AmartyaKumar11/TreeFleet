@@ -2,9 +2,13 @@
 
 Spec complete. Phases 1 through 6 are in the tree.
 
+## 2026-11-24 — Bounded retry for transient `gh pr create`
+
+`gh` subprocess timeout is 120s. `open_pr` retries up to 2 times (5s then 20s) only for transient failures (TimeoutExpired, connection reset/refused, timeout/EOF/TLS in stderr, HTTP 5xx/429). Permanent failures (422/401/403, already exists, no commits, branch not found) are not retried. Before each retry, `find_open_pr` reuses an existing open PR for the same head/base. `drive` emits `pr.open_retry` (attempt, reason_class) and still emits `pr.open_failed` on final failure; the pipeline ends `stage=failed` with a finished `RunOutcome`.
+
 ## 2026-11-24 — PR open failure no longer zombies the board
 
-`subprocess.TimeoutExpired` from `gh` is retried then raised as `GhError` (it is not a `TimeoutError`). `drive` emits `pr.open_failed` before re-raising. The pipeline catches unexpected exceptions, sets stage `failed`, and returns a `RunOutcome` so the UI marks the run finished instead of leaving `awaiting_prs` / board stage `review`.
+`subprocess.TimeoutExpired` from `gh` is raised as `GhError` (it is not a `TimeoutError`). `drive` emits `pr.open_failed` before re-raising. The pipeline catches unexpected exceptions, sets stage `failed`, and returns a `RunOutcome` so the UI marks the run finished instead of leaving `awaiting_prs` / board stage `review`.
 
 ## 2026-11-24 — External UI API for PR Sentinel
 

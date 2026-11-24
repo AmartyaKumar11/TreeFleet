@@ -261,7 +261,14 @@ def test_status_prints_one_row_and_merge_stays_off(tmp_path: Path, monkeypatch: 
 
 def test_drive_emits_pr_open_failed_when_create_raises() -> None:
     class Boom(FakeProvider):
-        def open_pr(self, head: str, base: str, title: str, body: str):  # type: ignore[override]
+        def open_pr(  # type: ignore[override]
+            self,
+            head: str,
+            base: str,
+            title: str,
+            body: str,
+            on_retry: object | None = None,
+        ):
             raise RuntimeError("graphql timeout against base")
 
     fake = Boom()
@@ -285,6 +292,43 @@ def test_drive_emits_pr_open_failed_when_create_raises() -> None:
     failed = next(event for event in hooks.events if event[0] == "pr.open_failed")
     assert failed[1] == "alpha"
     assert "graphql timeout" in str(failed[2].get("reason") or "")
+
+
+def test_drive_emits_pr_open_retry_then_opens() -> None:
+    class Flaky(FakeProvider):
+        def open_pr(  # type: ignore[override]
+            self,
+            head: str,
+            base: str,
+            title: str,
+            body: str,
+            on_retry: object | None = None,
+        ):
+            if callable(on_retry):
+                on_retry(1, "network")
+            return FakeProvider.open_pr(self, head, base, title, body, on_retry=on_retry)
+
+    fake = Flaky()
+    fake.login = "ada"
+    hooks, _seen = _hooks(fake, [])
+    drive(
+        [_tasks()[0]],
+        fake,
+        hooks,
+        _settings(trusted_commenters=("ada",)),
+        run_id="run",
+        remote_url="https://github.com/octo/demo.git",
+        push=lambda _task: "sha-alpha",
+        login="ada",
+        sleep=lambda _seconds: None,
+        now=lambda: 0.0,
+        deadline=0.0,
+    )
+    retry = next(event for event in hooks.events if event[0] == "pr.open_retry")
+    assert retry[1] == "alpha"
+    assert retry[2].get("attempt") == 1
+    assert retry[2].get("reason_class") == "network"
+    assert any(event[0] == "pr.opened" for event in hooks.events)
 
 
 def test_open_pr_worktree_is_kept(tmp_path: Path) -> None:

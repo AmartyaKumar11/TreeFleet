@@ -1005,6 +1005,11 @@ async def _run_pr(bundle: RunBundle, ctx: Any) -> dict[str, Any]:
                 "pr_status": "open",
                 "pr_checks": "pending",
             }
+        elif kind == "pr.open_retry":
+            fields = {
+                "pr_status": "open_retry",
+                "reason": f"retry {payload.get('attempt')}: {payload.get('reason_class')}",
+            }
         elif kind == "pr.open_failed":
             fields = {
                 "status": "needs_review",
