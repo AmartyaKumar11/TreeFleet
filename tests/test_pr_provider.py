@@ -316,3 +316,122 @@ def test_open_pr_422_does_not_retry() -> None:
     with pytest.raises(GhError, match="422|no commits"):
         provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
     assert creates["n"] == 1
+
+
+# --- PR-open reconciliation (AWS run b2597752: PR #126 was created, then a GraphQL error hid it) ---
+
+_GRAPHQL = (
+    "GraphQL: Something went wrong while executing your query on 2026-11-25T11:29:31Z. "
+    "Please include `ABC` when reporting this issue."
+)
+_VIEW_BODY = (
+    '{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[],'
+    '"headRefOid":"abc","url":"https://github.com/octo/demo/pull/7"}'
+)
+
+
+def _fake_gh(
+    *,
+    create: list[subprocess.CompletedProcess[str] | BaseException],
+    listed: str = "[]",
+    view_ok: bool = True,
+) -> tuple[list[list[str]], object]:
+    """A fake gh runner. `create` answers each `pr create` in order. Returns (calls, runner)."""
+    calls: list[list[str]] = []
+    queue = list(create)
+
+    def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        if "create" in args:
+            item = queue.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return item
+        if "list" in args:
+            return subprocess.CompletedProcess(args, 0, listed, "")
+        if "view" in args:
+            if view_ok:
+                return subprocess.CompletedProcess(args, 0, _VIEW_BODY, "")
+            return subprocess.CompletedProcess(args, 1, "", _GRAPHQL)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    return calls, runner
+
+
+def _failed(text: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess([], 1, "", text)
+
+
+def _count(calls: list[list[str]], word: str) -> int:
+    return sum(1 for args in calls if word in args)
+
+
+def test_open_pr_graphql_error_on_create_adopts_the_pr_github_made() -> None:
+    sleeps: list[float] = []
+    listed = '[{"number":126,"url":"https://github.com/octo/demo/pull/126","headRefOid":"deadbeef"}]'
+    calls, runner = _fake_gh(create=[_failed(_GRAPHQL)], listed=listed)
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)  # type: ignore[arg-type]
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert (opened.number, opened.url, opened.head_sha, opened.adopted) == (
+        126,
+        "https://github.com/octo/demo/pull/126",
+        "deadbeef",
+        True,
+    )
+    assert _count(calls, "create") == 1  # no duplicate create
+    assert sleeps == []
+    lookup = next(args for args in calls if "list" in args)
+    assert lookup[lookup.index("--head") + 1] == "tf/run/alpha"
+    assert lookup[lookup.index("--state") + 1] == "open"
+    assert lookup[lookup.index("--json") + 1] == "number,url,headRefOid"
+
+
+def test_open_pr_create_succeeded_but_view_hits_graphql_error_keeps_the_pr() -> None:
+    created = subprocess.CompletedProcess([], 0, "https://github.com/octo/demo/pull/126\n", "")
+    calls, runner = _fake_gh(create=[created], view_ok=False)
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _s: None)  # type: ignore[arg-type]
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert opened.number == 126
+    assert opened.head_sha == ""
+    assert opened.adopted is False
+    assert _count(calls, "create") == 1
+
+
+def test_open_pr_graphql_error_with_no_pr_retries_then_fails() -> None:
+    sleeps: list[float] = []
+    retries: list[tuple[int, str]] = []
+    calls, runner = _fake_gh(create=[_failed(_GRAPHQL)] * 3, listed="[]")
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)  # type: ignore[arg-type]
+    with pytest.raises(GhError, match="GraphQL"):
+        provider.open_pr(
+            "tf/run/alpha",
+            "demo-base",
+            "Alpha",
+            "body",
+            on_retry=lambda attempt, reason: retries.append((attempt, reason)),
+        )
+    assert _count(calls, "create") == 3
+    assert sleeps == [5.0, 20.0]
+    assert retries == [(1, "graphql"), (2, "graphql")]
+
+
+def test_open_pr_already_exists_is_adopted_not_failed() -> None:
+    sleeps: list[float] = []
+    listed = '[{"number":42,"url":"https://github.com/octo/demo/pull/42","headRefOid":"cafe"}]'
+    text = "HTTP 422: a pull request for branch tf/run/alpha into branch demo-base already exists"
+    calls, runner = _fake_gh(create=[_failed(text)], listed=listed)
+    provider = GhProvider("octo/demo", runner=runner, sleep=sleeps.append)  # type: ignore[arg-type]
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert (opened.number, opened.head_sha, opened.adopted) == (42, "cafe", True)
+    assert _count(calls, "create") == 1
+    assert sleeps == []
+
+
+def test_open_pr_normal_success_is_unchanged() -> None:
+    created = subprocess.CompletedProcess([], 0, "https://github.com/octo/demo/pull/7\n", "")
+    calls, runner = _fake_gh(create=[created])
+    provider = GhProvider("octo/demo", runner=runner, sleep=lambda _s: None)  # type: ignore[arg-type]
+    opened = provider.open_pr("tf/run/alpha", "demo-base", "Alpha", "body")
+    assert (opened.number, opened.head_sha, opened.adopted) == (7, "abc", False)
+    assert _count(calls, "create") == 1
+    assert _count(calls, "list") == 0  # no lookup when create works

@@ -18,7 +18,7 @@ from treefleet.pr.loop import (
     poll_message,
     poll_once,
 )
-from treefleet.pr.models import OpenPR
+from treefleet.pr.models import PR, OpenPR
 from treefleet.pr.preflight import external_hook_block
 from treefleet.pr.safety import PrSafetyError, pr_body, push_refspec, task_branch
 from treefleet.pr.trust import trusted_logins
@@ -48,6 +48,18 @@ def git_push(repo: Path, run_id: str, task_id: str, settings: PrSettings) -> str
     if sha.returncode != 0 or not sha.stdout.strip():
         raise PrSafetyError("git push failed")
     return sha.stdout.strip()
+
+
+def _existing_pr(provider: object, branch: str, base: str) -> PR | None:
+    """The open PR already on GitHub for this head, or None. A provider with no lookup returns None."""
+    finder = getattr(provider, "find_open_pr", None)
+    if not callable(finder):
+        return None
+    try:
+        found = finder(branch, base)
+    except Exception:
+        return None
+    return found if isinstance(found, PR) else None
 
 
 def drive(
@@ -115,17 +127,20 @@ def drive(
                 on_retry=on_retry,
             )
         except Exception as exc:
-            # Emit before re-raise so the board leaves "review" and shows a PR-stage failure.
-            hooks.note(
-                "pr.open_failed",
-                task_id,
-                {
-                    "reason": str(exc)[:300],
-                    "base": settings.base,
-                    "head": branch,
-                },
-            )
-            raise
+            # A create can fail after GitHub made the PR. Adopt it instead of recording a failure.
+            pr = _existing_pr(provider, branch, settings.base)
+            if pr is None:
+                # Emit before re-raise so the board leaves "review" and shows a PR-stage failure.
+                hooks.note(
+                    "pr.open_failed",
+                    task_id,
+                    {
+                        "reason": str(exc)[:300],
+                        "base": settings.base,
+                        "head": branch,
+                    },
+                )
+                raise
         item = OpenPR(
             task_id=task_id,
             number=pr.number,
@@ -135,7 +150,10 @@ def drive(
             opened_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         opened.append(item)
-        hooks.note("pr.opened", task_id, {"number": pr.number, "url": pr.url, "sha": item.head_sha})
+        opened_payload: dict[str, object] = {"number": pr.number, "url": pr.url, "sha": item.head_sha}
+        if getattr(pr, "adopted", False):
+            opened_payload["adopted"] = True
+        hooks.note("pr.opened", task_id, opened_payload)
     outcome = poll_until(
         opened,
         provider,

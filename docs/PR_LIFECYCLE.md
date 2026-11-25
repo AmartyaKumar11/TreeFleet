@@ -87,6 +87,16 @@ On run `c6dbaa59`, pull request 84's recorded comment is id `6743492754`, status
 
 Preflight, only when `[pr]` is enabled: `gh auth status` succeeds, the login is known, the login can push to `repo`, origin matches `repo`, and `base` exists on the remote. It also prints the effective trusted commenters and the `gh` login, and is red when that set is empty. A missing workflow on the base is a warning.
 
+## Opening a pull request without losing one
+
+A failed `gh pr create` does not mean no pull request exists. A timeout, a `GraphQL: Something went wrong` error, or `a pull request ... already exists` can all follow a create that GitHub completed. So:
+
+- After any failed create, `GhProvider.open_pr` first looks for an open pull request on that head and base (`gh pr list --head <tf/run/task> --base <base> --state open --json number,url,headRefOid`). If one exists it is adopted: the number, url and head sha are recorded exactly as for a normal open, and the poller runs on it. No second create is made for the same head.
+- Only when none exists are transient failures retried (twice, 5s then 20s, `pr.open_retry`), and then `pr.open_failed` is emitted. The GraphQL error text counts as transient (`reason_class` `graphql`).
+- A create that printed a pull request url is a success even when the follow-up `gh pr view` fails. The head sha then comes from the push.
+- `drive` makes one last lookup before it records `pr.open_failed`, for a provider whose own open raised.
+- The `pr.opened` payload carries `adopted: true` only when the pull request was found rather than created by that call. Existing events are unchanged and no event was renamed.
+
 ## Provider
 
 `PullRequestProvider` is `open_pr`, `get_pr`, `list_comments`, `post_comment`, `get_failed_check_summary`, and `merge`. `GhProvider` calls `gh` with an argument list, `--repo` from config, JSON output, and three attempts with backoff on rate limits and 502/503. `FakeProvider` is in-memory and is what the tests use.

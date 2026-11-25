@@ -2,6 +2,10 @@
 
 Spec complete. Phases 1 through 6 are in the tree.
 
+## 2026-11-25 — PR open reconciliation (branch `fix/pr-open-reconcile`)
+
+AWS run `b2597752` ended `failed` although GitHub had made PR #126: `gh pr create` printed the url, the follow-up `gh pr view` returned `GraphQL: Something went wrong`, and that text was not classed as transient, so `open_pr` raised and `drive` emitted `pr.open_failed` with `pr_number` null. Now `open_pr` looks up the open PR for the head after any failed create and adopts it, treats the GraphQL text as transient (the bounded retry applies), and keeps a created PR when only the read-back fails. `drive` does one last lookup before `pr.open_failed`. `PR` gains `adopted` (default false) and `pr.opened` carries `adopted: true` only for an adopted PR. No event renamed. `find_open_pr` now asks for `headRefOid`. See `docs/PR_LIFECYCLE.md`.
+
 ## 2026-11-25 — Langfuse tracing (branch `feat/langfuse-observability`)
 
 Built `src/treefleet/observability.py`: `init_tracing`, `instrument_orchestrator` (Google ADK), `instrument_worker` (CrewAI), `run_trace`, `cursor_span`, `flush`. It is off unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are both set, and no langfuse, openinference, ADK or CrewAI import happens at module level. Every failure (missing or bad key, unreachable host, import error, flush error) is logged by exception class only and never fails a run. The orchestrator trace and each worker trace share Langfuse session id = `run_id`. Each Cursor CLI run is a `cursor-agent` generation span with model, duration and `CursorUsage` token fields; Langfuse has no price for Cursor models, so that span has tokens but no cost.

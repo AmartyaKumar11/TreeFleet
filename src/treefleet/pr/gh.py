@@ -62,6 +62,9 @@ def reason_class_for(text: str, *, timed_out: bool = False) -> str:
         return "permanent"
     if "429" in blob or "rate limit" in blob:
         return "http_429"
+    # GitHub's own "GraphQL: Something went wrong while executing your query" is a transient server error.
+    if "graphql" in blob or "something went wrong" in blob:
+        return "graphql"
     if any(code in blob for code in ("500", "502", "503", "504")) or "http 5" in blob:
         return "http_5xx"
     if any(
@@ -86,7 +89,7 @@ def reason_class_for(text: str, *, timed_out: bool = False) -> str:
 def is_transient_open_failure(text: str, *, timed_out: bool = False) -> bool:
     """True only for failures safe to retry on `gh pr create`."""
     kind = reason_class_for(text, timed_out=timed_out)
-    return kind in {"timeout", "network", "http_5xx", "http_429"}
+    return kind in {"timeout", "network", "http_5xx", "http_429", "graphql"}
 
 
 def _transient(proc: subprocess.CompletedProcess[str]) -> bool:
@@ -151,7 +154,7 @@ class GhProvider:
                     "--state",
                     "open",
                     "--json",
-                    "number,url",
+                    "number,url,headRefOid",
                 ],
                 attempts=3,
             )
@@ -170,12 +173,13 @@ class GhProvider:
         url = str(first.get("url") or "")
         if number <= 0 or not url.startswith("http"):
             return None
-        try:
-            state = self.get_pr(number)
-            head_sha = state.head_sha
-        except GhError:
-            head_sha = ""
-        return PR(number=number, url=url, head=head, base=base, head_sha=head_sha)
+        head_sha = str(first.get("headRefOid") or "")
+        if not head_sha:
+            try:
+                head_sha = self.get_pr(number).head_sha
+            except GhError:
+                head_sha = ""
+        return PR(number=number, url=url, head=head, base=base, head_sha=head_sha, adopted=True)
 
     def open_pr(
         self,
@@ -185,7 +189,13 @@ class GhProvider:
         body: str,
         on_retry: RetryHook | None = None,
     ) -> PR:
-        """Create a PR. Retries transient failures twice (5s, 20s) and reuses an existing open PR."""
+        """Create a PR. Never leaves a created PR unrecorded and never creates a second one for a head.
+
+        After any failed create the open PR for this head is looked up first and adopted if it exists
+        (a timeout, a GraphQL error or "already exists" can all follow a create that succeeded).
+        Only when there is none are transient failures retried twice (5s, 20s). A create that printed
+        a PR URL is a success even when the follow-up `pr view` fails.
+        """
         last_error = "gh pr create failed"
         last_class = "unknown"
         create_args = [
@@ -206,15 +216,15 @@ class GhProvider:
             if attempt > 0:
                 if on_retry is not None:
                     on_retry(attempt, last_class)
-                existing = self.find_open_pr(head, base)
-                if existing is not None:
-                    return existing
                 self._sleep(_OPEN_BACKOFF_S[attempt - 1])
             try:
                 proc = self._invoke(create_args)
             except (TimeoutError, OSError, subprocess.TimeoutExpired) as exc:
                 last_error = _clip(str(exc)) or "gh timed out"
                 last_class = reason_class_for(last_error, timed_out=True)
+                existing = self.find_open_pr(head, base)
+                if existing is not None:
+                    return existing
                 if attempt >= _OPEN_RETRIES or not is_transient_open_failure(last_error, timed_out=True):
                     raise GhError(last_error) from exc
                 continue
@@ -226,10 +236,17 @@ class GhProvider:
                 number = int(url.rstrip("/").split("/")[-1]) if url.rsplit("/", 1)[-1].isdigit() else 0
                 if number <= 0:
                     raise GhError("gh pr create did not return a pull request url")
-                state = self.get_pr(number)
-                return PR(number=number, url=url, head=head, base=base, head_sha=state.head_sha)
+                try:
+                    head_sha = self.get_pr(number).head_sha
+                except GhError:
+                    # The PR exists. A failed read must not turn it into a failed open.
+                    head_sha = ""
+                return PR(number=number, url=url, head=head, base=base, head_sha=head_sha)
             last_error = _clip(proc.stderr or proc.stdout) or "gh failed"
             last_class = reason_class_for(last_error)
+            existing = self.find_open_pr(head, base)
+            if existing is not None:
+                return existing
             if attempt >= _OPEN_RETRIES or not is_transient_open_failure(last_error):
                 raise GhError(last_error)
         raise GhError(last_error)

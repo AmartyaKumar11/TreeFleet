@@ -19,6 +19,7 @@ class PR:
     head: str
     base: str
     head_sha: str
+    adopted: bool = False
 
 
 @dataclass(frozen=True)

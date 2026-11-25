@@ -369,3 +369,46 @@ def test_open_pr_worktree_is_kept(tmp_path: Path) -> None:
     finally:
         subprocess.run(["git", "worktree", "remove", str(worktree)], cwd=repo, shell=False)
         subprocess.run(["git", "branch", "-D", branch], cwd=repo, shell=False)
+
+
+def test_drive_adopts_a_pr_github_made_before_the_create_error() -> None:
+    from dataclasses import replace
+
+    class Raced(FakeProvider):
+        """GitHub made the PR, then the create call raised. find_open_pr sees it."""
+
+        def open_pr(  # type: ignore[override]
+            self,
+            head: str,
+            base: str,
+            title: str,
+            body: str,
+            on_retry: object | None = None,
+        ):
+            FakeProvider.open_pr(self, head, base, title, body)
+            raise RuntimeError("GraphQL: Something went wrong while executing your query")
+
+        def find_open_pr(self, head: str, base: str):
+            return replace(self.opened[-1], adopted=True)
+
+    fake = Raced()
+    fake.login = "ada"
+    hooks, _seen = _hooks(fake, [])
+    opened, _outcome = drive(
+        [_tasks()[0]],
+        fake,
+        hooks,
+        _settings(trusted_commenters=("ada",)),
+        run_id="run",
+        remote_url="https://github.com/octo/demo.git",
+        push=lambda _task: "sha-alpha",
+        login="ada",
+        sleep=lambda _seconds: None,
+        now=lambda: 0.0,
+        deadline=0.0,
+    )
+    assert not any(event[0] == "pr.open_failed" for event in hooks.events)
+    event = next(event for event in hooks.events if event[0] == "pr.opened")
+    assert event[2].get("adopted") is True
+    assert len(fake.opened) == 1  # no second PR for the same head
+    assert [item.number for item in opened] == [fake.opened[0].number]
