@@ -68,6 +68,7 @@ def worker_env(token: str, extra: dict[str, str] | None = None) -> dict[str, str
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
+        "LANGFUSE_CAPTURE_CONTENT",
     ):
         value = os.environ.get(key)
         if value:

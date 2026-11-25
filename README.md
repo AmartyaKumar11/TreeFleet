@@ -669,7 +669,7 @@ Developed and live-verified on **Windows only**. macOS and Linux code paths exis
 - **Worker brain usage** — Token counts from CrewAI are often missing; cost totals omit that component.
 - **No resume** — A dead orchestrator cannot continue mid-task; inspect `run.json` and `events.jsonl`, then clean up.
 - **Local-first** — Loopback UI; not a hardened multi-tenant service.
-- **Phase 7 observability** — Langfuse tracing is wired on the `feat/langfuse-observability` branch. It is off unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set, and a tracing failure never fails a run.
+- **Phase 7 observability** — Langfuse tracing is wired on the `feat/langfuse-observability` branch. It is off unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set, prompt and model content is hidden unless `LANGFUSE_CAPTURE_CONTENT=1`, and a tracing failure never fails a run.
 
 ## Roadmap (planned, not implemented)
 

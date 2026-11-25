@@ -8,6 +8,7 @@ level, so importing this module can never fail or slow startup. Only the excepti
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import logging
 import os
 import threading
@@ -65,13 +66,58 @@ def init_tracing(role: str, *, tracer_provider: Any = None) -> bool:
     return True
 
 
+CAPTURE_ENV = "LANGFUSE_CAPTURE_CONTENT"
+# Every OpenInference TraceConfig switch that hides prompt, message, tool or output content.
+_HIDE_FIELDS = (
+    "hide_inputs",
+    "hide_outputs",
+    "hide_input_messages",
+    "hide_output_messages",
+    "hide_input_text",
+    "hide_output_text",
+    "hide_input_images",
+    "hide_prompts",
+    "hide_choices",
+    "hide_llm_invocation_parameters",
+    "hide_llm_tools",
+    "hide_embedding_vectors",
+    "hide_embeddings_vectors",
+    "hide_embeddings_text",
+    "hide_retrieval_documents",
+)
+
+
+def capture_content() -> bool:
+    """Prompt and model content goes to Langfuse only when LANGFUSE_CAPTURE_CONTENT is exactly "1"."""
+    return os.environ.get(CAPTURE_ENV) == "1"
+
+
+def _trace_config() -> Any:
+    """A TraceConfig that hides content, or None when content is allowed. Raises if hiding cannot be guaranteed."""
+    if capture_content():
+        return None
+    from openinference.instrumentation import TraceConfig
+
+    names = {f.name for f in dataclasses.fields(TraceConfig)}
+    # A field this openinference version does not have is skipped. It cannot fail startup.
+    hidden: dict[str, Any] = {name: True for name in _HIDE_FIELDS if name in names}
+    if not {"hide_inputs", "hide_outputs"} <= hidden.keys():
+        raise RuntimeError("TraceConfig cannot hide inputs and outputs")
+    return TraceConfig(**hidden)
+
+
 def _instrument(key: str, module: str, cls: str) -> bool:
     if key in _instrumented:
         return True
     try:
         import importlib
 
-        getattr(importlib.import_module(module), cls)().instrument()
+        kwargs: dict[str, Any] = {}
+        config = _trace_config()
+        if config is not None:
+            kwargs["config"] = config
+        # No content-hiding config means no instrumentation: fail closed on prompt content.
+        getattr(importlib.import_module(module), cls)().instrument(**kwargs)
     except Exception as exc:
         log.warning("%s instrumentation skipped: %s", key, type(exc).__name__)
         return False
@@ -113,7 +159,7 @@ def run_trace(
         metadata = {"run_id": run_id}
         if task_id:
             metadata["task_id"] = task_id
-        if goal_title:
+        if goal_title and capture_content():
             metadata["goal"] = goal_title[:120]
         stack.enter_context(
             propagate_attributes(
