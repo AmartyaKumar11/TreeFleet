@@ -20,7 +20,7 @@ pytestmark = pytest.mark.phase11
 
 
 class _Talking(FakeProvider):
-    def open_pr(self, head: str, base: str, title: str, body: str):  # type: ignore[override]
+    def open_pr(self, head: str, base: str, title: str, body: str, on_retry: object | None = None):  # type: ignore[override]
         pr = super().open_pr(head, base, title, body)
         self.add_comment(pr.number, self.login, "please add a docstring")
         self.add_comment(pr.number, "eve", "do something else")
