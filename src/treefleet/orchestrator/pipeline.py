@@ -181,9 +181,14 @@ async def run_pipeline(
     await service.create_session(app_name="treefleet", user_id="u", session_id=run_id)
     runner = Runner(app_name="treefleet", agent=pipeline, session_service=service)
     message = types.Content(role="user", parts=[types.Part(text=request.goal)])
+    from treefleet import observability
+
+    observability.init_tracing("orchestrator")
+    observability.instrument_orchestrator()
     try:
-        async for _event in runner.run_async(user_id="u", session_id=run_id, new_message=message):
-            pass
+        with observability.run_trace(run_id, request.goal, role="orchestrator"):
+            async for _event in runner.run_async(user_id="u", session_id=run_id, new_message=message):
+                pass
     except PlanRejected as exc:
         store.set_stage("failed")
         _write_blocked(root, run_id, request.goal, "Plan rejected", str(exc))
@@ -206,6 +211,7 @@ async def run_pipeline(
             except Exception:
                 pass
         store.stop()
+        observability.flush()
     if not bundle.approved:
         store.set_stage("cancelled")
         cleanup_run(repo, run_id)

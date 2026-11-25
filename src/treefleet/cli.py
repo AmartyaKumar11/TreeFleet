@@ -214,8 +214,15 @@ def _ui(argv: list[str]) -> int:
         except TokenFileError as exc:
             print(str(exc), file=sys.stderr)
             return 2
+    from treefleet import observability
+
+    observability.init_tracing("orchestrator")
+    observability.instrument_orchestrator()
     app = create_app(repo, replay=replay, token=token)
-    uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
+    finally:
+        observability.flush()
     return 0
 
 
@@ -698,7 +705,14 @@ def _run(argv: list[str]) -> int:
         scenario="saboteur" if parsed.saboteur else "custom",
     )
     print(request.model_dump_json())
-    outcome = run_blocking(request, settings, approve=ask_plan if request.plan_approval else None)
+    from treefleet import observability
+
+    observability.init_tracing("orchestrator")
+    observability.instrument_orchestrator()
+    try:
+        outcome = run_blocking(request, settings, approve=ask_plan if request.plan_approval else None)
+    finally:
+        observability.flush()
     if outcome.message and outcome.code != 0:
         print(outcome.message, file=sys.stderr)
     return outcome.code

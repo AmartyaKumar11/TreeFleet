@@ -2,6 +2,12 @@
 
 Spec complete. Phases 1 through 6 are in the tree.
 
+## 2026-11-25 — Langfuse tracing (branch `feat/langfuse-observability`)
+
+Built `src/treefleet/observability.py`: `init_tracing`, `instrument_orchestrator` (Google ADK), `instrument_worker` (CrewAI), `run_trace`, `cursor_span`, `flush`. It is off unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are both set, and no langfuse, openinference, ADK or CrewAI import happens at module level. Every failure (missing or bad key, unreachable host, import error, flush error) is logged by exception class only and never fails a run. The orchestrator trace and each worker trace share Langfuse session id = `run_id`. Each Cursor CLI run is a `cursor-agent` generation span with model, duration and `CursorUsage` token fields; Langfuse has no price for Cursor models, so that span has tokens but no cost.
+
+Rule 6 amendment: `worker_env` now also passes `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` to the worker, only when set, so worker spans can reach Langfuse. They are not passed to `cursor-agent`, whose environment is built separately in `cursor_run._minimal_env`. The OpenInference instrumentors record prompts and model output as span content; hide it with their `TraceConfig` if that is not wanted.
+
 ## 2026-11-24 — Bounded retry for transient `gh pr create`
 
 `gh` subprocess timeout is 120s. `open_pr` retries up to 2 times (5s then 20s) only for transient failures (TimeoutExpired, connection reset/refused, timeout/EOF/TLS in stderr, HTTP 5xx/429). Permanent failures (422/401/403, already exists, no commits, branch not found) are not retried. Before each retry, `find_open_pr` reuses an existing open PR for the same head/base. `drive` emits `pr.open_retry` (attempt, reason_class) and still emits `pr.open_failed` on final failure; the pipeline ends `stage=failed` with a finished `RunOutcome`.

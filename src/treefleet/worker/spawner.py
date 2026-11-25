@@ -55,13 +55,20 @@ def before_spawn(worktree: Path, run_id: str, sink: EventSink | None = None, tas
 
 
 def worker_env(token: str, extra: dict[str, str] | None = None) -> dict[str, str]:
-    """DeepSeek key, per-run token, Cursor credential, and the Windows variables Python needs."""
+    """DeepSeek key, per-run token, Cursor credential, optional Langfuse names, and Windows variables."""
     env = {"PYTHONUNBUFFERED": "1", "AUTH_TOKEN": token}
     for key in _KEEP:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    for key in ("DEEPSEEK_API_KEY", "CURSOR_API_KEY"):
+    # LANGFUSE_* are optional and let the worker export spans. They never reach cursor-agent.
+    for key in (
+        "DEEPSEEK_API_KEY",
+        "CURSOR_API_KEY",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_BASE_URL",
+    ):
         value = os.environ.get(key)
         if value:
             env[key] = value

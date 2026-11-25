@@ -9,6 +9,7 @@ from crewai.tools import tool
 from treefleet.contracts import CursorUsage
 from treefleet.cursor_run import cursor_instruction, run_cursor
 from treefleet.events import EventSink
+from treefleet.observability import cursor_span
 
 
 def make_cursor_tool(
@@ -37,18 +38,25 @@ def make_cursor_tool(
         if launched >= 2:
             return '{"ok": false, "error": "cursor_code already ran twice. Call git_diff and return notes."}'
         launched += 1
-        result = run_cursor(
-            cli=cli,
-            worktree=worktree,
-            instruction=cursor_instruction(instruction, revision=revision, saboteur=saboteur),
-            allowed=allowed,
-            denied=denied,
-            model=model,
-            timeout_s=timeout_s,
-            sink=sink,
-            run_id=run_id,
-            task_id=task_id,
-        )
+        with cursor_span(model=model, task_id=task_id) as span:
+            result = run_cursor(
+                cli=cli,
+                worktree=worktree,
+                instruction=cursor_instruction(instruction, revision=revision, saboteur=saboteur),
+                allowed=allowed,
+                denied=denied,
+                model=model,
+                timeout_s=timeout_s,
+                sink=sink,
+                run_id=run_id,
+                task_id=task_id,
+            )
+            span.finish(
+                duration_s=result.duration_s,
+                usage=result.usage,
+                exit_code=result.exit_code,
+                timed_out=result.timed_out,
+            )
         if usages is not None and result.usage is not None:
             usages.append(result.usage)
         if notes is not None and result.output_tail:

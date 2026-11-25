@@ -541,6 +541,19 @@ def take_brain() -> tuple[TokenUsage, bool]:
 
 
 def run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
+    """Run one task. Tracing is optional: the worker trace shares session id = run_id and is flushed even on error."""
+    from treefleet import observability
+
+    observability.init_tracing("worker")
+    observability.instrument_worker()
+    try:
+        with observability.run_trace(envelope.run_id, envelope.task.title, role="worker", task_id=envelope.task.id):
+            return _run_task(envelope, worktree)
+    finally:
+        observability.flush()
+
+
+def _run_task(envelope: WorkerTaskEnvelope, worktree: Path) -> WorkerResult:
     started = time.monotonic()
     reset_brain()
     if not os.environ.get("TREEFLEET_MOCK_LLM"):
